@@ -1,5 +1,6 @@
 import { ArrowRight, Braces, CheckCircle2, ChevronLeft, CircleDollarSign, Cpu, ExternalLink, Play, Radio, Route } from "lucide-react";
 import { Link } from "wouter";
+import { ProviderMark } from "@/components/ProviderMark";
 import { formatUsdPerMillion, TOKENFORGE_MODELS, type CatalogueModel } from "@/lib/modelCatalogue";
 import "./dashboard-models.css";
 import "./dashboard-model-marks.css";
@@ -12,7 +13,7 @@ const FEATURED_PROVIDER_MARKS: Record<string, string> = {
 function ModelBadge({ model }: { model: CatalogueModel }) {
   const image = FEATURED_PROVIDER_MARKS[model.id];
   return <div className={`dashboard-model-mark dashboard-model-mark--${model.tone}`} aria-label={`${model.provider} provider mark`}>
-    {image ? <img src={image} alt={`${model.provider} mark`} /> : <span aria-hidden="true">{model.providerMark}</span>}
+    {image ? <img src={image} alt={`${model.provider} mark`} /> : <ProviderMark provider={model.provider} fallback={model.providerMark} size={28} />}
   </div>;
 }
 

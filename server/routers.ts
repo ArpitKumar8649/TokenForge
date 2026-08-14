@@ -21,6 +21,7 @@ import {
   recordFailedPasswordLogin,
   claimDailyCheckin,
   getCreditProfile,
+  getModelAvailabilitySnapshot,
   getPublicModelTokenMetrics,
   getUsageLogs,
 } from "./db";
@@ -142,6 +143,7 @@ export const appRouter = router({
       if (!quota) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Quota status is temporarily unavailable" });
       return quota;
     }),
+    modelAvailability: protectedProcedure.query(() => getModelAvailabilitySnapshot()),
     usage: protectedProcedure.query(async ({ ctx }) => getUsageSummary(ctx.user.id)),
     usageLogs: protectedProcedure
       .input(z.object({

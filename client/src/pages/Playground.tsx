@@ -3,9 +3,10 @@ import { AIChatBox, type Message } from "@/components/AIChatBox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { ProviderMark } from "@/components/ProviderMark";
 import { TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
 import { trpc } from "@/lib/trpc";
-import { ChevronDown, CircleDollarSign, Cpu, Radio, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, Thermometer, WandSparkles } from "lucide-react";
+import { ChevronDown, CircleDollarSign, Cpu, Radio, RotateCcw, Search, ShieldCheck, SlidersHorizontal, Sparkles, Thermometer, WandSparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import "./playground-control-pane.css";
 
@@ -19,8 +20,10 @@ export default function Playground() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
   const wallet = trpc.developer.wallet.useQuery(undefined, { enabled: Boolean(user) });
+  const modelAvailability = trpc.developer.modelAvailability.useQuery(undefined, { enabled: Boolean(user), refetchInterval: 20_000 });
   const [model, setModel] = useState("glm-5.2");
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  const [modelSearch, setModelSearch] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [showSystemPrompt, setShowSystemPrompt] = useState(false);
@@ -137,6 +140,13 @@ export default function Playground() {
     const featured = featuredIds.flatMap(id => TOKENFORGE_MODELS.filter(candidate => candidate.id === id));
     return [...featured, ...TOKENFORGE_MODELS.filter(candidate => !featuredIds.includes(candidate.id))];
   }, []);
+  const availabilityByModelId = useMemo(() => new Map(modelAvailability.data?.map(item => [item.modelId, item.available]) ?? []), [modelAvailability.data]);
+  const normalizedSearch = modelSearch.trim().toLowerCase();
+  const visibleModelOptions = useMemo(() => modelOptions.filter(candidate => {
+    if (!normalizedSearch) return true;
+    return `${candidate.name} ${candidate.provider} ${candidate.eyebrow} ${candidate.id}`.toLowerCase().includes(normalizedSearch);
+  }), [modelOptions, normalizedSearch]);
+  const isActiveModelAvailable = availabilityByModelId.get(activeModel.id) ?? false;
   const creditBalance = Number(wallet.data?.balanceNanos ?? 0) / 1_000_000_000;
 
   return (
@@ -160,15 +170,21 @@ export default function Playground() {
           <section className="playground-model-selection">
             <div className="playground-panel-title"><Cpu size={15} /><span>Selected model</span></div>
             <div className="playground-model-picker">
-              <span className={`playground-model-orb playground-model-orb--${activeModel.tone}`}>{activeModel.providerMark}</span>
+              <span className={`playground-model-orb playground-model-orb--${activeModel.tone}`}><ProviderMark provider={activeModel.provider} fallback={activeModel.providerMark} size={20} /></span>
               <div className="playground-model-picker__selected"><span>{activeModel.provider} · {activeModel.eyebrow}</span><strong>{activeModel.name}</strong></div>
-              <button type="button" className="playground-model-picker__toggle" onClick={() => setIsModelMenuOpen(value => !value)} disabled={complete.isPending || isStreaming} aria-expanded={isModelMenuOpen} aria-haspopup="listbox" aria-label="Choose a model"><ChevronDown size={15} /></button>
-              {isModelMenuOpen ? <div className="playground-model-menu" role="listbox" aria-label="Available text models">
+              <button type="button" className="playground-model-picker__toggle" onClick={() => { setIsModelMenuOpen(value => !value); setModelSearch(""); }} disabled={complete.isPending || isStreaming} aria-expanded={isModelMenuOpen} aria-haspopup="listbox" aria-label="Choose a model"><ChevronDown size={15} /></button>
+              {isModelMenuOpen ? <div className="playground-model-menu" role="dialog" aria-label="Find a text model">
                 <div className="playground-model-menu__head"><span>Choose a text model</span><b>{TOKENFORGE_MODELS.length} routes</b></div>
-                {modelOptions.map((candidate, index) => <button type="button" role="option" aria-selected={candidate.id === model} key={candidate.id} className={`playground-model-menu__option${candidate.id === model ? " playground-model-menu__option--active" : ""}`} onClick={() => { setModel(candidate.id); setIsModelMenuOpen(false); }}><span className={`playground-model-orb playground-model-orb--${candidate.tone}`}>{candidate.providerMark}</span><span><b>{candidate.name}</b><small>{candidate.provider} · {candidate.eyebrow}</small></span>{index < 2 ? <em>Featured</em> : null}</button>)}
+                <label className="playground-model-search"><Search size={15} /><input autoFocus value={modelSearch} onChange={event => setModelSearch(event.target.value)} placeholder="Search models or providers" aria-label="Search models or providers" />{modelSearch ? <button type="button" aria-label="Clear model search" onClick={() => setModelSearch("")}><X size={14} /></button> : null}</label>
+                <div className="playground-model-menu__options" role="listbox" aria-label="Available text models">
+                  {visibleModelOptions.length ? visibleModelOptions.map((candidate, index) => {
+                    const isAvailable = availabilityByModelId.get(candidate.id) ?? false;
+                    return <button type="button" role="option" aria-selected={candidate.id === model} key={candidate.id} className={`playground-model-menu__option${candidate.id === model ? " playground-model-menu__option--active" : ""}`} onClick={() => { if (!isAvailable) return; setModel(candidate.id); setIsModelMenuOpen(false); setModelSearch(""); }} disabled={!isAvailable}><span className={`playground-model-orb playground-model-orb--${candidate.tone}`}><ProviderMark provider={candidate.provider} fallback={candidate.providerMark} size={18} /></span><span><b>{candidate.name}</b><small>{candidate.provider} · {candidate.eyebrow}</small></span><i className={isAvailable ? "playground-model-status playground-model-status--online" : "playground-model-status"}><em />{modelAvailability.isLoading ? "Checking" : isAvailable ? "Live" : "Unavailable"}</i>{index < 2 && !normalizedSearch ? <strong>Featured</strong> : null}</button>;
+                  }) : <div className="playground-model-menu__empty"><Search size={16} /><b>No model found</b><span>Try a provider name or model ID.</span></div>}
+                </div>
               </div> : null}
             </div>
-            <p className="playground-model-route"><b>Kimi K3</b> is featured first · {TOKENFORGE_MODELS.length} verified text routes · {activeModel.capabilities.join(" · ")}</p>
+            <p className="playground-model-route"><b><span className={isActiveModelAvailable ? "playground-live-dot" : "playground-live-dot playground-live-dot--offline"} />{isActiveModelAvailable ? "Live" : "Checking availability"}</b> · Kimi K3 is featured first · {TOKENFORGE_MODELS.length} verified text routes · {activeModel.capabilities.join(" · ")}</p>
           </section>
 
           <div className="playground-divider" />

@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ProviderMark } from "@/components/ProviderMark";
 import { TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
 import { trpc } from "@/lib/trpc";
 import { ArrowDownLeft, ArrowUpRight, CalendarCheck, CalendarDays, CheckCircle2, CircleDollarSign, Clock3, Coins, Filter, KeyRound, Loader2, ReceiptText, RotateCcw, ShieldCheck, Sparkles, WalletCards, Zap } from "lucide-react";
@@ -116,7 +117,7 @@ export function UsageLogs() {
               const successful = log.status === "success";
               return <article key={log.id} className="usage-log-card" role="listitem">
                 <div className="usage-log-card__topline">
-                  <div className="usage-log-card__model"><span className="model-signal">{TOKENFORGE_MODELS.find(model => model.id === log.modelId)?.providerMark ?? "TF"}</span><div><b>{displayModel(log.modelId)}</b><small>{created.date} · {created.time}</small></div></div>
+                  <div className="usage-log-card__model"><span className="model-signal">{(() => { const model = TOKENFORGE_MODELS.find(candidate => candidate.id === log.modelId); return model ? <ProviderMark provider={model.provider} fallback={model.providerMark} size={17} /> : "TF"; })()}</span><div><b>{displayModel(log.modelId)}</b><small>{created.date} · {created.time}</small></div></div>
                   <div className="usage-log-card__status"><span className={successful ? "request-status request-status--success" : "request-status"}>{successful ? "Settled" : log.status.replaceAll("_", " ")}</span><span className={log.stream ? "stream-chip stream-chip--live" : "stream-chip"}>{log.stream ? "Stream" : "Standard"}</span></div>
                 </div>
                 <div className="usage-log-card__details">

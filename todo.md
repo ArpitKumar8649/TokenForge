@@ -123,3 +123,9 @@
 - [x] Diagnose and fix missing usage-log records and credit debits for successful Cluster Protocol model completions while retaining safe no-charge behavior for unknown usage.
 - [x] Replace the expanded native model selector with an accessible fixed-height, scrollable model picker that is usable on a 390px mobile viewport.
 - [x] Add regression coverage and visual validation for Kimi selection, Cluster Protocol settlement/logging, and the mobile model picker, then checkpoint the repairs.
+- [x] Add an accessible search field and no-results state inside the Playground’s fixed-height model picker so specific catalogue models are easy to find.
+- [x] Surface live availability beside every model option using the server-managed availability state without exposing provider credentials.
+- [x] Source permissible provider marks for the active model families, record attribution, and use them consistently in the picker and public/dashboard model catalogues.
+- [x] Replace the crowded landing-page full model-card area with an animated horizontal provider-mark ribbon while retaining clear discovery navigation.
+- [x] Make aggregate total-token metrics clearly visible on the landing page, retaining privacy-safe model aggregates and responsive motion.
+- [x] Add regression coverage, visually validate the desktop and mobile model discovery and landing sections, and checkpoint the improvements.

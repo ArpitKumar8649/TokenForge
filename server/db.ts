@@ -571,6 +571,25 @@ export async function isModelAvailable(modelId: string) {
   return Boolean(records[0]?.enabled && records[0]?.providerEnabled);
 }
 
+export function normalizeModelAvailability(rows: Array<{ modelId: string; enabled: boolean; providerEnabled: boolean | null }>) {
+  return rows.map(row => ({ modelId: row.modelId, available: Boolean(row.enabled && row.providerEnabled) }));
+}
+
+export async function getModelAvailabilitySnapshot() {
+  await ensureCatalogue();
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({
+      modelId: modelConfigs.modelId,
+      enabled: modelConfigs.enabled,
+      providerEnabled: providerConfigs.enabled,
+    })
+    .from(modelConfigs)
+    .leftJoin(providerConfigs, eq(modelConfigs.providerSlug, providerConfigs.slug));
+  return normalizeModelAvailability(rows);
+}
+
 export async function getAdminOverview() {
   await ensureCatalogue();
   const db = await getDb();
