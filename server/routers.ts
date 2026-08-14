@@ -29,6 +29,7 @@ import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { isPermanentEmailAddress, PASSWORD_MIN_LENGTH } from "./localAuth";
+import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, isTokenForgeModelId, type TokenForgeModelId } from "./modelCatalogue";
 import { runPlaygroundCompletion, TokenForgePlaygroundError, tokenForgeRequestIpHash } from "./openaiGateway";
 
 const apiKeyLabel = z
@@ -47,6 +48,9 @@ const playgroundMessage = z.object({
   role: z.enum(["user", "assistant", "system"]),
   content: z.string().trim().min(1, "Message content cannot be empty").max(20_000, "Each message must be 20,000 characters or fewer"),
 });
+const tokenForgeModelId = z.string()
+  .refine(isTokenForgeModelId, "The requested model is not in the active TokenForge catalogue.")
+  .transform(model => model as TokenForgeModelId);
 
 function playgroundTrpcError(error: TokenForgePlaygroundError) {
   const code = error.code === "model_not_found" ? "NOT_FOUND"
@@ -141,7 +145,7 @@ export const appRouter = router({
     usage: protectedProcedure.query(async ({ ctx }) => getUsageSummary(ctx.user.id)),
     usageLogs: protectedProcedure
       .input(z.object({
-        modelId: z.enum(["glm-5.2", "grok-4.5"]).optional(),
+        modelId: tokenForgeModelId.optional(),
         source: z.enum(["api", "playground"]).optional(),
         from: z.string().datetime().optional(),
         to: z.string().datetime().optional(),
@@ -175,7 +179,7 @@ export const appRouter = router({
     }),
     playground: protectedProcedure
       .input(z.object({
-        model: z.enum(["glm-5.2", "grok-4.5"]),
+        model: tokenForgeModelId,
         messages: z.array(playgroundMessage).min(1).max(100),
         maxOutputTokens: z.number().int().min(64).max(8_192).optional(),
         temperature: z.number().min(0).max(2).optional(),
@@ -199,13 +203,13 @@ export const appRouter = router({
   admin: router({
     overview: adminProcedure.query(() => getAdminOverview()),
     flags: adminProcedure.query(() => listOpenFlags()),
-    setModelEnabled: adminProcedure.input(z.object({ modelId: z.enum(["glm-5.2", "grok-4.5"]), enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
+    setModelEnabled: adminProcedure.input(z.object({ modelId: tokenForgeModelId, enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
       const updated = await setModelEnabled(input.modelId, input.enabled);
       if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Model configuration not found" });
       await writeAuditEvent({ actorUserId: ctx.user.id, action: input.enabled ? "model.enabled" : "model.disabled", entityType: "model", entityId: input.modelId });
       return { success: true } as const;
     }),
-    setProviderEnabled: adminProcedure.input(z.object({ slug: z.literal("fxqidian"), enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
+    setProviderEnabled: adminProcedure.input(z.object({ slug: z.enum([FXQIDIAN_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG]), enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
       const updated = await setProviderEnabled(input.slug, input.enabled);
       if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Provider configuration not found" });
       await writeAuditEvent({ actorUserId: ctx.user.id, action: input.enabled ? "provider.enabled" : "provider.disabled", entityType: "provider", entityId: input.slug });

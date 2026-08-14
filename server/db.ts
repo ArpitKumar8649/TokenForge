@@ -20,6 +20,7 @@ import {
 import { ENV } from "./_core/env";
 import { hashPassword, normalizeEmail, nextFailedLoginState, retryAfterSeconds, verifyPassword } from "./localAuth";
 import { DAILY_CHECKIN_CREDIT_NANOS, INTRODUCTORY_CREDIT_NANOS } from "./creditPricing";
+import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, TOKENFORGE_MODEL_IDS, type TokenForgeModelId } from "./modelCatalogue";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -30,10 +31,7 @@ const INTRODUCTORY_CREDIT_REFERENCE = "introductory-credit-v1";
 
 export type ApiKeyRecord = typeof apiKeys.$inferSelect;
 
-const CATALOGUE_DEFINITIONS = [
-  { modelId: "glm-5.2", displayName: "GLM-5.2", description: "A flagship long-horizon model for complex engineering, coding, and extended-context work.", capabilities: ["reasoning", "long_context", "streaming", "coding"] },
-  { modelId: "grok-4.5", displayName: "Grok 4.5", description: "A high-performance reasoning model positioned for code, agentic workflows, and knowledge work.", capabilities: ["reasoning", "agentic", "coding", "streaming"] },
-] as const;
+const CATALOGUE_DEFINITIONS = TOKENFORGE_MODEL_CATALOGUE;
 
 export function utcUsageDate(value = new Date()) {
   return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
@@ -454,19 +452,18 @@ export async function getUsageSummary(userId: number) {
 }
 
 export async function getPublicModelTokenMetrics() {
-  const empty = { totalTokens: 0, byModel: { "glm-5.2": 0, "grok-4.5": 0 } };
+  const byModel = Object.fromEntries(TOKENFORGE_MODEL_IDS.map(modelId => [modelId, 0])) as Record<TokenForgeModelId, number>;
+  const empty = { totalTokens: 0, byModel };
   const db = await getDb();
   if (!db) return empty;
   const rows = await db
     .select({ modelId: dailyUsage.modelId, totalTokens: sql<number>`coalesce(sum(${dailyUsage.totalTokens}), 0)` })
     .from(dailyUsage)
-    .where(sql`${dailyUsage.modelId} in ('glm-5.2', 'grok-4.5')`)
     .groupBy(dailyUsage.modelId);
-  const byModel = { "glm-5.2": 0, "grok-4.5": 0 };
   for (const row of rows) {
-    if (row.modelId === "glm-5.2" || row.modelId === "grok-4.5") byModel[row.modelId] = Number(row.totalTokens ?? 0);
+    if (TOKENFORGE_MODEL_IDS.includes(row.modelId as TokenForgeModelId)) byModel[row.modelId as TokenForgeModelId] = Number(row.totalTokens ?? 0);
   }
-  return { totalTokens: byModel["glm-5.2"] + byModel["grok-4.5"], byModel };
+  return { totalTokens: Object.values(byModel).reduce((total, amount) => total + amount, 0), byModel };
 }
 
 export async function recordUsage(input: {
@@ -504,7 +501,7 @@ export async function recordUsage(input: {
     });
 }
 
-export async function getUsageLogs(input: { userId: number; modelId?: "glm-5.2" | "grok-4.5"; source?: "api" | "playground"; from?: Date; to?: Date; limit?: number }) {
+export async function getUsageLogs(input: { userId: number; modelId?: string; source?: "api" | "playground"; from?: Date; to?: Date; limit?: number }) {
   const db = await getDb();
   if (!db) return [];
   const conditions = [eq(usageEvents.userId, input.userId)];
@@ -554,10 +551,14 @@ export async function ensureCatalogue() {
   const db = await getDb();
   if (!db) return;
   const baseUrl = process.env.FXQIDIAN_BASE_URL ?? "https://fxqidian.de5.net";
-  await db.insert(providerConfigs).values({ slug: "fxqidian", displayName: "Selected hosted inference", baseUrl }).onDuplicateKeyUpdate({ set: { baseUrl, displayName: "Selected hosted inference" } });
+  const clusterBaseUrl = process.env.CLUSTER_PROTOCOL_BASE_URL ?? "https://api.clusterprotocol.ai";
+  await db.insert(providerConfigs).values([
+    { slug: FXQIDIAN_PROVIDER_SLUG, displayName: "Selected hosted inference", baseUrl },
+    { slug: CLUSTER_PROTOCOL_PROVIDER_SLUG, displayName: "Cluster Protocol", baseUrl: clusterBaseUrl },
+  ]).onDuplicateKeyUpdate({ set: { baseUrl: sql`values(${providerConfigs.baseUrl})`, displayName: sql`values(${providerConfigs.displayName})` } });
   for (const model of CATALOGUE_DEFINITIONS) {
-    await db.insert(modelConfigs).values({ ...model, capabilities: [...model.capabilities], providerSlug: "fxqidian" }).onDuplicateKeyUpdate({
-      set: { displayName: model.displayName, description: model.description, capabilities: [...model.capabilities] },
+    await db.insert(modelConfigs).values({ modelId: model.id, displayName: model.displayName, description: model.description, capabilities: [...model.capabilities], providerSlug: model.providerSlug }).onDuplicateKeyUpdate({
+      set: { displayName: model.displayName, description: model.description, capabilities: [...model.capabilities], providerSlug: model.providerSlug },
     });
   }
 }

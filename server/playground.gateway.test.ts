@@ -34,6 +34,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   process.env.FXQIDIAN_BASE_URL = "https://provider.example";
   process.env.FXQIDIAN_API_KEY = "server-only-provider-secret";
+  process.env.CLUSTER_PROTOCOL_BASE_URL = "https://cluster.example";
+  process.env.CLUSTER_PROTOCOL_API_KEY = "server-only-cluster-secret";
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
   vi.mocked(getRecentRequestCounts).mockResolvedValue({ account: 0, ip: 0 });
@@ -94,6 +96,29 @@ describe("TokenForge Playground gateway", () => {
     const forwardedPayload = JSON.parse(vi.mocked(fetchMock).mock.calls[0][1].body as string);
     expect(forwardedPayload).toMatchObject({ model: "grok-4.5", stream: false, max_tokens: 2048, temperature: 0.3 });
     expect(reserveCredit).toHaveBeenCalledWith(42, expect.any(Number), expect.stringMatching(/^tf_pg_/));
+  });
+
+  it("routes a verified Cluster Protocol model through its server-only credential and preserves metering", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: "Cluster-routed completion" } }],
+      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runPlaygroundCompletion({
+      userId: 42,
+      model: "kimi-k3",
+      messages: [{ role: "user", content: "Explain server-only gateway routing." }],
+      sourceIpHash: "hashed-source-ip",
+    });
+
+    expect(result).toMatchObject({ model: "kimi-k3", usage: { totalTokens: 30 } });
+    expect(fetchMock).toHaveBeenCalledWith("https://cluster.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-cluster-secret" }),
+      body: expect.stringContaining('"model":"kimi-k3"'),
+    }));
+    expect(JSON.stringify(fetchMock.mock.calls[0][1].headers)).not.toContain("server-only-provider-secret");
+    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "kimi-k3", status: "success" }));
   });
 
   it("stops before provider execution when the promotional credit reservation is denied", async () => {

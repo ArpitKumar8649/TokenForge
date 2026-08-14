@@ -3,15 +3,11 @@ import { AIChatBox, type Message } from "@/components/AIChatBox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
 import { trpc } from "@/lib/trpc";
 import { ChevronDown, CircleDollarSign, Cpu, Radio, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, Thermometer, WandSparkles } from "lucide-react";
 import { useState } from "react";
 import "./playground-control-pane.css";
-
-const models = [
-  { id: "glm-5.2", label: "GLM-5.2", detail: "Long-context reasoning" },
-  { id: "grok-4.5", label: "Grok 4.5", detail: "Agentic problem-solving" },
-] as const;
 
 const suggestedPrompts = [
   "Explain the trade-offs between REST and GraphQL for a developer platform.",
@@ -23,7 +19,7 @@ export default function Playground() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
   const wallet = trpc.developer.wallet.useQuery(undefined, { enabled: Boolean(user) });
-  const [model, setModel] = useState<(typeof models)[number]["id"]>("glm-5.2");
+  const [model, setModel] = useState("glm-5.2");
   const [messages, setMessages] = useState<Message[]>([]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [showSystemPrompt, setShowSystemPrompt] = useState(false);
@@ -134,7 +130,7 @@ export default function Playground() {
     complete.mutate({ model, messages: requestMessages, maxOutputTokens, temperature });
   };
 
-  const activeModel = models.find(candidate => candidate.id === model) ?? models[0];
+  const activeModel = TOKENFORGE_MODELS.find(candidate => candidate.id === model) ?? TOKENFORGE_MODELS[0];
   const creditBalance = Number(wallet.data?.balanceNanos ?? 0) / 1_000_000_000;
 
   return (
@@ -157,9 +153,8 @@ export default function Playground() {
           <div className="playground-divider" />
           <section className="playground-model-selection">
             <div className="playground-panel-title"><Cpu size={15} /><span>Selected model</span></div>
-            <div className="playground-model-list" role="radiogroup" aria-label="Choose a model">
-              {models.map(candidate => <button key={candidate.id} type="button" role="radio" aria-checked={model === candidate.id} className={model === candidate.id ? "playground-model playground-model-active" : "playground-model"} onClick={() => setModel(candidate.id)} disabled={complete.isPending || isStreaming}><span className="playground-model-orb"><Cpu size={14} /></span><span><strong>{candidate.label}</strong><small>{candidate.detail}</small></span>{model === candidate.id && <span className="playground-model-active-label">Selected</span>}</button>)}
-            </div>
+            <div className="playground-model-picker"><span className={`playground-model-orb playground-model-orb--${activeModel.tone}`}>{activeModel.providerMark}</span><label><span>{activeModel.provider} · {activeModel.eyebrow}</span><select value={model} onChange={event => setModel(event.target.value)} disabled={complete.isPending || isStreaming} aria-label="Choose a model">{TOKENFORGE_MODELS.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.provider}</option>)}</select></label></div>
+            <p className="playground-model-route">{TOKENFORGE_MODELS.length} verified text routes · {activeModel.capabilities.join(" · ")}</p>
           </section>
 
           <div className="playground-divider" />
@@ -199,7 +194,7 @@ export default function Playground() {
             isLoading={complete.isPending || isStreaming}
             height="min(620px, calc(100vh - 255px))"
             className="playground-chat"
-            placeholder={`Ask ${activeModel.label} anything…`}
+            placeholder={`Ask ${activeModel.name} anything…`}
             emptyStateMessage="Start with a focused problem, a concept, or a draft you want to make clearer."
             suggestedPrompts={suggestedPrompts}
           />

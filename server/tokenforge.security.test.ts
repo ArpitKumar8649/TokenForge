@@ -23,8 +23,11 @@ describe("TokenForge credential and gateway safeguards", () => {
     expect(date.toISOString()).toBe("2026-08-15T00:00:00.000Z");
   });
 
-  it("exposes only the two selected models", () => {
-    expect(TOKENFORGE_CATALOGUE.map(model => model.id)).toEqual(["glm-5.2", "grok-4.5"]);
+  it("exposes the verified fixed-rate text-chat catalogue without modality-specific models", () => {
+    const ids = TOKENFORGE_CATALOGUE.map(model => model.id);
+    expect(ids).toHaveLength(32);
+    expect(ids).toEqual(expect.arrayContaining(["glm-5.2", "grok-4.5", "kimi-k3", "qwen3.7-max", "claude-sonnet-4.5", "gpt-5"]));
+    expect(ids).not.toEqual(expect.arrayContaining(["flux", "whisper", "gemini-embedding", "qwen3-tts"]));
   });
 
   it("formats quota and rate-limit responses with a compatible error object and headers", () => {

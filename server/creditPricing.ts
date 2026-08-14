@@ -1,20 +1,29 @@
+import { TOKENFORGE_MODEL_CATALOGUE, type TokenForgeModelId } from "./modelCatalogue";
+
 export const NANODOLLARS_PER_DOLLAR = 1_000_000_000;
 export const INTRODUCTORY_CREDIT_NANOS = 50 * NANODOLLARS_PER_DOLLAR;
 export const DAILY_CHECKIN_CREDIT_NANOS = 5 * NANODOLLARS_PER_DOLLAR;
 export const DEFAULT_MAX_OUTPUT_TOKENS_FOR_CREDIT = 1_024;
 export const MAX_BILLABLE_OUTPUT_TOKENS = 8_192;
 
-export type CreditPricedModel = "glm-5.2" | "grok-4.5";
+export type CreditPricedModel = TokenForgeModelId;
 
 export const TOKENFORGE_CREDIT_PRICING: Record<CreditPricedModel, {
   inputNanosPerToken: number;
   outputNanosPerToken: number;
   inputUsdPerMillion: number;
   outputUsdPerMillion: number;
-}> = {
-  "glm-5.2": { inputNanosPerToken: 1_400, outputNanosPerToken: 4_400, inputUsdPerMillion: 1.4, outputUsdPerMillion: 4.4 },
-  "grok-4.5": { inputNanosPerToken: 2_000, outputNanosPerToken: 6_000, inputUsdPerMillion: 2, outputUsdPerMillion: 6 },
-};
+}> = Object.fromEntries(TOKENFORGE_MODEL_CATALOGUE.map(model => [model.id, {
+  inputNanosPerToken: Math.round(model.inputUsdPerMillion * 1_000),
+  outputNanosPerToken: Math.round(model.outputUsdPerMillion * 1_000),
+  inputUsdPerMillion: model.inputUsdPerMillion,
+  outputUsdPerMillion: model.outputUsdPerMillion,
+}])) as Record<CreditPricedModel, {
+  inputNanosPerToken: number;
+  outputNanosPerToken: number;
+  inputUsdPerMillion: number;
+  outputUsdPerMillion: number;
+}>;
 
 export function calculateCreditChargeNanos(model: CreditPricedModel, inputTokens: number, outputTokens: number) {
   const pricing = TOKENFORGE_CREDIT_PRICING[model];

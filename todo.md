@@ -94,3 +94,28 @@
 - [x] Source and use permissible official GLM and Grok marks in the dashboard Models catalogue and detail views instead of TokenForge placeholder glyphs.
 - [x] Test and visually verify the repaired mobile experiences, then checkpoint the corrected interface.
 - [x] Save a final checkpoint for the corrected TokenForge responsive interface and source-attributed dashboard model marks.
+- [x] Remove the stray mobile landing-navigation indicator that appears above or behind the Trust item.
+- [x] Add landing-page per-model total-token metrics that count up on scroll and settle at the privacy-preserving aggregate usage totals.
+- [x] Validate the Cluster Protocol integration contract, exact Kimi K3 and Qwen 3.7 Max identifiers, token pricing, and credit-settlement basis before making the models requestable.
+- [x] Store the Cluster Protocol credential as a server-only project secret and add a server-side adapter that preserves existing quotas, safety controls, streaming, audit, and credit-accounting behavior.
+- [x] Add Kimi K3 and Qwen 3.7 Max consistently to the gateway, Playground, public Models page, dashboard catalogue, model details, documentation, pricing, usage aggregation, and tests.
+- [x] Add source-attributed typographic provider marks for Kimi and Qwen in the model catalogue and detail views.
+- [x] Test, visually verify, checkpoint, and document the navigation repair, animated metrics, and expanded verified text-chat platform.
+- [x] Audit the authenticated Cluster Protocol model catalogue and metadata to establish the full model count, exact identifiers, and available billing fields.
+- [x] Define and implement a safe full-catalogue availability policy that does not debit promotional credits using invented or unverified rates.
+- [x] Replace the fixed two-model Cluster Protocol plan with protected, server-side support for every authenticated provider model that satisfies the availability and billing policy.
+- [x] Redesign the public and dashboard model catalogues for the verified active provider inventory, including responsive model details and clear availability labels.
+- [x] Extend aggregate usage metrics and tests to cover the provider catalogue without disclosing individual user activity.
+- [x] Test, visually verify, checkpoint, and document the verified authenticated Cluster Protocol catalogue rollout.
+- [x] Group the authenticated provider inventory by original model family and identify each family’s official first-party token-pricing documentation.
+- [x] Build a source-attributed pricing map with separately verified input and output per-million-token rates, model variants, date basis, and source URLs.
+- [x] Enable only catalogue entries whose original-provider rates can be verified, leaving any unmatched or unpriced provider model unavailable rather than estimating a wallet charge.
+- [x] Display the verified original-provider rates and sources consistently in public and dashboard model details, gateway accounting, documentation, and tests.
+- [x] Test, visually verify, checkpoint, and document the official-price-based model expansion.
+- [x] Restrict the full-catalogue expansion to text/chat-completion models only; exclude image, audio, embedding, transcription, search, and other modality-specific entries from the current gateway.
+- [x] Normalize exact first-party rates for compatible provider identifiers and publish the resulting verified eligible-model count before enabling the expanded catalogue.
+- [x] Extend the verified text/chat catalogue to the 32 fixed-rate, first-party-priced models, retaining only exact provider aliases and documented cache-miss input/output rates.
+- [x] Add protected Cluster Protocol request routing for standard and streamed OpenAI-compatible completions without exposing provider credentials to clients.
+- [x] Preserve credit settlement, quota, concurrency, audit, and provider-error guarantees for every activated Cluster Protocol model.
+- [x] Update the model-config bootstrap and Playground input contract to use the verified multi-provider catalogue instead of a fixed two-model union.
+- [x] Add regression tests for provider selection, non-FXQidian streaming, model selection, and first-party rate settlement.
