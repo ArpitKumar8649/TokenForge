@@ -137,3 +137,4 @@
 - [x] Restore high-contrast landing provider-ribbon and aggregate-token metric rendering on mobile while preserving purposeful continuous motion.
 - [x] Add regression coverage and responsive validation for the reduced active catalogue and repaired landing section, then checkpoint the changes.
 - [x] Commit the latest validated TokenForge changes and push them to the selected GitHub repository.
+- [x] Refine the public landing page navigation, hero, model ribbon, and metric layout for stable tablet responsiveness.

@@ -45,3 +45,42 @@
 .aurora-home .aurora-model-band .landing-total-metric,
 .aurora-home .aurora-model-band .landing-metric-stat { background: rgba(9, 18, 13, .84) !important; border-color: rgba(201,255,115,.22) !important; }
 @media(max-width:620px){.aurora-home .aurora-model-band{background:radial-gradient(circle at 92% 8%,rgba(114,230,219,.14),transparent 30%),linear-gradient(150deg,#111b16 0%,#080d0a 58%,#10201b 100%)!important}.aurora-home .aurora-model-band .model-ribbon__track{animation-duration:19s!important}}
+
+/* Tablet composition: preserve the landing-page hierarchy without falling into the narrow mobile stack. */
+@media (min-width:701px) and (max-width:1024px) {
+  .aurora-home .public-nav { height:76px !important; min-height:76px !important; }
+  .aurora-home .public-nav__inner { height:76px !important; min-height:76px !important; padding:0 28px; gap:16px; flex-wrap:nowrap; }
+  .aurora-home .public-nav__cluster { min-width:0; gap:16px; }
+  .aurora-home .public-nav__links { position:static; display:flex !important; min-width:0; height:auto; gap:2px; padding:0; border:0; background:transparent; backdrop-filter:none; }
+  .aurora-home .public-nav__links .nav-link { display:inline-flex; padding:9px 7px; border:0; font-size:10px; white-space:nowrap; }
+  .aurora-home .public-nav__actions { display:flex !important; flex:none; gap:12px; }
+  .aurora-home .public-nav__mobile-actions { display:none !important; }
+  .aurora-home .public-nav__actions .sign-in-button { font-size:11px; white-space:nowrap; }
+  .aurora-home .public-nav__actions .nav-cta { padding:9px 12px; font-size:11px; white-space:nowrap; }
+
+  .aurora-home .aurora-hero { padding:64px 40px 62px; grid-template-columns:minmax(0,1.08fr) minmax(250px,.92fr); gap:28px; }
+  .aurora-home .aurora-hero h1 { margin:17px 0; font-size:clamp(50px,6.9vw,66px); }
+  .aurora-home .aurora-hero__copy > p { max-width:450px; font-size:14px; line-height:1.7; }
+  .aurora-home .aurora-actions { gap:13px; margin-top:25px; }
+  .aurora-home .aurora-button { width:auto; min-width:178px; }
+  .aurora-home .aurora-hero__visual { min-height:360px; }
+  .aurora-home .aurora-hero__glyph { width:min(218px,72%); }
+  .aurora-home .aurora-request { right:0; bottom:24px; width:218px; padding:12px; }
+  .aurora-home .aurora-request pre { font-size:9px; }
+
+  .aurora-home .aurora-statement { padding:28px 40px; }
+  .aurora-home .aurora-statement > div { flex-direction:row; align-items:center; }
+  .aurora-home .aurora-features { padding:82px 40px; }
+  .aurora-home .aurora-section-head { flex-direction:row; align-items:end; }
+  .aurora-home .aurora-feature-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-top:36px; }
+  .aurora-home .aurora-feature { min-height:245px; padding:20px; }
+  .aurora-home .aurora-feature span { margin:35px 0 10px; font-size:9px; }
+  .aurora-home .aurora-feature h3 { font-size:20px; }
+
+  .aurora-home .aurora-model-band { padding:74px 40px; }
+  .aurora-home .aurora-model-band__inner { display:block; }
+  .aurora-home .aurora-model-band__head { align-items:flex-end; }
+  .aurora-home .aurora-network-metrics { grid-template-columns:minmax(0,1.45fr) repeat(2,minmax(132px,.8fr)); }
+  .aurora-home .aurora-network-metrics article { min-height:132px; }
+  .aurora-home .aurora-close { padding:92px 40px; }
+}
