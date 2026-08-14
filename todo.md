@@ -93,4 +93,4 @@
 - [x] Fix the Playground message lifecycle so a streamed assistant response has exactly one visible pending/completed message state.
 - [x] Source and use permissible official GLM and Grok marks in the dashboard Models catalogue and detail views instead of TokenForge placeholder glyphs.
 - [x] Test and visually verify the repaired mobile experiences, then checkpoint the corrected interface.
-- [ ] Save a final checkpoint for the corrected TokenForge responsive interface and source-attributed dashboard model marks.
+- [x] Save a final checkpoint for the corrected TokenForge responsive interface and source-attributed dashboard model marks.
