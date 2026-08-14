@@ -129,3 +129,10 @@
 - [x] Replace the crowded landing-page full model-card area with an animated horizontal provider-mark ribbon while retaining clear discovery navigation.
 - [x] Make aggregate total-token metrics clearly visible on the landing page, retaining privacy-safe model aggregates and responsive motion.
 - [x] Add regression coverage, visually validate the desktop and mobile model discovery and landing sections, and checkpoint the improvements.
+- [x] Run a controlled minimal live completion probe for every enabled TokenForge model through its configured provider route without recording or exposing response content.
+- [x] Classify per-model outcomes by provider, HTTP status, and normalized error category, then report every model that cannot complete successfully.
+- [x] Repeat the controlled enabled-model probe with a 120-second per-model timeout and report routes that remain unsuccessful after the extended allowance.
+- [x] Verify the parity between the user’s successful minimal Cluster Protocol request and TokenForge’s current forwarding payload before making any model-removal edits.
+- [x] After the verification is reported and approved, remove `minimax-m2-5` and `glm-5` from the active catalogue and all related product surfaces.
+- [x] Restore high-contrast landing provider-ribbon and aggregate-token metric rendering on mobile while preserving purposeful continuous motion.
+- [x] Add regression coverage and responsive validation for the reduced active catalogue and repaired landing section, then checkpoint the changes.

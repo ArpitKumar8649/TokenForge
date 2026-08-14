@@ -66,18 +66,6 @@ export const TOKENFORGE_MODEL_CATALOGUE = [
     pricingSource: "Z.AI model pricing",
     pricingUrl: "https://docs.z.ai/guides/overview/pricing",
   },
-  {
-    id: "glm-5",
-    displayName: "GLM-5",
-    description: "A Z.AI reasoning and coding model available through the authenticated text-chat provider catalogue.",
-    providerSlug: CLUSTER_PROTOCOL_PROVIDER_SLUG,
-    providerName: "Z.AI",
-    capabilities: ["reasoning", "coding", "streaming"],
-    inputUsdPerMillion: 1,
-    outputUsdPerMillion: 3.2,
-    pricingSource: "Z.AI model pricing",
-    pricingUrl: "https://docs.z.ai/guides/overview/pricing",
-  },
   claude("claude-haiku-4.5", "Claude Haiku 4.5", 1, 5),
   claude("claude-opus-4.5", "Claude Opus 4.5", 5, 25),
   claude("claude-opus-4.6", "Claude Opus 4.6", 5, 25),
@@ -149,9 +137,6 @@ export const TOKENFORGE_MODEL_CATALOGUE = [
   },
   {
     id: "minimax-m2", displayName: "MiniMax M2", description: "MiniMax’s standard text model for production conversation and agent workflows.", providerSlug: CLUSTER_PROTOCOL_PROVIDER_SLUG, providerName: "MiniMax", capabilities: ["reasoning", "coding", "streaming"], inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2, pricingSource: "MiniMax API pay-as-you-go pricing", pricingUrl: "https://platform.minimax.io/docs/guides/pricing-paygo",
-  },
-  {
-    id: "minimax-m2-5", displayName: "MiniMax M2.5", description: "MiniMax’s M2.5 text model for streamed chat and coding completions.", providerSlug: CLUSTER_PROTOCOL_PROVIDER_SLUG, providerName: "MiniMax", capabilities: ["reasoning", "coding", "streaming"], inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2, pricingSource: "MiniMax API pay-as-you-go pricing", pricingUrl: "https://platform.minimax.io/docs/guides/pricing-paygo",
   },
   {
     id: "minimax-m2-7", displayName: "MiniMax M2.7", description: "MiniMax’s M2.7 text model for capable and efficient chat completions.", providerSlug: CLUSTER_PROTOCOL_PROVIDER_SLUG, providerName: "MiniMax", capabilities: ["reasoning", "coding", "streaming"], inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2, pricingSource: "MiniMax API pay-as-you-go pricing", pricingUrl: "https://platform.minimax.io/docs/guides/pricing-paygo",

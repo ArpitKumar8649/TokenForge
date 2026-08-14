@@ -8,6 +8,7 @@ import { TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
 import { trpc } from "@/lib/trpc";
 import { useEffect, useRef, useState } from "react";
 import "./landing-metrics.css";
+import "./landing-contrast-fix.css";
 
 /**
  * All content in this page are only for example, replace with your own feature implementation
