@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
+import { coalesceDailyUsage } from "../../../shared/usageSeries";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { AlertTriangle, BarChart3, Check, Clipboard, Copy, KeyRound, Loader2, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
@@ -43,8 +44,8 @@ function ApiKeyList() {
 }
 
 function UsageChart({ daily }: { daily: { day: string; requests: number; tokens: number }[] }) {
-  const max = Math.max(1, ...daily.map(row => row.tokens));
-  const data = useMemo(() => daily.slice(-14), [daily]);
+  const data = useMemo(() => coalesceDailyUsage(daily).slice(-14), [daily]);
+  const max = Math.max(1, ...data.map(row => row.tokens));
   if (!data.length) return <div className="grid h-44 place-items-center text-center"><BarChart3 className="text-[#6d6f80]" size={24} /><p className="mt-2 text-xs text-[#9293a4]">Usage will appear here after your first successful request.</p></div>;
   return <div className="flex h-44 items-end gap-2 pt-6">{data.map(row => <div key={row.day} className="group flex h-full flex-1 flex-col justify-end"><div className="relative min-h-1 rounded-t bg-gradient-to-t from-[#8769d3] to-[#cbb7ff] transition-opacity group-hover:opacity-80" style={{ height: `${Math.max(4, Math.round((row.tokens / max) * 100))}%` }}><span className="absolute -top-5 left-1/2 hidden -translate-x-1/2 whitespace-nowrap font-mono text-[9px] text-[#d2d1dc] group-hover:block">{row.tokens.toLocaleString()}</span></div><span className="mt-2 text-center font-mono text-[8px] text-[#7e7f90]">{row.day.slice(5)}</span></div>)}</div>;
 }

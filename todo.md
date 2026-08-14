@@ -55,3 +55,5 @@
 - [x] Add or update tests for the Playground guidance, visually verify landing and Playground on desktop and mobile, and checkpoint the redesign.
 - [x] Move Playground model selection into the left control pane so usage, parameters, and model choice share the left workspace while the right pane is reserved for chat and output.
 - [x] Save a post-redesign checkpoint after the final control-pane verification.
+- [x] Fix the dashboard daily-usage rendering key so repeated date values cannot trigger React duplicate-key warnings, add regression coverage, and verify the console is clean.
+- [x] Reload the dashboard after the duplicate-date regression test and confirm no new React duplicate-key warning is emitted in the browser console.

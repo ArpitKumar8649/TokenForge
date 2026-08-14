@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
+import { coalesceDailyUsage } from "../../../shared/usageSeries";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { AlertTriangle, ChartNoAxesCombined, Loader2, Power, ShieldAlert, SlidersHorizontal, UsersRound } from "lucide-react";
 import { useState } from "react";
@@ -13,9 +14,10 @@ function Toggle({ enabled, onChange, pending }: { enabled: boolean; onChange: (v
 }
 
 function AdminUsageChart({ usage }: { usage: { day: string; requests: number; tokens: number }[] }) {
-  const max = Math.max(1, ...usage.map(row => row.requests));
-  if (!usage.length) return <div className="grid h-36 place-items-center text-xs text-[#9091a3]">No metered activity has been recorded yet.</div>;
-  return <div className="flex h-36 items-end gap-2">{usage.map(row => <div className="group flex h-full flex-1 flex-col justify-end" key={row.day}><div className="rounded-t bg-gradient-to-t from-[#4acbd8] to-[#b5f2f5]" style={{ height: `${Math.max(4, row.requests / max * 100)}%` }} title={`${row.requests} requests · ${row.tokens.toLocaleString()} tokens`} /><span className="mt-2 text-center font-mono text-[8px] text-[#77798b]">{row.day.slice(5)}</span></div>)}</div>;
+  const data = coalesceDailyUsage(usage);
+  const max = Math.max(1, ...data.map(row => row.requests));
+  if (!data.length) return <div className="grid h-36 place-items-center text-xs text-[#9091a3]">No metered activity has been recorded yet.</div>;
+  return <div className="flex h-36 items-end gap-2">{data.map(row => <div className="group flex h-full flex-1 flex-col justify-end" key={row.day}><div className="rounded-t bg-gradient-to-t from-[#4acbd8] to-[#b5f2f5]" style={{ height: `${Math.max(4, row.requests / max * 100)}%` }} title={`${row.requests} requests · ${row.tokens.toLocaleString()} tokens`} /><span className="mt-2 text-center font-mono text-[8px] text-[#77798b]">{row.day.slice(5)}</span></div>)}</div>;
 }
 
 function AccountRow({ account }: { account: { id: number; name: string | null; email: string | null; role: "admin" | "user"; suspended: boolean | null; suspicious: boolean | null; requestLimit: number | null; tokenLimit: number | null } }) {
