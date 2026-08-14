@@ -10,6 +10,7 @@ vi.mock("./db", () => ({
   claimDailyCheckin: vi.fn(),
   getAdminOverview: vi.fn(),
   getCreditProfile: vi.fn(),
+  getPublicModelTokenMetrics: vi.fn(),
   getPasswordLoginThrottle: vi.fn(),
   getUsageLogs: vi.fn(),
   getQuotaStatus: vi.fn(),
@@ -38,12 +39,13 @@ import {
   createPasswordUser,
   getUsageLogs,
   getPasswordLoginThrottle,
+  getPublicModelTokenMetrics,
   listApiKeys,
   recordFailedPasswordLogin,
 } from "./db";
 import { appRouter } from "./routers";
 import { COOKIE_NAME } from "../shared/const";
-import { LOGIN_FAILURE_LIMIT, nextFailedLoginState, retryAfterSeconds, type LoginAttemptState } from "./localAuth";
+import { isPermanentEmailAddress, LOGIN_FAILURE_LIMIT, nextFailedLoginState, retryAfterSeconds, type LoginAttemptState } from "./localAuth";
 
 const localUser: User = {
   id: 42,
@@ -93,6 +95,35 @@ describe("first-party authentication procedures", () => {
     await expect(appRouter.createCaller(ctx).auth.register({ email: "dev@example.com", password: "secure-passphrase" })).resolves.toEqual({ user: localUser });
     expect(cookies).toHaveLength(1);
     expect(cookies[0]).toMatchObject({ name: COOKIE_NAME, value: "tf-local-session", options: { httpOnly: true } });
+  });
+
+  it("rejects a disposable registration address before creating an account", async () => {
+    const { ctx } = makeContext();
+
+    await expect(appRouter.createCaller(ctx).auth.register({ email: "trial@mailinator.com", password: "secure-passphrase" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: "Use a permanent email address to create a TokenForge account." });
+    expect(createPasswordUser).not.toHaveBeenCalled();
+  });
+
+  it("keeps disposable-address sign-in failures generic and rate-accounted", async () => {
+    const { ctx } = makeContext();
+
+    await expect(appRouter.createCaller(ctx).auth.login({ email: "trial@mailinator.com", password: "secure-passphrase" })).rejects.toMatchObject({ code: "UNAUTHORIZED", message: "Incorrect email or password" });
+    expect(authenticatePasswordUser).not.toHaveBeenCalled();
+    expect(recordFailedPasswordLogin).toHaveBeenCalledWith("trial@mailinator.com");
+  });
+
+  it("enforces a configured exact-email or domain allowlist after the disposable-domain check", () => {
+    const previous = process.env.TOKENFORGE_EMAIL_ALLOWLIST;
+    process.env.TOKENFORGE_EMAIL_ALLOWLIST = "gmail.com, approved@forge.test";
+    try {
+      expect(isPermanentEmailAddress("developer@gmail.com")).toBe(true);
+      expect(isPermanentEmailAddress("approved@forge.test")).toBe(true);
+      expect(isPermanentEmailAddress("developer@unlisted.test")).toBe(false);
+      expect(isPermanentEmailAddress("trial@mailinator.com")).toBe(false);
+    } finally {
+      if (previous === undefined) delete process.env.TOKENFORGE_EMAIL_ALLOWLIST;
+      else process.env.TOKENFORGE_EMAIL_ALLOWLIST = previous;
+    }
   });
 
   it("returns a generic unauthorized error for an incorrect password and records the failure", async () => {
@@ -179,5 +210,12 @@ describe("first-party authentication procedures", () => {
       to: new Date("2026-08-14T23:59:59.999Z"),
       limit: 25,
     });
+  });
+
+  it("returns only grouped token totals for the public live model metric", async () => {
+    vi.mocked(getPublicModelTokenMetrics).mockResolvedValue({ totalTokens: 4560, byModel: { "glm-5.2": 1234, "grok-4.5": 3326 } });
+    const { ctx } = makeContext();
+
+    await expect(appRouter.createCaller(ctx).public.modelTokenMetrics()).resolves.toEqual({ totalTokens: 4560, byModel: { "glm-5.2": 1234, "grok-4.5": 3326 } });
   });
 });

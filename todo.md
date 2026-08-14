@@ -78,3 +78,12 @@
 - [x] Source and use permissible online model imagery above each catalogue description, with appropriate attribution or licensing notes where needed.
 - [x] Test, visually verify the reset and redesigned mobile interfaces, then checkpoint the improved experience.
 - [x] Save a checkpoint covering the verified usage-data reset, mobile Profile and Usage Logs redesign, and source-attributed Models catalogue update.
+- [x] Restrict first-party registration and sign-in to an explicit production email allowlist that rejects disposable-email domains without exposing account-enumeration details.
+- [x] Add a collapsible Playground parameters panel for model-supported max output tokens, temperature, and streaming, and carry those values through the authenticated gateway safely.
+- [x] Replace the generic assistant sparkle in Playground responses with the compact TokenForge glyph while retaining accessible message labels.
+- [x] Add a Dashboard Models navigation item and compact, mobile-first internal model catalogue inspired by the provided reference without copying its branding or unavailable metrics.
+- [x] Create dedicated dashboard model-detail routes for GLM-5.2 and Grok 4.5 with truthful capabilities, TokenForge rates, request entry points, and usage information.
+- [x] Reduce the public model catalogue card footprint while preserving source imagery, model descriptions, pricing, and source attribution.
+- [x] Expose a truthful aggregate all-user token counter on the landing page, updated through bounded client refreshes and without leaking individual account data.
+- [x] Add focused tests and visual verification for authentication restrictions, Playground controls and streaming, model discovery/details, card sizing, and aggregate token display.
+- [ ] Save a final checkpoint for the verified authentication, Playground, dashboard model, public catalogue, and aggregate metric enhancements.

@@ -21,13 +21,14 @@ import {
   recordFailedPasswordLogin,
   claimDailyCheckin,
   getCreditProfile,
+  getPublicModelTokenMetrics,
   getUsageLogs,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
-import { PASSWORD_MIN_LENGTH } from "./localAuth";
+import { isPermanentEmailAddress, PASSWORD_MIN_LENGTH } from "./localAuth";
 import { runPlaygroundCompletion, TokenForgePlaygroundError, tokenForgeRequestIpHash } from "./openaiGateway";
 
 const apiKeyLabel = z
@@ -64,9 +65,15 @@ async function startLocalSession(ctx: { req: any; res: any }, user: { openId: st
 
 export const appRouter = router({
   system: systemRouter,
+  public: router({
+    modelTokenMetrics: publicProcedure.query(() => getPublicModelTokenMetrics()),
+  }),
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     register: publicProcedure.input(registrationInput).mutation(async ({ ctx, input }) => {
+      if (!isPermanentEmailAddress(input.email)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Use a permanent email address to create a TokenForge account." });
+      }
       const user = await createPasswordUser(input);
       if (!user) throw new TRPCError({ code: "CONFLICT", message: "An account already exists for this email" });
       await startLocalSession(ctx, user);
@@ -76,6 +83,13 @@ export const appRouter = router({
       const throttle = await getPasswordLoginThrottle(input.email);
       if (throttle.blocked) {
         throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: `Too many sign-in attempts. Try again in ${throttle.retryAfterSeconds} seconds.` });
+      }
+      if (!isPermanentEmailAddress(input.email)) {
+        const failedAttempt = await recordFailedPasswordLogin(input.email);
+        if (failedAttempt.blocked) {
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: `Too many sign-in attempts. Try again in ${failedAttempt.retryAfterSeconds} seconds.` });
+        }
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect email or password" });
       }
       const user = await authenticatePasswordUser(input.email, input.password);
       if (!user) {
@@ -160,10 +174,22 @@ export const appRouter = router({
       return result;
     }),
     playground: protectedProcedure
-      .input(z.object({ model: z.enum(["glm-5.2", "grok-4.5"]), messages: z.array(playgroundMessage).min(1).max(100) }))
+      .input(z.object({
+        model: z.enum(["glm-5.2", "grok-4.5"]),
+        messages: z.array(playgroundMessage).min(1).max(100),
+        maxOutputTokens: z.number().int().min(64).max(8_192).optional(),
+        temperature: z.number().min(0).max(2).optional(),
+      }))
       .mutation(async ({ ctx, input }) => {
         try {
-          return await runPlaygroundCompletion({ userId: ctx.user.id, model: input.model, messages: input.messages, sourceIpHash: tokenForgeRequestIpHash(ctx.req) });
+          return await runPlaygroundCompletion({
+            userId: ctx.user.id,
+            model: input.model,
+            messages: input.messages,
+            maxOutputTokens: input.maxOutputTokens,
+            temperature: input.temperature,
+            sourceIpHash: tokenForgeRequestIpHash(ctx.req),
+          });
         } catch (error) {
           if (error instanceof TokenForgePlaygroundError) throw playgroundTrpcError(error);
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "TokenForge could not complete this Playground request" });

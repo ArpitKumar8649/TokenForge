@@ -12,6 +12,30 @@ export const LOGIN_FAILURE_LIMIT = 5;
 export const LOGIN_FAILURE_WINDOW_MS = 15 * 60 * 1000;
 export const LOGIN_BLOCK_MS = 15 * 60 * 1000;
 
+/**
+ * A deliberately small, audited deny-list of well-known throwaway email hosts.
+ * We allow normal personal, school, and work domains rather than restricting
+ * TokenForge to a brittle list of mailbox providers.
+ */
+const DISPOSABLE_EMAIL_DOMAINS = new Set([
+  "10minutemail.com", "33mail.com", "dispostable.com", "dropmail.me",
+  "emailondeck.com", "fakemail.net", "getnada.com", "guerrillamail.com",
+  "guerrillamailblock.com", "guerrillamail.info", "guerrillamail.net",
+  "guerrillamail.org", "inboxbear.com", "maildrop.cc", "mailinator.com",
+  "mailnesia.com", "mohmal.com", "mytemp.email", "sharklasers.com",
+  "temp-mail.org", "tempail.com", "tempmail.com", "tempmail.dev",
+  "tempmailo.com", "throwawaymail.com", "trashmail.com", "yopmail.com",
+]);
+
+function configuredEmailAllowlist() {
+  return new Set(
+    (process.env.TOKENFORGE_EMAIL_ALLOWLIST ?? "")
+      .split(",")
+      .map(entry => normalizeEmail(entry))
+      .filter(Boolean),
+  );
+}
+
 export type LoginAttemptState = {
   failureCount: number;
   windowStartedAt: Date;
@@ -20,6 +44,15 @@ export type LoginAttemptState = {
 
 export function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
+}
+
+export function isPermanentEmailAddress(value: string) {
+  const email = normalizeEmail(value);
+  const domain = email.split("@")[1];
+  if (!domain) return false;
+  if (DISPOSABLE_EMAIL_DOMAINS.has(domain) || domain.includes("tempmail") || domain.includes("throwaway")) return false;
+  const allowlist = configuredEmailAllowlist();
+  return allowlist.size === 0 || allowlist.has(email) || allowlist.has(domain);
 }
 
 export async function hashPassword(password: string) {

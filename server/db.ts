@@ -453,6 +453,22 @@ export async function getUsageSummary(userId: number) {
   };
 }
 
+export async function getPublicModelTokenMetrics() {
+  const empty = { totalTokens: 0, byModel: { "glm-5.2": 0, "grok-4.5": 0 } };
+  const db = await getDb();
+  if (!db) return empty;
+  const rows = await db
+    .select({ modelId: dailyUsage.modelId, totalTokens: sql<number>`coalesce(sum(${dailyUsage.totalTokens}), 0)` })
+    .from(dailyUsage)
+    .where(sql`${dailyUsage.modelId} in ('glm-5.2', 'grok-4.5')`)
+    .groupBy(dailyUsage.modelId);
+  const byModel = { "glm-5.2": 0, "grok-4.5": 0 };
+  for (const row of rows) {
+    if (row.modelId === "glm-5.2" || row.modelId === "grok-4.5") byModel[row.modelId] = Number(row.totalTokens ?? 0);
+  }
+  return { totalTokens: byModel["glm-5.2"] + byModel["grok-4.5"], byModel };
+}
+
 export async function recordUsage(input: {
   requestId: string;
   userId: number;

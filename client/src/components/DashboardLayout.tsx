@@ -20,7 +20,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { ChartNoAxesCombined, FlaskConical, KeyRound, LayoutDashboard, LogOut, PanelLeft, Shield, UserRound } from "lucide-react";
+import { Boxes, ChartNoAxesCombined, FlaskConical, KeyRound, LayoutDashboard, LogOut, PanelLeft, Shield, UserRound } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Link } from "wouter";
@@ -32,6 +32,7 @@ import { Button } from "./ui/button";
 const menuItems = [
   { icon: LayoutDashboard, label: "Overview", path: "/dashboard" },
   { icon: FlaskConical, label: "Playground", path: "/dashboard/playground" },
+  { icon: Boxes, label: "Models", path: "/dashboard/models" },
   { icon: KeyRound, label: "API keys", path: "/dashboard/keys" },
   { icon: ChartNoAxesCombined, label: "Usage logs", path: "/dashboard/usage" },
   { icon: UserRound, label: "Profile", path: "/dashboard/profile" },
@@ -181,7 +182,7 @@ function DashboardLayoutContent({
           <SidebarContent className="gap-0">
             <SidebarMenu className="px-2 py-1">
               {menuItems.filter(item => !item.adminOnly || user?.role === "admin").map(item => {
-                const isActive = location === item.path;
+                const isActive = location === item.path || (item.path === "/dashboard/models" && location.startsWith("/dashboard/models/"));
                 return (
                   <SidebarMenuItem key={item.path}>
                     <SidebarMenuButton

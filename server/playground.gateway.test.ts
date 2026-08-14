@@ -75,6 +75,27 @@ describe("TokenForge Playground gateway", () => {
     expect(vi.mocked(recordUsage).mock.calls[0][0]).not.toHaveProperty("apiKeyId");
   });
 
+  it("forwards bounded max output and temperature only through the protected provider path", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: "Configured response" } }],
+      usage: { prompt_tokens: 8, completion_tokens: 16, total_tokens: 24 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runPlaygroundCompletion({
+      userId: 42,
+      model: "grok-4.5",
+      messages: [{ role: "user", content: "Give a concise answer." }],
+      maxOutputTokens: 2048,
+      temperature: 0.3,
+      sourceIpHash: "hashed-source-ip",
+    });
+
+    const forwardedPayload = JSON.parse(vi.mocked(fetchMock).mock.calls[0][1].body as string);
+    expect(forwardedPayload).toMatchObject({ model: "grok-4.5", stream: false, max_tokens: 2048, temperature: 0.3 });
+    expect(reserveCredit).toHaveBeenCalledWith(42, expect.any(Number), expect.stringMatching(/^tf_pg_/));
+  });
+
   it("stops before provider execution when the promotional credit reservation is denied", async () => {
     vi.mocked(reserveCredit).mockResolvedValue({ authorized: false, balanceNanos: 0 });
     const fetchMock = vi.fn();

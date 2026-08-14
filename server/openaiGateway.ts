@@ -12,6 +12,7 @@ import {
 } from "./db";
 import { raiseOperationalAlert } from "./operationalAlerts";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
+import { sdk } from "./_core/sdk";
 
 export const TOKENFORGE_CATALOGUE = [
   {
@@ -153,6 +154,8 @@ export async function runPlaygroundCompletion(input: {
   userId: number;
   model: "glm-5.2" | "grok-4.5";
   messages: TokenForgeChatMessage[];
+  maxOutputTokens?: number;
+  temperature?: number;
   sourceIpHash: string;
 }) {
   const requestId = `tf_pg_${randomUUID().replaceAll("-", "")}`;
@@ -178,7 +181,7 @@ export async function runPlaygroundCompletion(input: {
   }
 
   const estimatedInputTokens = estimateInputTokens(input.messages);
-  const reservedNanos = calculateCreditChargeNanos(input.model, estimatedInputTokens, normalizedBillableMaxOutputTokens());
+  const reservedNanos = calculateCreditChargeNanos(input.model, estimatedInputTokens, normalizedBillableMaxOutputTokens(input.maxOutputTokens));
   const reservation = await reserveCredit(input.userId, reservedNanos, requestId);
   if (!reservation.authorized) throw new TokenForgePlaygroundError("insufficient_credits", "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.");
   if (!acquireRequestSlot(input.userId, quota.maxConcurrentRequests)) {
@@ -190,7 +193,13 @@ export async function runPlaygroundCompletion(input: {
   const aborter = new AbortController();
   const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
   try {
-    const upstream = await forwardRequest({ model: input.model, messages: [playgroundPlatformGuidance(input.model), ...input.messages], stream: false }, aborter.signal);
+    const upstream = await forwardRequest({
+      model: input.model,
+      messages: [playgroundPlatformGuidance(input.model), ...input.messages],
+      stream: false,
+      ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
+      ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
+    }, aborter.signal);
     if (!upstream.ok) {
       const payload = await upstream.json().catch(() => null);
       await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request was not completed" });
@@ -225,6 +234,152 @@ export async function runPlaygroundCompletion(input: {
     clearTimeout(timeout);
     releaseRequestSlot(input.userId);
   }
+}
+
+function validPlaygroundMessages(value: unknown): value is TokenForgeChatMessage[] {
+  return Array.isArray(value) && value.length >= 1 && value.length <= 100 && value.every(message => {
+    if (!message || typeof message !== "object") return false;
+    const candidate = message as TokenForgeChatMessage;
+    return ["user", "assistant", "system"].includes(String(candidate.role))
+      && typeof candidate.content === "string"
+      && candidate.content.trim().length >= 1
+      && candidate.content.length <= 20_000;
+  });
+}
+
+async function streamPlaygroundCompletion(input: {
+  userId: number;
+  model: "glm-5.2" | "grok-4.5";
+  messages: TokenForgeChatMessage[];
+  maxOutputTokens?: number;
+  temperature?: number;
+  sourceIpHash: string;
+  req: Request;
+  res: Response;
+}) {
+  const requestId = `tf_pg_${randomUUID().replaceAll("-", "")}`;
+  if (!(await isModelAvailable(input.model))) {
+    throw new TokenForgePlaygroundError("model_unavailable", "The requested model is currently unavailable in the active TokenForge catalogue.");
+  }
+  const quota = await getQuotaStatus(input.userId);
+  if (!quota) throw new TokenForgePlaygroundError("provider_unavailable", "Quota state is temporarily unavailable. Retry shortly.");
+  if (quota.suspended) throw new TokenForgePlaygroundError("account_suspended", "This account is currently suspended.");
+
+  const recent = await getRecentRequestCounts(input.userId, input.sourceIpHash, new Date(Date.now() - RATE_WINDOW_SECONDS * 1_000));
+  if (recent.account >= ACCOUNT_RATE_LIMIT_PER_MINUTE || recent.ip >= IP_RATE_LIMIT_PER_MINUTE) {
+    void raiseOperationalAlert("rate_circuit", { userId: input.userId, requestId, reason: "Playground stream per-minute account or source-IP rate threshold exceeded" });
+    throw new TokenForgePlaygroundError("rate_limited", "Rate limit reached. Slow down briefly and retry.");
+  }
+
+  const estimatedInputTokens = estimateInputTokens(input.messages);
+  const reservedNanos = calculateCreditChargeNanos(input.model, estimatedInputTokens, normalizedBillableMaxOutputTokens(input.maxOutputTokens));
+  const reservation = await reserveCredit(input.userId, reservedNanos, requestId);
+  if (!reservation.authorized) throw new TokenForgePlaygroundError("insufficient_credits", "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.");
+  if (!acquireRequestSlot(input.userId, quota.maxConcurrentRequests)) {
+    await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Request was not started because the concurrency limit was reached" });
+    throw new TokenForgePlaygroundError("rate_limited", "This account has reached its concurrent-request limit. Wait for an active request to finish.");
+  }
+
+  const aborter = new AbortController();
+  const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
+  try {
+    const upstream = await forwardRequest({
+      model: input.model,
+      messages: [playgroundPlatformGuidance(input.model), ...input.messages],
+      stream: true,
+      ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
+      ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
+    }, aborter.signal);
+    if (!upstream.ok) {
+      const payload = await upstream.json().catch(() => null);
+      await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request was not completed" });
+      await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: "provider_error", sourceIpHash: input.sourceIpHash });
+      throw new TokenForgePlaygroundError("provider_unavailable", upstreamError(payload));
+    }
+    const reader = upstream.body?.getReader();
+    if (!reader) {
+      await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider returned an empty stream" });
+      await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: "provider_error", sourceIpHash: input.sourceIpHash });
+      throw new TokenForgePlaygroundError("provider_unavailable", "The selected provider returned an empty stream.");
+    }
+
+    input.res.status(200);
+    input.res.setHeader("x-request-id", requestId);
+    input.res.setHeader("content-type", "text/event-stream; charset=utf-8");
+    input.res.setHeader("cache-control", "no-cache, no-transform");
+    input.res.setHeader("connection", "keep-alive");
+    for (const [name, value] of Object.entries(tokenForgeRateHeaders(quota.requestLimit, quota.remainingRequests - 1))) input.res.setHeader(name, String(value));
+    input.res.flushHeaders();
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalUsage: Usage = {};
+    let streamFailed = false;
+    input.req.on("close", () => aborter.abort());
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        const value = decoder.decode(chunk.value, { stream: true });
+        buffer += value;
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          try { finalUsage = { ...finalUsage, ...usageFrom(JSON.parse(payload)) }; } catch { /* preserve upstream stream event */ }
+        }
+        input.res.write(value);
+      }
+    } catch {
+      streamFailed = true;
+    } finally {
+      clearTimeout(timeout);
+      const tokens = normalizedTokens(finalUsage, estimatedInputTokens);
+      const chargeNanos = streamFailed ? 0 : calculateCreditChargeNanos(input.model, tokens.inputTokens, tokens.outputTokens);
+      const settlement = await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos, releaseReason: streamFailed ? "Playground streaming request was cancelled" : undefined });
+      await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: streamFailed ? "cancelled" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: input.sourceIpHash });
+      input.res.write(`event: tokenforge:usage\ndata: ${JSON.stringify({ requestId, model: input.model, usage: { promptTokens: tokens.inputTokens, completionTokens: tokens.outputTokens, totalTokens: tokens.inputTokens + tokens.outputTokens }, credit: { balanceNanos: settlement.balanceNanos, chargeNanos: settlement.chargedNanos } })}\n\n`);
+      releaseRequestSlot(input.userId);
+      input.res.end();
+    }
+  } catch (error) {
+    clearTimeout(timeout);
+    releaseRequestSlot(input.userId);
+    if (error instanceof TokenForgePlaygroundError) throw error;
+    await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Playground streaming request did not complete" });
+    await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: "provider_error", sourceIpHash: input.sourceIpHash });
+    const message = error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.";
+    throw new TokenForgePlaygroundError("provider_unavailable", message);
+  }
+}
+
+export function registerPlaygroundGateway(app: Express) {
+  app.post("/api/playground/chat/completions", async (req: Request, res: Response) => {
+    const user = await sdk.authenticateRequest(req).catch(() => null);
+    const sourceIpHash = tokenForgeRequestIpHash(req);
+    if (!user) return errorResponse(res, `tf_pg_${randomUUID().replaceAll("-", "")}`, 401, "Sign in to use the TokenForge Playground.", "unauthorized");
+    const raw = (req.body ?? {}) as Record<string, unknown>;
+    const model = raw.model;
+    const maxOutputTokens = raw.maxOutputTokens;
+    const temperature = raw.temperature;
+    if ((model !== "glm-5.2" && model !== "grok-4.5") || !validPlaygroundMessages(raw.messages)
+      || (maxOutputTokens !== undefined && (!Number.isInteger(maxOutputTokens) || Number(maxOutputTokens) < 64 || Number(maxOutputTokens) > 8_192))
+      || (temperature !== undefined && (typeof temperature !== "number" || !Number.isFinite(temperature) || temperature < 0 || temperature > 2))) {
+      return errorResponse(res, `tf_pg_${randomUUID().replaceAll("-", "")}`, 400, "The Playground request parameters are invalid.", "invalid_request");
+    }
+    try {
+      await streamPlaygroundCompletion({ userId: user.id, model, messages: raw.messages, maxOutputTokens: maxOutputTokens as number | undefined, temperature: temperature as number | undefined, sourceIpHash, req, res });
+    } catch (error) {
+      if (res.headersSent) return;
+      if (error instanceof TokenForgePlaygroundError) {
+        const status = error.code === "model_not_found" ? 404 : error.code === "model_unavailable" || error.code === "provider_unavailable" ? 503 : error.code === "account_suspended" ? 403 : error.code === "insufficient_credits" ? 402 : error.code === "rate_limited" ? 429 : 400;
+        return errorResponse(res, `tf_pg_${randomUUID().replaceAll("-", "")}`, status, error.message, error.code);
+      }
+      return errorResponse(res, `tf_pg_${randomUUID().replaceAll("-", "")}`, 503, "The selected provider is temporarily unavailable.", "provider_unavailable");
+    }
+  });
 }
 
 export function registerOpenAiGateway(app: Express) {

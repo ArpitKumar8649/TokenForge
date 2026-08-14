@@ -13,8 +13,9 @@ import { toast } from "sonner";
 import "../dashboard.css";
 import Playground from "./Playground";
 import { CreditOverview, Profile, UsageLogs } from "./CreditWorkspace";
+import { DashboardModels } from "./DashboardModels";
 
-type Section = "overview" | "keys" | "usage" | "playground" | "profile";
+type Section = "overview" | "keys" | "usage" | "playground" | "profile" | "models" | "model";
 type UsageData = {
   quota?: { usedRequests: number; requestLimit: number; usedTokens: number; tokenLimit: number; maxConcurrentRequests: number; suspended: boolean; suspicious: boolean } | null;
   totalRequests: number;
@@ -78,9 +79,9 @@ function Overview({ user, loading, usage }: { user: ReturnType<typeof useAuth>["
   </>;
 }
 
-export default function DeveloperDashboard({ section = "overview" }: { section?: Section }) {
+export default function DeveloperDashboard({ section = "overview", modelId }: { section?: Section; modelId?: string }) {
   const { user, loading } = useAuth();
   const usage = trpc.developer.usage.useQuery(undefined, { enabled: Boolean(user) });
-  const content = section === "playground" ? <Playground /> : section === "keys" ? <><PageIntro eyebrow="Credentials" title="API keys" subtitle="Create, rotate, or revoke credentials without ever re-exposing a saved secret." /><ApiKeyList /></> : section === "usage" ? <><PageIntro eyebrow="Observability" title="Usage logs" subtitle="A transparent record of request source, model, tokens, and credit cost." /><UsageLogs /></> : section === "profile" ? <><PageIntro eyebrow="Account & rewards" title="Profile" subtitle="Manage your TokenForge identity and claim your daily build credit." /><Profile /></> : <Overview user={user} loading={loading} usage={usage} />;
+  const content = section === "playground" ? <Playground /> : section === "models" ? <DashboardModels /> : section === "model" ? <DashboardModels modelId={modelId} /> : section === "keys" ? <><PageIntro eyebrow="Credentials" title="API keys" subtitle="Create, rotate, or revoke credentials without ever re-exposing a saved secret." /><ApiKeyList /></> : section === "usage" ? <><PageIntro eyebrow="Observability" title="Usage logs" subtitle="A transparent record of request source, model, tokens, and credit cost." /><UsageLogs /></> : section === "profile" ? <><PageIntro eyebrow="Account & rewards" title="Profile" subtitle="Manage your TokenForge identity and claim your daily build credit." /><Profile /></> : <Overview user={user} loading={loading} usage={usage} />;
   return <DashboardLayout><div className="dashboard-page-surface"><div className="dashboard-page-content">{content}</div></div></DashboardLayout>;
 }
