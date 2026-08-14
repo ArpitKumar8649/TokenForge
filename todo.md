@@ -136,4 +136,4 @@
 - [x] After the verification is reported and approved, remove `minimax-m2-5` and `glm-5` from the active catalogue and all related product surfaces.
 - [x] Restore high-contrast landing provider-ribbon and aggregate-token metric rendering on mobile while preserving purposeful continuous motion.
 - [x] Add regression coverage and responsive validation for the reduced active catalogue and repaired landing section, then checkpoint the changes.
-- [ ] Commit the latest validated TokenForge changes and push them to the selected GitHub repository.
+- [x] Commit the latest validated TokenForge changes and push them to the selected GitHub repository.
