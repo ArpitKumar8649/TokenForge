@@ -28,6 +28,7 @@ function Router() {
       <Route path={"/signin"}>{() => <LocalAuth mode="signin" />}</Route>
       <Route path={"/signup"}>{() => <LocalAuth mode="signup" />}</Route>
       <Route path={"/dashboard"}>{() => <DeveloperDashboard section="overview" />}</Route>
+      <Route path={"/dashboard/playground"}>{() => <DeveloperDashboard section="playground" />}</Route>
       <Route path={"/dashboard/keys"}>{() => <DeveloperDashboard section="keys" />}</Route>
       <Route path={"/dashboard/usage"}>{() => <DeveloperDashboard section="usage" />}</Route>
       <Route path={"/admin"} component={AdminDashboard} />

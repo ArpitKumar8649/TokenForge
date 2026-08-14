@@ -317,7 +317,7 @@ export async function getUsageSummary(userId: number) {
 export async function recordUsage(input: {
   requestId: string;
   userId: number;
-  apiKeyId: number;
+  apiKeyId?: number;
   modelId: string;
   status: "success" | "rejected" | "provider_error" | "cancelled";
   inputTokens?: number;

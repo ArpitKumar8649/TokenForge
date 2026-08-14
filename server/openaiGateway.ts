@@ -34,9 +34,19 @@ const RATE_WINDOW_SECONDS = 60;
 const PROVIDER_TIMEOUT_MS = 110_000;
 const activeRequests = new Map<number, number>();
 
-type ChatMessage = { role?: string; content?: unknown };
+export type TokenForgeChatMessage = { role?: string; content?: unknown };
+type ChatMessage = TokenForgeChatMessage;
 type ChatInput = { model?: string; messages?: ChatMessage[]; stream?: boolean; max_tokens?: number; [key: string]: unknown };
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+
+type PlaygroundFailureCode = "model_not_found" | "model_unavailable" | "invalid_messages" | "account_suspended" | "quota_exceeded" | "rate_limited" | "provider_unavailable";
+
+export class TokenForgePlaygroundError extends Error {
+  constructor(public readonly code: PlaygroundFailureCode, message: string) {
+    super(message);
+    this.name = "TokenForgePlaygroundError";
+  }
+}
 
 function errorResponse(res: Response, requestId: string, status: number, message: string, code: string, headers?: Record<string, string | number>) {
   res.setHeader("x-request-id", requestId);
@@ -49,7 +59,7 @@ function bearer(req: Request) {
   return value?.startsWith("Bearer ") ? value.slice(7).trim() : null;
 }
 
-function requestIpHash(req: Request) {
+export function tokenForgeRequestIpHash(req: Pick<Request, "header" | "ip">) {
   const forwarded = req.header("x-forwarded-for")?.split(",")[0]?.trim();
   const ip = forwarded || req.ip || "unknown";
   return createHmac("sha256", process.env.JWT_SECRET ?? "tokenforge-local-ip-salt").update(ip).digest("hex");
@@ -120,6 +130,92 @@ function upstreamError(payload: unknown) {
   return "The selected provider could not process this request";
 }
 
+function textContentFrom(payload: unknown) {
+  if (!payload || typeof payload !== "object") return null;
+  const choices = (payload as { choices?: unknown }).choices;
+  if (!Array.isArray(choices)) return null;
+  const content = (choices[0] as { message?: { content?: unknown } } | undefined)?.message?.content;
+  return typeof content === "string" && content.trim() ? content : null;
+}
+
+/** Runs a dashboard turn through the server-side provider without exposing its credential to the browser. */
+export async function runPlaygroundCompletion(input: {
+  userId: number;
+  model: "glm-5.2" | "grok-4.5";
+  messages: TokenForgeChatMessage[];
+  sourceIpHash: string;
+}) {
+  const requestId = `tf_pg_${randomUUID().replaceAll("-", "")}`;
+  if (!MODELS.has(input.model)) throw new TokenForgePlaygroundError("model_not_found", "The requested model is not in the active TokenForge catalogue.");
+  if (!Array.isArray(input.messages) || input.messages.length === 0 || input.messages.length > 100) {
+    throw new TokenForgePlaygroundError("invalid_messages", "Send between 1 and 100 conversation messages.");
+  }
+  if (!(await isModelAvailable(input.model))) {
+    throw new TokenForgePlaygroundError("model_unavailable", "The requested model is currently unavailable in the active TokenForge catalogue.");
+  }
+
+  const quota = await getQuotaStatus(input.userId);
+  if (!quota) throw new TokenForgePlaygroundError("provider_unavailable", "Quota state is temporarily unavailable. Retry shortly.");
+  if (quota.suspended) throw new TokenForgePlaygroundError("account_suspended", "This account is currently suspended.");
+  if (quota.remainingRequests <= 0 || quota.remainingTokens <= 0) {
+    void raiseOperationalAlert("quota_exceeded", { userId: input.userId, requestId, reason: "Daily request or token quota exhausted in Playground" });
+    throw new TokenForgePlaygroundError("quota_exceeded", "Your daily TokenForge quota has been reached. Try again after the quota reset.");
+  }
+
+  const recent = await getRecentRequestCounts(input.userId, input.sourceIpHash, new Date(Date.now() - RATE_WINDOW_SECONDS * 1_000));
+  if (recent.account >= ACCOUNT_RATE_LIMIT_PER_MINUTE || recent.ip >= IP_RATE_LIMIT_PER_MINUTE) {
+    void raiseOperationalAlert("rate_circuit", { userId: input.userId, requestId, reason: "Playground per-minute account or source-IP rate threshold exceeded" });
+    if (recent.account >= ACCOUNT_RATE_LIMIT_PER_MINUTE * 2 || recent.ip >= IP_RATE_LIMIT_PER_MINUTE * 2) {
+      void raiseOperationalAlert("suspicious_usage", { userId: input.userId, requestId, reason: "Playground repeated rate-limit behavior exceeded the suspicious-usage threshold" });
+    }
+    throw new TokenForgePlaygroundError("rate_limited", "Rate limit reached. Slow down briefly and retry.");
+  }
+
+  const estimatedInputTokens = estimateInputTokens(input.messages);
+  if (estimatedInputTokens > quota.remainingTokens) {
+    void raiseOperationalAlert("quota_exceeded", { userId: input.userId, requestId, reason: "Playground input exceeds remaining daily token allowance" });
+    throw new TokenForgePlaygroundError("quota_exceeded", "This request exceeds the remaining daily token allowance.");
+  }
+  if (!acquireRequestSlot(input.userId, quota.maxConcurrentRequests)) {
+    void raiseOperationalAlert("rate_circuit", { userId: input.userId, requestId, reason: "Playground per-account concurrent-request circuit breaker triggered" });
+    throw new TokenForgePlaygroundError("rate_limited", "This account has reached its concurrent-request limit. Wait for an active request to finish.");
+  }
+
+  const aborter = new AbortController();
+  const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
+  try {
+    const upstream = await forwardRequest({ model: input.model, messages: input.messages, stream: false }, aborter.signal);
+    if (!upstream.ok) {
+      const payload = await upstream.json().catch(() => null);
+      await recordUsage({ requestId, userId: input.userId, modelId: input.model, status: "provider_error", sourceIpHash: input.sourceIpHash });
+      throw new TokenForgePlaygroundError("provider_unavailable", upstreamError(payload));
+    }
+    const payload = await upstream.json().catch(() => null);
+    const content = textContentFrom(payload);
+    if (!payload || !content) {
+      await recordUsage({ requestId, userId: input.userId, modelId: input.model, status: "provider_error", sourceIpHash: input.sourceIpHash });
+      throw new TokenForgePlaygroundError("provider_unavailable", "The selected provider returned an invalid response.");
+    }
+    const tokens = normalizedTokens(usageFrom(payload), estimatedInputTokens);
+    await recordUsage({ requestId, userId: input.userId, modelId: input.model, status: "success", ...tokens, sourceIpHash: input.sourceIpHash });
+    return {
+      requestId,
+      model: input.model,
+      content,
+      usage: { promptTokens: tokens.inputTokens, completionTokens: tokens.outputTokens, totalTokens: tokens.inputTokens + tokens.outputTokens },
+      quota: { remainingRequests: Math.max(0, quota.remainingRequests - 1), remainingTokens: Math.max(0, quota.remainingTokens - tokens.inputTokens - tokens.outputTokens) },
+    };
+  } catch (error) {
+    if (error instanceof TokenForgePlaygroundError) throw error;
+    await recordUsage({ requestId, userId: input.userId, modelId: input.model, status: "provider_error", sourceIpHash: input.sourceIpHash });
+    const message = error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.";
+    throw new TokenForgePlaygroundError("provider_unavailable", message);
+  } finally {
+    clearTimeout(timeout);
+    releaseRequestSlot(input.userId);
+  }
+}
+
 export function registerOpenAiGateway(app: Express) {
   app.get("/v1/models", (_req, res) => {
     res.setHeader("x-request-id", `tf_req_${randomUUID().replaceAll("-", "")}`);
@@ -148,7 +244,7 @@ export function registerOpenAiGateway(app: Express) {
       return errorResponse(res, requestId, 400, "messages may contain at most 100 entries.", "invalid_messages");
     }
 
-    const ipHash = requestIpHash(req);
+    const ipHash = tokenForgeRequestIpHash(req);
     const quota = await getQuotaStatus(key.userId);
     if (!quota) return errorResponse(res, requestId, 503, "Quota state is temporarily unavailable. Retry shortly.", "quota_unavailable");
     const headers = tokenForgeRateHeaders(quota.requestLimit, quota.remainingRequests);

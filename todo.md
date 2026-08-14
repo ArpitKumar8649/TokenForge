@@ -46,3 +46,6 @@
 - [x] Add session-contract coverage for protected dashboard procedure access with and without a local first-party session.
 - [x] Exercise consecutive failed sign-in attempts against a non-mocked throttle state and assert the configured boundary transitions from generic rejection to retry guidance.
 - [x] Add isolated setup and cleanup for a real `login_attempts` record so the failed-sign-in throttle boundary is verified against the persisted TokenForge data path.
+- [x] Add an authenticated dashboard Playground route with model selection limited to glm-5.2 and grok-4.5, prompt controls, response presentation, and polished loading/error/empty states.
+- [x] Route Playground requests through a server-side authenticated procedure that preserves provider credentials, enforces the user’s existing TokenForge quotas, and records usage without exposing an API key.
+- [x] Add Playground navigation and responsive dashboard styling, then cover the server-side Playground contract with Vitest and visually verify the interface before checkpointing.

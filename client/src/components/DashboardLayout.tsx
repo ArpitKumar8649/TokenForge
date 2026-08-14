@@ -20,7 +20,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { ChartNoAxesCombined, KeyRound, LayoutDashboard, LogOut, PanelLeft, Shield } from "lucide-react";
+import { ChartNoAxesCombined, FlaskConical, KeyRound, LayoutDashboard, LogOut, PanelLeft, Shield } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Link } from "wouter";
@@ -29,6 +29,7 @@ import { Button } from "./ui/button";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Overview", path: "/dashboard" },
+  { icon: FlaskConical, label: "Playground", path: "/dashboard/playground" },
   { icon: KeyRound, label: "API keys", path: "/dashboard/keys" },
   { icon: ChartNoAxesCombined, label: "Usage", path: "/dashboard/usage" },
   { icon: Shield, label: "Admin", path: "/admin", adminOnly: true },

@@ -25,6 +25,7 @@ import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { PASSWORD_MIN_LENGTH } from "./localAuth";
+import { runPlaygroundCompletion, TokenForgePlaygroundError, tokenForgeRequestIpHash } from "./openaiGateway";
 
 const apiKeyLabel = z
   .string()
@@ -38,6 +39,19 @@ const localCredentials = z.object({
 });
 const registrationInput = localCredentials.extend({ name: z.string().trim().min(1).max(120).optional() });
 const LOCAL_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const playgroundMessage = z.object({
+  role: z.enum(["user", "assistant", "system"]),
+  content: z.string().trim().min(1, "Message content cannot be empty").max(20_000, "Each message must be 20,000 characters or fewer"),
+});
+
+function playgroundTrpcError(error: TokenForgePlaygroundError) {
+  const code = error.code === "model_not_found" ? "NOT_FOUND"
+    : error.code === "model_unavailable" || error.code === "provider_unavailable" ? "SERVICE_UNAVAILABLE"
+      : error.code === "invalid_messages" ? "BAD_REQUEST"
+        : error.code === "account_suspended" ? "FORBIDDEN"
+          : "TOO_MANY_REQUESTS";
+  return new TRPCError({ code, message: error.message });
+}
 
 async function startLocalSession(ctx: { req: any; res: any }, user: { openId: string; name: string | null }) {
   const token = await sdk.createSessionToken(user.openId, { expiresInMs: LOCAL_SESSION_MAX_AGE_MS, name: user.name ?? "TokenForge developer" });
@@ -107,6 +121,16 @@ export const appRouter = router({
       return quota;
     }),
     usage: protectedProcedure.query(async ({ ctx }) => getUsageSummary(ctx.user.id)),
+    playground: protectedProcedure
+      .input(z.object({ model: z.enum(["glm-5.2", "grok-4.5"]), messages: z.array(playgroundMessage).min(1).max(100) }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await runPlaygroundCompletion({ userId: ctx.user.id, model: input.model, messages: input.messages, sourceIpHash: tokenForgeRequestIpHash(ctx.req) });
+        } catch (error) {
+          if (error instanceof TokenForgePlaygroundError) throw playgroundTrpcError(error);
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "TokenForge could not complete this Playground request" });
+        }
+      }),
   }),
   admin: router({
     overview: adminProcedure.query(() => getAdminOverview()),
