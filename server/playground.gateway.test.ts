@@ -6,12 +6,14 @@ vi.mock("./db", () => ({
   getRecentRequestCounts: vi.fn(),
   isModelAvailable: vi.fn(),
   recordUsage: vi.fn(),
+  reserveCredit: vi.fn(),
+  settleReservedCredit: vi.fn(),
   touchApiKey: vi.fn(),
 }));
 
 vi.mock("./operationalAlerts", () => ({ raiseOperationalAlert: vi.fn() }));
 
-import { getQuotaStatus, getRecentRequestCounts, isModelAvailable, recordUsage } from "./db";
+import { getQuotaStatus, getRecentRequestCounts, isModelAvailable, recordUsage, reserveCredit, settleReservedCredit } from "./db";
 import { raiseOperationalAlert } from "./operationalAlerts";
 import { runPlaygroundCompletion, TokenForgePlaygroundError } from "./openaiGateway";
 
@@ -36,6 +38,8 @@ beforeEach(() => {
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
   vi.mocked(getRecentRequestCounts).mockResolvedValue({ account: 0, ip: 0 });
   vi.mocked(recordUsage).mockResolvedValue(undefined);
+  vi.mocked(reserveCredit).mockResolvedValue({ authorized: true, balanceNanos: 49_990_000_000 });
+  vi.mocked(settleReservedCredit).mockResolvedValue({ chargedNanos: 96_000, balanceNanos: 49_999_904_000 });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -55,7 +59,7 @@ describe("TokenForge Playground gateway", () => {
       sourceIpHash: "hashed-source-ip",
     });
 
-    expect(result).toMatchObject({ model: "glm-5.2", usage: { totalTokens: 30 }, quota: { remainingRequests: 97, remainingTokens: 99_930 } });
+    expect(result).toMatchObject({ model: "glm-5.2", usage: { totalTokens: 30 }, credit: { chargeNanos: 96_000, balanceNanos: 49_999_904_000 } });
     expect(fetchMock).toHaveBeenCalledWith("https://provider.example/v1/chat/completions", expect.objectContaining({
       headers: expect.objectContaining({ Authorization: "Bearer server-only-provider-secret" }),
       body: expect.stringContaining('"model":"glm-5.2"'),
@@ -65,12 +69,14 @@ describe("TokenForge Playground gateway", () => {
     expect(forwardedPayload.messages[0].content).toContain("selected TokenForge model: glm-5.2");
     expect(forwardedPayload.messages[0].content).toContain("do not claim to be Google Gemini");
     expect(forwardedPayload.messages[0].content).toContain("Do not invent a knowledge cutoff");
-    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, modelId: "glm-5.2", status: "success", inputTokens: 12, outputTokens: 18, sourceIpHash: "hashed-source-ip" }));
+    expect(reserveCredit).toHaveBeenCalledWith(42, expect.any(Number), expect.stringMatching(/^tf_pg_/));
+    expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 96_000 }));
+    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, modelId: "glm-5.2", status: "success", inputTokens: 12, outputTokens: 18, chargeNanos: 96_000, sourceIpHash: "hashed-source-ip" }));
     expect(vi.mocked(recordUsage).mock.calls[0][0]).not.toHaveProperty("apiKeyId");
   });
 
-  it("stops before provider execution when the account quota is exhausted", async () => {
-    vi.mocked(getQuotaStatus).mockResolvedValue({ ...availableQuota, remainingRequests: 0 });
+  it("stops before provider execution when the promotional credit reservation is denied", async () => {
+    vi.mocked(reserveCredit).mockResolvedValue({ authorized: false, balanceNanos: 0 });
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
@@ -79,9 +85,9 @@ describe("TokenForge Playground gateway", () => {
       model: "grok-4.5",
       messages: [{ role: "user", content: "Hello" }],
       sourceIpHash: "hashed-source-ip",
-    })).rejects.toMatchObject<TokenForgePlaygroundError>({ code: "quota_exceeded" });
+    })).rejects.toMatchObject<TokenForgePlaygroundError>({ code: "insufficient_credits" });
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(raiseOperationalAlert).toHaveBeenCalledWith("quota_exceeded", expect.objectContaining({ userId: 42 }));
+    expect(settleReservedCredit).not.toHaveBeenCalled();
   });
 });

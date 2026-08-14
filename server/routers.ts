@@ -19,6 +19,9 @@ import {
   createPasswordUser,
   getPasswordLoginThrottle,
   recordFailedPasswordLogin,
+  claimDailyCheckin,
+  getCreditProfile,
+  getUsageLogs,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -47,8 +50,9 @@ const playgroundMessage = z.object({
 function playgroundTrpcError(error: TokenForgePlaygroundError) {
   const code = error.code === "model_not_found" ? "NOT_FOUND"
     : error.code === "model_unavailable" || error.code === "provider_unavailable" ? "SERVICE_UNAVAILABLE"
-      : error.code === "invalid_messages" ? "BAD_REQUEST"
-        : error.code === "account_suspended" ? "FORBIDDEN"
+        : error.code === "invalid_messages" ? "BAD_REQUEST"
+          : error.code === "account_suspended" ? "FORBIDDEN"
+            : error.code === "insufficient_credits" ? "PAYMENT_REQUIRED"
           : "TOO_MANY_REQUESTS";
   return new TRPCError({ code, message: error.message });
 }
@@ -121,6 +125,40 @@ export const appRouter = router({
       return quota;
     }),
     usage: protectedProcedure.query(async ({ ctx }) => getUsageSummary(ctx.user.id)),
+    usageLogs: protectedProcedure
+      .input(z.object({
+        modelId: z.enum(["glm-5.2", "grok-4.5"]).optional(),
+        source: z.enum(["api", "playground"]).optional(),
+        from: z.string().datetime().optional(),
+        to: z.string().datetime().optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+      }).optional())
+      .query(({ ctx, input }) => getUsageLogs({
+        userId: ctx.user.id,
+        modelId: input?.modelId,
+        source: input?.source,
+        from: input?.from ? new Date(input.from) : undefined,
+        to: input?.to ? new Date(input.to) : undefined,
+        limit: input?.limit,
+      })),
+    wallet: protectedProcedure.query(async ({ ctx }) => {
+      const wallet = await getCreditProfile(ctx.user.id);
+      if (!wallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Credit balance is temporarily unavailable" });
+      return wallet;
+    }),
+    profile: protectedProcedure.query(({ ctx }) => ({
+      id: ctx.user.id,
+      name: ctx.user.name,
+      email: ctx.user.email,
+      role: ctx.user.role,
+      createdAt: ctx.user.createdAt,
+      lastSignedIn: ctx.user.lastSignedIn,
+      loginMethod: ctx.user.loginMethod,
+    })),
+    checkIn: protectedProcedure.mutation(async ({ ctx }) => {
+      const result = await claimDailyCheckin(ctx.user.id);
+      return result;
+    }),
     playground: protectedProcedure
       .input(z.object({ model: z.enum(["glm-5.2", "grok-4.5"]), messages: z.array(playgroundMessage).min(1).max(100) }))
       .mutation(async ({ ctx, input }) => {

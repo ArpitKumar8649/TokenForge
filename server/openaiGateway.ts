@@ -6,9 +6,12 @@ import {
   getRecentRequestCounts,
   isModelAvailable,
   recordUsage,
+  reserveCredit,
+  settleReservedCredit,
   touchApiKey,
 } from "./db";
 import { raiseOperationalAlert } from "./operationalAlerts";
+import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
 
 export const TOKENFORGE_CATALOGUE = [
   {
@@ -46,7 +49,7 @@ function playgroundPlatformGuidance(model: "glm-5.2" | "grok-4.5"): TokenForgeCh
   };
 }
 
-type PlaygroundFailureCode = "model_not_found" | "model_unavailable" | "invalid_messages" | "account_suspended" | "quota_exceeded" | "rate_limited" | "provider_unavailable";
+type PlaygroundFailureCode = "model_not_found" | "model_unavailable" | "invalid_messages" | "account_suspended" | "quota_exceeded" | "insufficient_credits" | "rate_limited" | "provider_unavailable";
 
 export class TokenForgePlaygroundError extends Error {
   constructor(public readonly code: PlaygroundFailureCode, message: string) {
@@ -164,10 +167,6 @@ export async function runPlaygroundCompletion(input: {
   const quota = await getQuotaStatus(input.userId);
   if (!quota) throw new TokenForgePlaygroundError("provider_unavailable", "Quota state is temporarily unavailable. Retry shortly.");
   if (quota.suspended) throw new TokenForgePlaygroundError("account_suspended", "This account is currently suspended.");
-  if (quota.remainingRequests <= 0 || quota.remainingTokens <= 0) {
-    void raiseOperationalAlert("quota_exceeded", { userId: input.userId, requestId, reason: "Daily request or token quota exhausted in Playground" });
-    throw new TokenForgePlaygroundError("quota_exceeded", "Your daily TokenForge quota has been reached. Try again after the quota reset.");
-  }
 
   const recent = await getRecentRequestCounts(input.userId, input.sourceIpHash, new Date(Date.now() - RATE_WINDOW_SECONDS * 1_000));
   if (recent.account >= ACCOUNT_RATE_LIMIT_PER_MINUTE || recent.ip >= IP_RATE_LIMIT_PER_MINUTE) {
@@ -179,11 +178,11 @@ export async function runPlaygroundCompletion(input: {
   }
 
   const estimatedInputTokens = estimateInputTokens(input.messages);
-  if (estimatedInputTokens > quota.remainingTokens) {
-    void raiseOperationalAlert("quota_exceeded", { userId: input.userId, requestId, reason: "Playground input exceeds remaining daily token allowance" });
-    throw new TokenForgePlaygroundError("quota_exceeded", "This request exceeds the remaining daily token allowance.");
-  }
+  const reservedNanos = calculateCreditChargeNanos(input.model, estimatedInputTokens, normalizedBillableMaxOutputTokens());
+  const reservation = await reserveCredit(input.userId, reservedNanos, requestId);
+  if (!reservation.authorized) throw new TokenForgePlaygroundError("insufficient_credits", "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.");
   if (!acquireRequestSlot(input.userId, quota.maxConcurrentRequests)) {
+    await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Request was not started because the concurrency limit was reached" });
     void raiseOperationalAlert("rate_circuit", { userId: input.userId, requestId, reason: "Playground per-account concurrent-request circuit breaker triggered" });
     throw new TokenForgePlaygroundError("rate_limited", "This account has reached its concurrent-request limit. Wait for an active request to finish.");
   }
@@ -194,27 +193,32 @@ export async function runPlaygroundCompletion(input: {
     const upstream = await forwardRequest({ model: input.model, messages: [playgroundPlatformGuidance(input.model), ...input.messages], stream: false }, aborter.signal);
     if (!upstream.ok) {
       const payload = await upstream.json().catch(() => null);
-      await recordUsage({ requestId, userId: input.userId, modelId: input.model, status: "provider_error", sourceIpHash: input.sourceIpHash });
+      await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request was not completed" });
+      await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "provider_error", sourceIpHash: input.sourceIpHash });
       throw new TokenForgePlaygroundError("provider_unavailable", upstreamError(payload));
     }
     const payload = await upstream.json().catch(() => null);
     const content = textContentFrom(payload);
     if (!payload || !content) {
-      await recordUsage({ requestId, userId: input.userId, modelId: input.model, status: "provider_error", sourceIpHash: input.sourceIpHash });
+      await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider response was invalid" });
+      await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "provider_error", sourceIpHash: input.sourceIpHash });
       throw new TokenForgePlaygroundError("provider_unavailable", "The selected provider returned an invalid response.");
     }
     const tokens = normalizedTokens(usageFrom(payload), estimatedInputTokens);
-    await recordUsage({ requestId, userId: input.userId, modelId: input.model, status: "success", ...tokens, sourceIpHash: input.sourceIpHash });
+    const chargeNanos = calculateCreditChargeNanos(input.model, tokens.inputTokens, tokens.outputTokens);
+    const settlement = await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos });
+    await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: input.sourceIpHash });
     return {
       requestId,
       model: input.model,
       content,
       usage: { promptTokens: tokens.inputTokens, completionTokens: tokens.outputTokens, totalTokens: tokens.inputTokens + tokens.outputTokens },
-      quota: { remainingRequests: Math.max(0, quota.remainingRequests - 1), remainingTokens: Math.max(0, quota.remainingTokens - tokens.inputTokens - tokens.outputTokens) },
+      credit: { balanceNanos: settlement.balanceNanos, chargeNanos: settlement.chargedNanos },
     };
   } catch (error) {
     if (error instanceof TokenForgePlaygroundError) throw error;
-    await recordUsage({ requestId, userId: input.userId, modelId: input.model, status: "provider_error", sourceIpHash: input.sourceIpHash });
+    await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request did not complete" });
+    await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "provider_error", sourceIpHash: input.sourceIpHash });
     const message = error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.";
     throw new TokenForgePlaygroundError("provider_unavailable", message);
   } finally {
@@ -254,12 +258,8 @@ export function registerOpenAiGateway(app: Express) {
     const ipHash = tokenForgeRequestIpHash(req);
     const quota = await getQuotaStatus(key.userId);
     if (!quota) return errorResponse(res, requestId, 503, "Quota state is temporarily unavailable. Retry shortly.", "quota_unavailable");
-    const headers = tokenForgeRateHeaders(quota.requestLimit, quota.remainingRequests);
+    const headers = tokenForgeRateHeaders(ACCOUNT_RATE_LIMIT_PER_MINUTE, ACCOUNT_RATE_LIMIT_PER_MINUTE);
     if (quota.suspended) return errorResponse(res, requestId, 403, "This account is currently suspended.", "account_suspended", headers);
-    if (quota.remainingRequests <= 0 || quota.remainingTokens <= 0) {
-      void raiseOperationalAlert("quota_exceeded", { userId: key.userId, requestId, reason: "Daily request or token quota exhausted" });
-      return errorResponse(res, requestId, 429, "Your daily TokenForge quota has been reached. Try again after the quota reset.", "quota_exceeded", { ...headers, "retry-after": 86_400 });
-    }
 
     const recent = await getRecentRequestCounts(key.userId, ipHash, new Date(Date.now() - RATE_WINDOW_SECONDS * 1_000));
     if (recent.account >= ACCOUNT_RATE_LIMIT_PER_MINUTE || recent.ip >= IP_RATE_LIMIT_PER_MINUTE) {
@@ -269,12 +269,12 @@ export function registerOpenAiGateway(app: Express) {
     }
 
     const estimatedInputTokens = estimateInputTokens(input.messages);
-    if (estimatedInputTokens > quota.remainingTokens) {
-      void raiseOperationalAlert("quota_exceeded", { userId: key.userId, requestId, reason: "Request input exceeds remaining daily token allowance" });
-      return errorResponse(res, requestId, 429, "This request exceeds the remaining daily token allowance.", "quota_exceeded", { ...headers, "retry-after": 86_400 });
-    }
+    const reservedNanos = calculateCreditChargeNanos(input.model as "glm-5.2" | "grok-4.5", estimatedInputTokens, normalizedBillableMaxOutputTokens(input.max_tokens));
+    const reservation = await reserveCredit(key.userId, reservedNanos, requestId);
+    if (!reservation.authorized) return errorResponse(res, requestId, 402, "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.", "insufficient_credits", headers);
 
     if (!acquireRequestSlot(key.userId, quota.maxConcurrentRequests)) {
+      await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Request was not started because the concurrency limit was reached" });
       void raiseOperationalAlert("rate_circuit", { userId: key.userId, requestId, reason: "Per-account concurrent-request circuit breaker triggered" });
       return errorResponse(res, requestId, 429, "This account has reached its concurrent-request limit. Wait for an active request to finish.", "rate_limited", { ...headers, "retry-after": 5 });
     }
@@ -287,7 +287,8 @@ export function registerOpenAiGateway(app: Express) {
     } catch (error) {
       clearTimeout(timeout);
       releaseRequestSlot(key.userId);
-      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, status: "provider_error", sourceIpHash: ipHash });
+      await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request did not complete" });
+      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
       const message = error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.";
       return errorResponse(res, requestId, 503, message, "provider_unavailable", headers);
     }
@@ -296,7 +297,8 @@ export function registerOpenAiGateway(app: Express) {
       clearTimeout(timeout);
       releaseRequestSlot(key.userId);
       const payload = await upstream.json().catch(() => null);
-      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, status: "provider_error", sourceIpHash: ipHash });
+      await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request was not completed" });
+      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
       return errorResponse(res, requestId, upstream.status >= 500 ? 503 : upstream.status, upstreamError(payload), "provider_unavailable", headers);
     }
 
@@ -306,13 +308,18 @@ export function registerOpenAiGateway(app: Express) {
       const payload = await upstream.json().catch(() => null);
       if (!payload) {
         releaseRequestSlot(key.userId);
-        await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, status: "provider_error", sourceIpHash: ipHash });
+        await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider response was invalid" });
+        await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash });
         return errorResponse(res, requestId, 503, "The selected provider returned an invalid response.", "provider_unavailable", headers);
       }
       const tokens = normalizedTokens(usageFrom(payload), estimatedInputTokens);
-      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, status: "success", ...tokens, sourceIpHash: ipHash });
+      const chargeNanos = calculateCreditChargeNanos(input.model as "glm-5.2" | "grok-4.5", tokens.inputTokens, tokens.outputTokens);
+      const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos });
+      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: false, status: "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
       releaseRequestSlot(key.userId);
       res.setHeader("x-request-id", requestId);
+      res.setHeader("x-tokenforge-credit-balance", String(settlement.balanceNanos));
+      res.setHeader("x-tokenforge-credit-charge", String(settlement.chargedNanos));
       for (const [name, value] of Object.entries(tokenForgeRateHeaders(quota.requestLimit, quota.remainingRequests - 1))) res.setHeader(name, String(value));
       return res.status(200).json(payload);
     }
@@ -329,6 +336,7 @@ export function registerOpenAiGateway(app: Express) {
     if (!reader) {
       clearTimeout(timeout);
       releaseRequestSlot(key.userId);
+      await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider returned an empty stream" });
       return errorResponse(res, requestId, 503, "The selected provider returned an empty stream.", "provider_unavailable", headers);
     }
 
@@ -358,7 +366,9 @@ export function registerOpenAiGateway(app: Express) {
     } finally {
       clearTimeout(timeout);
       const tokens = normalizedTokens(finalUsage, estimatedInputTokens);
-      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, status: streamFailed ? "cancelled" : "success", ...tokens, sourceIpHash: ipHash });
+      const chargeNanos = streamFailed ? 0 : calculateCreditChargeNanos(input.model as "glm-5.2" | "grok-4.5", tokens.inputTokens, tokens.outputTokens);
+      const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos, releaseReason: streamFailed ? "Streaming request was cancelled" : undefined });
+      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: true, status: streamFailed ? "cancelled" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
       releaseRequestSlot(key.userId);
       res.end();
     }

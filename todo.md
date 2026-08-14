@@ -63,3 +63,12 @@
 - [x] Add licensed or generated model-specific visual backdrops for GLM-5.2 and Grok 4.5 catalogue cards without implying provider endorsement.
 - [x] Test, visually verify desktop and mobile public/dashboard/model surfaces, and checkpoint the unified interface update.
 - [x] Save a checkpoint preserving the verified unified TokenForge branding, navigation, dashboard shell, and model catalogue update.
+- [x] Research and document a verifiable pricing basis for GLM-5.2 and Grok 4.5 before enabling any TokenForge cost calculations.
+- [x] Add secure account credit balances, immutable credit-ledger entries, a $50 introductory balance for new accounts, and balance safeguards for gateway requests.
+- [x] Replace the basic usage panel with a filterable detailed request-log workspace that shows date, source, model, stream mode, input/output tokens, and the calculated credit charge without inventing log data.
+- [x] Add an authenticated Profile and Wallet area with credit visibility, activity history, and a server-enforced once-per-day calendar check-in reward of $5 credit.
+- [x] Add test coverage for credit grants, debit calculations, low-balance rejection, usage logs, and daily check-in idempotency; visually verify responsive screens and checkpoint the feature.
+- [x] Ensure Usage Logs and Profile show explicit loading and error states rather than presenting uninitialized wallet data as a zero balance or completed check-in.
+- [x] Add focused Vitest coverage for the authenticated usageLogs contract, including filters and returned charge, source, and stream metadata.
+- [x] Save a new checkpoint after the completed credit, request-log, and Profile feature set passes final validation.
+- [x] Save the verified credit wallet, detailed request-log, Profile, and daily check-in feature set after the latest passing tests.

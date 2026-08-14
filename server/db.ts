@@ -1,10 +1,13 @@
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createHmac, randomBytes } from "node:crypto";
 import {
   accountControls,
   accountFlags,
   apiKeys,
+  creditAccounts,
+  creditLedger,
+  dailyCheckins,
   dailyUsage,
   InsertUser,
   usageEvents,
@@ -16,12 +19,14 @@ import {
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { hashPassword, normalizeEmail, nextFailedLoginState, retryAfterSeconds, verifyPassword } from "./localAuth";
+import { DAILY_CHECKIN_CREDIT_NANOS, INTRODUCTORY_CREDIT_NANOS } from "./creditPricing";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
 export const DEFAULT_DAILY_REQUEST_LIMIT = 100;
 export const DEFAULT_DAILY_TOKEN_LIMIT = 100_000;
 export const DEFAULT_MAX_CONCURRENT_REQUESTS = 2;
+const INTRODUCTORY_CREDIT_REFERENCE = "introductory-credit-v1";
 
 export type ApiKeyRecord = typeof apiKeys.$inferSelect;
 
@@ -32,6 +37,140 @@ const CATALOGUE_DEFINITIONS = [
 
 export function utcUsageDate(value = new Date()) {
   return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+}
+
+function utcCalendarKey(value = new Date()) {
+  return value.toISOString().slice(0, 10);
+}
+
+export async function ensureCreditAccount(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const existing = (await db.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).limit(1))[0];
+  if (existing) return existing;
+  try {
+    return await db.transaction(async tx => {
+      const again = (await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).limit(1))[0];
+      if (again) return again;
+      await tx.insert(creditAccounts).values({ userId, balanceNanos: INTRODUCTORY_CREDIT_NANOS });
+      await tx.insert(creditLedger).values({
+        userId,
+        kind: "introductory_grant",
+        amountNanos: INTRODUCTORY_CREDIT_NANOS,
+        balanceAfterNanos: INTRODUCTORY_CREDIT_NANOS,
+        referenceId: INTRODUCTORY_CREDIT_REFERENCE,
+        note: "Welcome promotional credit",
+      });
+      return (await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).limit(1))[0] ?? null;
+    });
+  } catch (error: any) {
+    if (error?.code !== "ER_DUP_ENTRY") throw error;
+    return (await db.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).limit(1))[0] ?? null;
+  }
+}
+
+export async function reserveCredit(userId: number, amountNanos: number, requestId: string) {
+  const db = await getDb();
+  if (!db) return { authorized: false, balanceNanos: 0 };
+  const account = await ensureCreditAccount(userId);
+  if (!account) return { authorized: false, balanceNanos: 0 };
+  const amount = Math.max(0, Math.trunc(amountNanos));
+  if (amount === 0) return { authorized: true, balanceNanos: account.balanceNanos };
+  return db.transaction(async tx => {
+    const result = await tx.update(creditAccounts)
+      .set({ balanceNanos: sql`${creditAccounts.balanceNanos} - ${amount}` })
+      .where(and(eq(creditAccounts.userId, userId), gte(creditAccounts.balanceNanos, amount)));
+    if (!result[0].affectedRows) {
+      const latest = (await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).limit(1))[0];
+      return { authorized: false, balanceNanos: latest?.balanceNanos ?? 0 };
+    }
+    const latest = (await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).limit(1))[0];
+    const balanceNanos = latest?.balanceNanos ?? 0;
+    await tx.insert(creditLedger).values({
+      userId,
+      kind: "usage_debit",
+      amountNanos: -amount,
+      balanceAfterNanos: balanceNanos,
+      referenceId: `reservation:${requestId}`,
+      note: "Reserved for an inference request",
+    });
+    return { authorized: true, balanceNanos };
+  });
+}
+
+export async function settleReservedCredit(input: { userId: number; requestId: string; reservedNanos: number; finalChargeNanos: number; releaseReason?: string }) {
+  const db = await getDb();
+  if (!db) return { balanceNanos: 0, chargedNanos: 0 };
+  const reserved = Math.max(0, Math.trunc(input.reservedNanos));
+  const chargedNanos = Math.min(reserved, Math.max(0, Math.trunc(input.finalChargeNanos)));
+  const refund = reserved - chargedNanos;
+  if (refund === 0) {
+    const account = await ensureCreditAccount(input.userId);
+    return { balanceNanos: account?.balanceNanos ?? 0, chargedNanos };
+  }
+  return db.transaction(async tx => {
+    await tx.update(creditAccounts).set({ balanceNanos: sql`${creditAccounts.balanceNanos} + ${refund}` }).where(eq(creditAccounts.userId, input.userId));
+    const account = (await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, input.userId)).limit(1))[0];
+    const balanceNanos = account?.balanceNanos ?? 0;
+    await tx.insert(creditLedger).values({
+      userId: input.userId,
+      kind: "manual_adjustment",
+      amountNanos: refund,
+      balanceAfterNanos: balanceNanos,
+      referenceId: `settlement:${input.requestId}`,
+      note: input.releaseReason ?? "Unused reservation returned after metered completion",
+    });
+    return { balanceNanos, chargedNanos };
+  });
+}
+
+export async function getCreditProfile(userId: number, now = new Date()) {
+  const db = await getDb();
+  if (!db) return null;
+  const account = await ensureCreditAccount(userId);
+  if (!account) return null;
+  const today = utcUsageDate(now);
+  const [ledger, checkins, todayCheckin] = await Promise.all([
+    db.select().from(creditLedger).where(eq(creditLedger.userId, userId)).orderBy(desc(creditLedger.createdAt)).limit(50),
+    db.select().from(dailyCheckins).where(and(eq(dailyCheckins.userId, userId), gte(dailyCheckins.checkinDate, utcUsageDate(new Date(now.getTime() - 41 * 86_400_000))))).orderBy(desc(dailyCheckins.checkinDate)),
+    db.select({ id: dailyCheckins.id }).from(dailyCheckins).where(and(eq(dailyCheckins.userId, userId), eq(dailyCheckins.checkinDate, today))).limit(1),
+  ]);
+  return {
+    balanceNanos: account.balanceNanos,
+    canCheckIn: !todayCheckin[0],
+    today: utcCalendarKey(now),
+    ledger,
+    checkins: checkins.map(entry => ({ ...entry, day: utcCalendarKey(new Date(entry.checkinDate)) })),
+  };
+}
+
+export async function claimDailyCheckin(userId: number, now = new Date()) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  await ensureCreditAccount(userId);
+  const checkinDate = utcUsageDate(now);
+  const referenceId = `checkin:${utcCalendarKey(now)}`;
+  try {
+    return await db.transaction(async tx => {
+      const already = (await tx.select({ id: dailyCheckins.id }).from(dailyCheckins).where(and(eq(dailyCheckins.userId, userId), eq(dailyCheckins.checkinDate, checkinDate))).limit(1))[0];
+      if (already) return { claimed: false, rewardNanos: 0 };
+      await tx.insert(dailyCheckins).values({ userId, checkinDate, rewardNanos: DAILY_CHECKIN_CREDIT_NANOS });
+      await tx.update(creditAccounts).set({ balanceNanos: sql`${creditAccounts.balanceNanos} + ${DAILY_CHECKIN_CREDIT_NANOS}` }).where(eq(creditAccounts.userId, userId));
+      const account = (await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).limit(1))[0];
+      await tx.insert(creditLedger).values({
+        userId,
+        kind: "daily_checkin",
+        amountNanos: DAILY_CHECKIN_CREDIT_NANOS,
+        balanceAfterNanos: account?.balanceNanos ?? DAILY_CHECKIN_CREDIT_NANOS,
+        referenceId,
+        note: "UTC daily check-in reward",
+      });
+      return { claimed: true, rewardNanos: DAILY_CHECKIN_CREDIT_NANOS };
+    });
+  } catch (error: any) {
+    if (error?.code === "ER_DUP_ENTRY") return { claimed: false, rewardNanos: 0 };
+    throw error;
+  }
 }
 
 export function hashApiKey(plainTextKey: string) {
@@ -123,7 +262,7 @@ export async function createPasswordUser(input: { email: string; password: strin
       await tx.insert(passwordCredentials).values({ userId: createdUserId, passwordHash });
       return createdUserId;
     });
-    await ensureAccountControl(userId);
+    await Promise.all([ensureAccountControl(userId), ensureCreditAccount(userId)]);
     return getUserByOpenId(openId);
   } catch (error: any) {
     if (error?.code === "ER_DUP_ENTRY") return null;
@@ -320,8 +459,11 @@ export async function recordUsage(input: {
   apiKeyId?: number;
   modelId: string;
   status: "success" | "rejected" | "provider_error" | "cancelled";
+  source?: "api" | "playground";
+  stream?: boolean;
   inputTokens?: number;
   outputTokens?: number;
+  chargeNanos?: number;
   sourceIpHash?: string;
 }) {
   const db = await getDb();
@@ -329,8 +471,9 @@ export async function recordUsage(input: {
   const inputTokens = input.inputTokens ?? 0;
   const outputTokens = input.outputTokens ?? 0;
   const totalTokens = inputTokens + outputTokens;
+  const chargeNanos = input.chargeNanos ?? 0;
   const day = utcUsageDate();
-  await db.insert(usageEvents).values({ ...input, inputTokens, outputTokens, totalTokens });
+  await db.insert(usageEvents).values({ ...input, inputTokens, outputTokens, totalTokens, chargeNanos });
   await db
     .insert(dailyUsage)
     .values({ userId: input.userId, apiKeyId: input.apiKeyId, usageDate: day, modelId: input.modelId, requestCount: 1, inputTokens, outputTokens, totalTokens })
@@ -343,6 +486,36 @@ export async function recordUsage(input: {
         updatedAt: new Date(),
       },
     });
+}
+
+export async function getUsageLogs(input: { userId: number; modelId?: "glm-5.2" | "grok-4.5"; source?: "api" | "playground"; from?: Date; to?: Date; limit?: number }) {
+  const db = await getDb();
+  if (!db) return [];
+  const conditions = [eq(usageEvents.userId, input.userId)];
+  if (input.modelId) conditions.push(eq(usageEvents.modelId, input.modelId));
+  if (input.source) conditions.push(eq(usageEvents.source, input.source));
+  if (input.from) conditions.push(gte(usageEvents.createdAt, input.from));
+  if (input.to) conditions.push(lte(usageEvents.createdAt, input.to));
+  return db
+    .select({
+      id: usageEvents.id,
+      requestId: usageEvents.requestId,
+      createdAt: usageEvents.createdAt,
+      source: usageEvents.source,
+      stream: usageEvents.stream,
+      status: usageEvents.status,
+      modelId: usageEvents.modelId,
+      inputTokens: usageEvents.inputTokens,
+      outputTokens: usageEvents.outputTokens,
+      totalTokens: usageEvents.totalTokens,
+      chargeNanos: usageEvents.chargeNanos,
+      apiKeyLabel: apiKeys.label,
+    })
+    .from(usageEvents)
+    .leftJoin(apiKeys, eq(usageEvents.apiKeyId, apiKeys.id))
+    .where(and(...conditions))
+    .orderBy(desc(usageEvents.createdAt))
+    .limit(Math.min(100, Math.max(1, input.limit ?? 50)));
 }
 
 export async function getRecentRequestCounts(userId: number, sourceIpHash: string, since: Date) {

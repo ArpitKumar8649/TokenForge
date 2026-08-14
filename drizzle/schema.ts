@@ -110,9 +110,12 @@ export const usageEvents = mysqlTable(
     apiKeyId: bigint("apiKeyId", { mode: "number" }).references(() => apiKeys.id, { onDelete: "set null" }),
     modelId: varchar("modelId", { length: 128 }).notNull(),
     status: mysqlEnum("status", ["success", "rejected", "provider_error", "cancelled"]).notNull(),
+    source: mysqlEnum("source", ["api", "playground"]).default("api").notNull(),
+    stream: boolean("stream").default(false).notNull(),
     inputTokens: int("inputTokens").default(0).notNull(),
     outputTokens: int("outputTokens").default(0).notNull(),
     totalTokens: int("totalTokens").default(0).notNull(),
+    chargeNanos: bigint("chargeNanos", { mode: "number" }).default(0).notNull(),
     sourceIpHash: varchar("sourceIpHash", { length: 128 }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
@@ -120,6 +123,55 @@ export const usageEvents = mysqlTable(
     index("usage_events_user_time_idx").on(table.userId, table.createdAt),
     index("usage_events_key_time_idx").on(table.apiKeyId, table.createdAt),
     index("usage_events_model_time_idx").on(table.modelId, table.createdAt),
+    index("usage_events_user_status_time_idx").on(table.userId, table.status, table.createdAt),
+  ],
+);
+
+/** A non-withdrawable promotional balance, stored in nanodollars to avoid fractional-cent rounding. */
+export const creditAccounts = mysqlTable(
+  "credit_accounts",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    userId: int("userId").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+    balanceNanos: bigint("balanceNanos", { mode: "number" }).default(0).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("credit_accounts_balance_idx").on(table.balanceNanos)],
+);
+
+/** Append-only record of TokenForge promotional-credit grants and usage debits. */
+export const creditLedger = mysqlTable(
+  "credit_ledger",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    kind: mysqlEnum("kind", ["introductory_grant", "daily_checkin", "usage_debit", "manual_adjustment"]).notNull(),
+    amountNanos: bigint("amountNanos", { mode: "number" }).notNull(),
+    balanceAfterNanos: bigint("balanceAfterNanos", { mode: "number" }).notNull(),
+    referenceId: varchar("referenceId", { length: 128 }),
+    note: varchar("note", { length: 256 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    index("credit_ledger_user_time_idx").on(table.userId, table.createdAt),
+    uniqueIndex("credit_ledger_user_reference_unique_idx").on(table.userId, table.referenceId),
+  ],
+);
+
+/** A unique UTC-day record prevents concurrent requests from receiving more than one daily check-in reward. */
+export const dailyCheckins = mysqlTable(
+  "daily_checkins",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    checkinDate: date("checkinDate").notNull(),
+    rewardNanos: bigint("rewardNanos", { mode: "number" }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("daily_checkins_user_date_unique_idx").on(table.userId, table.checkinDate),
+    index("daily_checkins_user_date_idx").on(table.userId, table.checkinDate),
   ],
 );
 
@@ -203,6 +255,9 @@ export type ApiKey = typeof apiKeys.$inferSelect;
 export type AccountControl = typeof accountControls.$inferSelect;
 export type UsageEvent = typeof usageEvents.$inferSelect;
 export type DailyUsage = typeof dailyUsage.$inferSelect;
+export type CreditAccount = typeof creditAccounts.$inferSelect;
+export type CreditLedgerEntry = typeof creditLedger.$inferSelect;
+export type DailyCheckin = typeof dailyCheckins.$inferSelect;
 export type ProviderConfig = typeof providerConfigs.$inferSelect;
 export type ModelConfig = typeof modelConfigs.$inferSelect;
 export type AccountFlag = typeof accountFlags.$inferSelect;

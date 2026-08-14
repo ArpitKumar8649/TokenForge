@@ -31,6 +31,7 @@ function Router() {
       <Route path={"/dashboard/playground"}>{() => <DeveloperDashboard section="playground" />}</Route>
       <Route path={"/dashboard/keys"}>{() => <DeveloperDashboard section="keys" />}</Route>
       <Route path={"/dashboard/usage"}>{() => <DeveloperDashboard section="usage" />}</Route>
+      <Route path={"/dashboard/profile"}>{() => <DeveloperDashboard section="profile" />}</Route>
       <Route path={"/admin"} component={AdminDashboard} />
       <Route path={"/legal/:page"} component={Legal} />
       <Route path={"/404"} component={NotFound} />

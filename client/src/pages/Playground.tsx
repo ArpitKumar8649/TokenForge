@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { ChevronDown, CircleGauge, Cpu, Gauge, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, WandSparkles } from "lucide-react";
+import { ChevronDown, CircleDollarSign, Cpu, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, WandSparkles } from "lucide-react";
 import { useState } from "react";
 import "./playground-control-pane.css";
 
@@ -22,7 +22,7 @@ const suggestedPrompts = [
 export default function Playground() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
-  const quota = trpc.developer.quota.useQuery(undefined, { enabled: Boolean(user) });
+  const wallet = trpc.developer.wallet.useQuery(undefined, { enabled: Boolean(user) });
   const [model, setModel] = useState<(typeof models)[number]["id"]>("glm-5.2");
   const [messages, setMessages] = useState<Message[]>([]);
   const [systemPrompt, setSystemPrompt] = useState("");
@@ -35,8 +35,9 @@ export default function Playground() {
       setMessages(previous => [...previous, { role: "assistant", content: response.content }]);
       setLastUsage({ totalTokens: response.usage.totalTokens });
       setError(null);
-      utils.developer.quota.invalidate();
+      utils.developer.wallet.invalidate();
       utils.developer.usage.invalidate();
+      utils.developer.usageLogs.invalidate();
     },
     onError: requestError => setError(requestError.message),
   });
@@ -55,12 +56,7 @@ export default function Playground() {
   };
 
   const activeModel = models.find(candidate => candidate.id === model) ?? models[0];
-  const remainingRequests = quota.data?.remainingRequests ?? 0;
-  const remainingTokens = quota.data?.remainingTokens ?? 0;
-  const requestLimit = quota.data?.requestLimit ?? 100;
-  const tokenLimit = quota.data?.tokenLimit ?? 100_000;
-  const requestPercentage = Math.max(0, Math.min(100, Math.round((remainingRequests / requestLimit) * 100)));
-  const tokenPercentage = Math.max(0, Math.min(100, Math.round((remainingTokens / tokenLimit) * 100)));
+  const creditBalance = Number(wallet.data?.balanceNanos ?? 0) / 1_000_000_000;
 
   return (
     <section className="playground-shell">
@@ -72,11 +68,11 @@ export default function Playground() {
       <div className="playground-grid">
         <aside className="playground-controls" aria-label="Playground controls">
           <section className="playground-budget">
-            <div className="playground-panel-title"><CircleGauge size={15} /><span>Today’s allowance</span></div>
-            <div className="playground-budget-number"><strong>{remainingRequests.toLocaleString()}</strong><span>of {requestLimit.toLocaleString()} requests remaining</span></div>
-            <div className="playground-meter"><i style={{ width: `${requestPercentage}%` }} /></div>
-            <div className="playground-budget-stat"><span><Gauge size={13} /> Token budget</span><strong>{remainingTokens.toLocaleString()}</strong></div>
-            <div className="playground-meter playground-meter--cool"><i style={{ width: `${tokenPercentage}%` }} /></div>
+            <div className="playground-panel-title"><CircleDollarSign size={15} /><span>Promotional credit</span></div>
+            <div className="playground-budget-number"><strong>${creditBalance.toFixed(2)}</strong><span>available to use</span></div>
+            <div className="playground-meter"><i style={{ width: `${Math.min(100, Math.max(5, (creditBalance / 50) * 100))}%` }} /></div>
+            <div className="playground-budget-stat"><span><Sparkles size={13} /> Daily calendar check-in</span><strong>+$5.00</strong></div>
+            <p className="playground-setting-help">Successful requests are debited only from actual provider-reported token usage.</p>
           </section>
 
           <div className="playground-divider" />
@@ -119,7 +115,7 @@ export default function Playground() {
             emptyStateMessage="Start with a focused problem, a concept, or a draft you want to make clearer."
             suggestedPrompts={suggestedPrompts}
           />
-          <p className="playground-footnote">The selected model responds through TokenForge’s protected server route. Completed requests count toward your account allowance.</p>
+          <p className="playground-footnote">The selected model responds through TokenForge’s protected server route. Completed requests are charged against promotional credit and appear in Usage logs.</p>
         </div>
       </div>
     </section>
