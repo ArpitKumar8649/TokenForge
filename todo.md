@@ -86,4 +86,4 @@
 - [x] Reduce the public model catalogue card footprint while preserving source imagery, model descriptions, pricing, and source attribution.
 - [x] Expose a truthful aggregate all-user token counter on the landing page, updated through bounded client refreshes and without leaking individual account data.
 - [x] Add focused tests and visual verification for authentication restrictions, Playground controls and streaming, model discovery/details, card sizing, and aggregate token display.
-- [ ] Save a final checkpoint for the verified authentication, Playground, dashboard model, public catalogue, and aggregate metric enhancements.
+- [x] Save a final checkpoint for the verified authentication, Playground, dashboard model, public catalogue, and aggregate metric enhancements.
