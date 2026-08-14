@@ -27,3 +27,11 @@
 - [x] Complete the draft-level interaction audit of the public workspace and backend error contracts before preserving the MVP checkpoint; authenticated end-to-end checks are deferred with the external OAuth validation task.
 - [x] Draft scope decision: defer authenticated developer and administrator walkthroughs to launch preparation because the sandbox OAuth authorization redirect is externally blocked.
 - [x] Draft scope decision: defer live authenticated completion, streaming, quota, and administration procedure checks to launch preparation; unit, provider-connectivity, public-model, and unauthenticated error-contract verification passed.
+- [x] Review both user-provided documents, identify compatible TokenForge requirements, and document any rejected or deferred instructions that conflict with security, provider, or draft-scope decisions.
+- [x] Incorporate the approved document-derived frontend and backend updates into TokenForge and cover the resulting behavior with appropriate validation.
+- [ ] Verify the document-derived changes, update the project backlog, and save a new TokenForge draft checkpoint.
+- [x] Add a clearly labeled, read-only demo workspace entry that bypasses login without exposing protected API keys, live usage records, or administration procedures.
+- [x] Redesign the public TokenForge landing experience with a creative new colour system and a responsive animated visual accent derived from the supplied shader component.
+- [x] Add an accessible branded loading overlay that is visible for approximately 2.4 seconds on a full reload and during client-side route transitions without blocking essential server behavior.
+- [x] Add a public TokenForge pricing page adapted to the current free-beta and future-contact model, without implying live billing or fabricating unavailable plan entitlements.
+- [x] Document the supplied-document review outcome, including adopted requirements and any rejected or deferred instructions with security, provider, or draft-scope rationale.

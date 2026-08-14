@@ -6,6 +6,7 @@ import { Link, useLocation } from "wouter";
 const navItems = [
   { href: "/models", label: "Models" },
   { href: "/docs", label: "Developers" },
+  { href: "/pricing", label: "Pricing" },
   { href: "/legal/terms", label: "Trust" },
 ];
 
@@ -28,9 +29,7 @@ export function PublicNav() {
         </nav>
         <div className="public-nav__actions">
           <button className="sign-in-button" onClick={() => startLogin()}>Sign in</button>
-          <Button className="nav-cta" onClick={() => startLogin()}>
-            Start building <ArrowUpRight size={15} />
-          </Button>
+          <Link href="/demo" className="nav-cta">Try the demo <ArrowUpRight size={15} /></Link>
         </div>
       </div>
     </header>

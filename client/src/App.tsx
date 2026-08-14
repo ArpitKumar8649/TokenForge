@@ -7,9 +7,13 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Docs from "./pages/Docs";
 import DeveloperDashboard from "./pages/DeveloperDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
+import DemoWorkspace from "./pages/DemoWorkspace";
 import Home from "./pages/Home";
 import Legal from "./pages/Legal";
 import Models from "./pages/Models";
+import Pricing from "./pages/Pricing";
+import { RouteLoader } from "./components/RouteLoader";
+import "./tokenforge-refresh.css";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -18,6 +22,8 @@ function Router() {
       <Route path={"/"} component={Home} />
       <Route path={"/models"} component={Models} />
       <Route path={"/docs"} component={Docs} />
+      <Route path={"/demo"} component={DemoWorkspace} />
+      <Route path={"/pricing"} component={Pricing} />
       <Route path={"/dashboard"}>{() => <DeveloperDashboard section="overview" />}</Route>
       <Route path={"/dashboard/keys"}>{() => <DeveloperDashboard section="keys" />}</Route>
       <Route path={"/dashboard/usage"}>{() => <DeveloperDashboard section="usage" />}</Route>
@@ -44,6 +50,7 @@ function App() {
       >
         <TooltipProvider>
           <Toaster />
+          <RouteLoader />
           <Router />
         </TooltipProvider>
       </ThemeProvider>
