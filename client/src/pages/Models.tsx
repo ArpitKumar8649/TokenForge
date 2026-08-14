@@ -1,4 +1,5 @@
 import { PublicNav } from "@/components/PublicNav";
+import { TokenForgeGlyph } from "@/components/TokenForgeGlyph";
 import { Badge } from "@/components/ui/badge";
 import { ArrowRight, BrainCircuit, Braces, Code2, Gauge, Network } from "lucide-react";
 import { Link } from "wouter";
@@ -13,6 +14,7 @@ const models = [
     icon: BrainCircuit,
     source: "https://docs.z.ai/guides/llm/glm-5.2",
     tone: "orchid",
+    visual: "/manus-storage/tokenforge-glm52-model-bg_80b65d65.png",
   },
   {
     id: "grok-4.5",
@@ -23,6 +25,7 @@ const models = [
     icon: Network,
     source: "https://x.ai/news/grok-4-5",
     tone: "blue",
+    visual: "/manus-storage/tokenforge-grok45-model-bg_1935b4eb.png",
   },
 ];
 
@@ -47,6 +50,7 @@ export default function Models() {
             const Icon = model.icon;
             return (
               <article key={model.id} className={`model-detail-card model-detail-card--${model.tone}`}>
+                <div className="model-card-visual" style={{ backgroundImage: `url(${model.visual})` }} aria-hidden="true" />
                 <div className="model-card-topline">
                   <span className="model-icon"><Icon size={21} /></span>
                   <Badge variant="secondary">Available in beta</Badge>
@@ -82,7 +86,7 @@ export default function Models() {
 export function PublicFooter() {
   return (
     <footer className="public-footer">
-      <div><span className="footer-brand">Token<span>Forge</span></span><p>A considered AI gateway for serious building.</p></div>
+      <div><span className="footer-brand"><TokenForgeGlyph className="public-footer__glyph" />Token<span>Forge</span></span><p>A considered AI gateway for serious building.</p></div>
       <div className="footer-links">
         <a href="/models">Models</a>
         <a href="/pricing">Pricing</a>

@@ -6,18 +6,25 @@ import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { coalesceDailyUsage } from "../../../shared/usageSeries";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { AlertTriangle, BarChart3, Check, Clipboard, Copy, KeyRound, Loader2, Plus, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowRight, BarChart3, BookOpen, Check, Clipboard, Code2, Copy, KeyRound, Loader2, LockKeyhole, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal, Trash2 } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
+import { Link } from "wouter";
 import { toast } from "sonner";
 import "../dashboard.css";
 import Playground from "./Playground";
 
 type Section = "overview" | "keys" | "usage" | "playground";
+type UsageData = {
+  quota?: { usedRequests: number; requestLimit: number; usedTokens: number; tokenLimit: number; maxConcurrentRequests: number; suspended: boolean; suspicious: boolean } | null;
+  totalRequests: number;
+  totalTokens: number;
+  daily: { day: string; requests: number; tokens: number }[];
+};
 
 function UsageRing({ label, used, limit, tone = "violet" }: { label: string; used: number; limit: number; tone?: "violet" | "cyan" }) {
   const pct = Math.min(100, Math.round((used / Math.max(limit, 1)) * 100));
   const color = tone === "cyan" ? "#79e8ef" : "#b89aff";
-  return <div className="flex items-center gap-3"><div className="relative grid h-12 w-12 place-items-center rounded-full" style={{ background: `conic-gradient(${color} ${pct * 3.6}deg, rgba(255,255,255,.09) 0deg)` }}><div className="grid h-9 w-9 place-items-center rounded-full bg-[#161720] text-[10px] font-bold text-white">{pct}%</div></div><div><p className="text-[11px] font-bold text-white">{label}</p><p className="mt-0.5 text-[10px] text-[#9293a4]">{used.toLocaleString()} of {limit.toLocaleString()}</p></div></div>;
+  return <div className="usage-ring"><div className="usage-ring__disc" style={{ background: `conic-gradient(${color} ${pct * 3.6}deg, rgba(255,255,255,.09) 0deg)` }}><div>{pct}%</div></div><div><p>{label}</p><span>{used.toLocaleString()} of {limit.toLocaleString()}</span></div></div>;
 }
 
 function KeySecret({ value, onDismiss }: { value: string; onDismiss: () => void }) {
@@ -46,14 +53,32 @@ function ApiKeyList() {
 function UsageChart({ daily }: { daily: { day: string; requests: number; tokens: number }[] }) {
   const data = useMemo(() => coalesceDailyUsage(daily).slice(-14), [daily]);
   const max = Math.max(1, ...data.map(row => row.tokens));
-  if (!data.length) return <div className="grid h-44 place-items-center text-center"><BarChart3 className="text-[#6d6f80]" size={24} /><p className="mt-2 text-xs text-[#9293a4]">Usage will appear here after your first successful request.</p></div>;
-  return <div className="flex h-44 items-end gap-2 pt-6">{data.map(row => <div key={row.day} className="group flex h-full flex-1 flex-col justify-end"><div className="relative min-h-1 rounded-t bg-gradient-to-t from-[#8769d3] to-[#cbb7ff] transition-opacity group-hover:opacity-80" style={{ height: `${Math.max(4, Math.round((row.tokens / max) * 100))}%` }}><span className="absolute -top-5 left-1/2 hidden -translate-x-1/2 whitespace-nowrap font-mono text-[9px] text-[#d2d1dc] group-hover:block">{row.tokens.toLocaleString()}</span></div><span className="mt-2 text-center font-mono text-[8px] text-[#7e7f90]">{row.day.slice(5)}</span></div>)}</div>;
+  if (!data.length) return <div className="dashboard-empty-chart"><BarChart3 size={24} /><p>Usage will appear here after your first successful request.</p></div>;
+  return <div className="usage-chart-bars">{data.map(row => <div key={row.day} className="usage-chart-bar"><div className="usage-chart-bar__track"><div className="usage-chart-bar__fill" style={{ height: `${Math.max(4, Math.round((row.tokens / max) * 100))}%` }}><span>{row.tokens.toLocaleString()}</span></div></div><small>{row.day.slice(5)}</small></div>)}</div>;
+}
+
+function PageIntro({ eyebrow, title, subtitle, action }: { eyebrow: string; title: string; subtitle: string; action?: React.ReactNode }) {
+  return <div className="dashboard-page-intro"><div><p>{eyebrow}</p><h1>{title}</h1><span>{subtitle}</span></div>{action}</div>;
+}
+
+function Overview({ user, loading, usage }: { user: ReturnType<typeof useAuth>["user"]; loading: boolean; usage: { data?: UsageData; isLoading: boolean } }) {
+  const quota = usage.data?.quota;
+  if (loading || usage.isLoading) return <div className="dashboard-loading-panel"><Loader2 className="animate-spin" /></div>;
+  return <>
+    <PageIntro eyebrow="Workspace overview" title={`Good to see you${user?.name ? `, ${user.name.split(" ")[0]}` : ""}.`} subtitle="A considered control surface for everything your TokenForge account can do." action={<Link href="/docs" className="dashboard-outline-action"><BookOpen size={15} /> API reference</Link>} />
+    <section className="dashboard-command-center">
+      <div className="dashboard-allowance-card"><div className="dashboard-panel-kicker"><span><i /> LIVE ACCOUNT CAPACITY</span><Badge className={quota?.suspended ? "border-0 bg-red-400/10 text-red-300" : "border-0 bg-[#befe6c]/10 text-[#cbff8b]"}>{quota?.suspended ? "Suspended" : "Active"}</Badge></div><h2>Today’s allowance</h2><p>Resets at 00:00 UTC. Every request is metered transparently.</p><div className="usage-ring-grid"><UsageRing label="Requests" used={quota?.usedRequests ?? 0} limit={quota?.requestLimit ?? 100} /><UsageRing label="Tokens" used={quota?.usedTokens ?? 0} limit={quota?.tokenLimit ?? 100000} tone="cyan" /></div></div>
+      <div className="dashboard-posture-card"><div className="dashboard-panel-kicker"><span><Sparkles size={12} /> GATEWAY POSTURE</span></div><h2>Built to stay legible.</h2><p>Selected models, visible limits, and an accountable request surface.</p><div className="dashboard-posture-list"><span><ShieldCheck size={15} /> Keys protected as one-way hashes</span><span><Check size={15} /> {quota?.maxConcurrentRequests ?? 2} concurrent requests available</span>{quota?.suspicious && <span className="dashboard-warning"><AlertTriangle size={15} /> Account review is in progress</span>}</div><Link href="/dashboard/playground" className="dashboard-primary-link">Open Playground <ArrowRight size={15} /></Link></div>
+    </section>
+    <section className="dashboard-usage-panel"><div className="dashboard-section-head"><div><p>REQUEST TELEMETRY</p><h2>Recent token usage</h2><span>Usage is recorded only after completed provider requests.</span></div><Badge className="border-0 bg-white/6 text-[#d4d4df]">{usage.data?.totalRequests ?? 0} requests</Badge></div><UsageChart daily={usage.data?.daily ?? []} /></section>
+    <section className="dashboard-next-section"><div className="dashboard-section-head"><div><p>BUILD WITH INTENT</p><h2>Your next useful move</h2><span>Everything needed to go from a fresh account to a measured request.</span></div></div><div className="dashboard-next-grid"><Link href="/dashboard/keys" className="dashboard-next-card"><span><KeyRound size={17} /> 01</span><h3>Create a scoped key</h3><p>Label a credential for your project and see it exactly once.</p><b>Manage keys <ArrowRight size={14} /></b></Link><Link href="/dashboard/playground" className="dashboard-next-card"><span><Terminal size={17} /> 02</span><h3>Shape a first prompt</h3><p>Test GLM-5.2 or Grok 4.5 inside the protected Playground.</p><b>Open Playground <ArrowRight size={14} /></b></Link><Link href="/docs" className="dashboard-next-card"><span><Code2 size={17} /> 03</span><h3>Ship the connection</h3><p>Copy a familiar OpenAI-compatible request into your client.</p><b>Read the docs <ArrowRight size={14} /></b></Link></div></section>
+    <section className="dashboard-reference-strip"><div><LockKeyhole size={18} /><span><b>Credential handling</b><small>Provider access stays server-side; plaintext user keys are shown once.</small></span></div><Link href="/legal/terms">Trust & policies <ArrowRight size={14} /></Link></section>
+  </>;
 }
 
 export default function DeveloperDashboard({ section = "overview" }: { section?: Section }) {
   const { user, loading } = useAuth();
   const usage = trpc.developer.usage.useQuery(undefined, { enabled: Boolean(user) });
-  const quota = usage.data?.quota;
-  const content = section === "playground" ? <Playground /> : section === "keys" ? <><div className="mb-7"><p className="dashboard-kicker">Credentials</p><h1 className="dashboard-title">API keys</h1><p className="dashboard-subtitle">Create, rotate, or revoke credentials without ever re-exposing a saved secret.</p></div><ApiKeyList /></> : section === "usage" ? <><div className="mb-7"><p className="dashboard-kicker">Observability</p><h1 className="dashboard-title">Usage history</h1><p className="dashboard-subtitle">A clear view of your recent requests and token consumption.</p></div><div className="rounded-2xl border border-white/10 bg-[#15161f] p-6"><div className="flex items-start justify-between"><div><p className="text-sm font-bold text-white">Daily tokens</p><p className="mt-1 text-xs text-[#9091a3]">Last 14 active days</p></div><Badge className="border-0 bg-white/6 text-[#c8c7d2]">{usage.data?.totalTokens.toLocaleString() ?? 0} total</Badge></div><UsageChart daily={usage.data?.daily ?? []} /></div></> : <><div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="dashboard-kicker">Workspace overview</p><h1 className="dashboard-title">Good to see you{user?.name ? `, ${user.name.split(" ")[0]}` : ""}.</h1><p className="dashboard-subtitle">Your TokenForge workspace is ready for its next request.</p></div><Button onClick={() => { window.location.href = "/docs"; }} variant="outline" className="border-white/14 bg-white/[.03] text-[#dedde7] hover:bg-white/10"><Clipboard size={15} /> API reference</Button></div>{loading || usage.isLoading ? <div className="grid h-56 place-items-center rounded-2xl border border-white/10 bg-[#15161f]"><Loader2 className="animate-spin text-[#b89aff]" /></div> : <><div className="grid gap-4 lg:grid-cols-[1.15fr_.85fr]"><div className="rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_90%_0%,rgba(184,154,255,.12),transparent_35%),#15161f] p-6"><div className="flex items-center justify-between"><div><p className="text-sm font-bold text-white">Today’s allowance</p><p className="mt-1 text-xs text-[#9091a3]">Resets at 00:00 UTC</p></div><Badge className={quota?.suspended ? "border-0 bg-red-400/10 text-red-300" : "border-0 bg-[#7debbd]/10 text-[#8aefc0]"}>{quota?.suspended ? "Suspended" : "Active"}</Badge></div><div className="mt-6 grid gap-5 sm:grid-cols-2"><UsageRing label="Requests" used={quota?.usedRequests ?? 0} limit={quota?.requestLimit ?? 100} /><UsageRing label="Tokens" used={quota?.usedTokens ?? 0} limit={quota?.tokenLimit ?? 100000} tone="cyan" /></div></div><div className="rounded-2xl border border-white/10 bg-[#15161f] p-6"><p className="text-sm font-bold text-white">Workspace safety</p><div className="mt-5 space-y-3"><div className="flex items-center gap-3 text-xs text-[#c9c8d3]"><ShieldCheck size={16} className="text-[#79e8ef]" /> Keys are stored as one-way hashes</div><div className="flex items-center gap-3 text-xs text-[#c9c8d3]"><Check size={16} className="text-[#79e8ef]" /> {quota?.maxConcurrentRequests ?? 2} concurrent requests available</div>{quota?.suspicious && <div className="flex items-center gap-3 text-xs text-[#f0c180]"><AlertTriangle size={16} /> Account review is in progress</div>}</div></div></div><div className="mt-4 rounded-2xl border border-white/10 bg-[#15161f] p-6"><div className="flex items-start justify-between"><div><p className="text-sm font-bold text-white">Recent token usage</p><p className="mt-1 text-xs text-[#9091a3]">Metering is attached to every completed request.</p></div><Badge className="border-0 bg-white/6 text-[#c8c7d2]">{usage.data?.totalRequests ?? 0} requests</Badge></div><UsageChart daily={usage.data?.daily ?? []} /></div></>}</>;
-  return <DashboardLayout><div className="min-h-screen bg-[#0d0e14] p-3 text-white sm:p-7"><div className="mx-auto max-w-5xl">{content}</div></div></DashboardLayout>;
+  const content = section === "playground" ? <Playground /> : section === "keys" ? <><PageIntro eyebrow="Credentials" title="API keys" subtitle="Create, rotate, or revoke credentials without ever re-exposing a saved secret." /><ApiKeyList /></> : section === "usage" ? <><PageIntro eyebrow="Observability" title="Usage history" subtitle="A clear view of your recent requests and token consumption." /><section className="dashboard-usage-panel"><div className="dashboard-section-head"><div><p>LAST 14 ACTIVE DAYS</p><h2>Daily tokens</h2></div><Badge className="border-0 bg-white/6 text-[#d4d4df]">{usage.data?.totalTokens.toLocaleString() ?? 0} total</Badge></div><UsageChart daily={usage.data?.daily ?? []} /></section></> : <Overview user={user} loading={loading} usage={usage} />;
+  return <DashboardLayout><div className="dashboard-page-surface"><div className="dashboard-page-content">{content}</div></div></DashboardLayout>;
 }

@@ -57,3 +57,9 @@
 - [x] Save a post-redesign checkpoint after the final control-pane verification.
 - [x] Fix the dashboard daily-usage rendering key so repeated date values cannot trigger React duplicate-key warnings, add regression coverage, and verify the console is clean.
 - [x] Reload the dashboard after the duplicate-date regression test and confirm no new React duplicate-key warning is emitted in the browser console.
+- [x] Unify the TokenForge mark across public and dashboard surfaces using the sign-in-page glyph and present the website name in a branded dashboard header.
+- [x] Rework public navigation so Models, Pricing, Documentation, and Trust sit beside the TokenForge header on larger screens while remaining clear and compact on mobile.
+- [x] Expand dashboard pages into a polished, longer product experience with a shared header, footer, useful visual sections, and cohesive graphite/lime brand treatment.
+- [x] Add licensed or generated model-specific visual backdrops for GLM-5.2 and Grok 4.5 catalogue cards without implying provider endorsement.
+- [x] Test, visually verify desktop and mobile public/dashboard/model surfaces, and checkpoint the unified interface update.
+- [x] Save a checkpoint preserving the verified unified TokenForge branding, navigation, dashboard shell, and model catalogue update.

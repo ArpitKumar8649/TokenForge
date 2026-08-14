@@ -25,6 +25,8 @@ import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Link } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
+import { TokenForgeGlyph } from "./TokenForgeGlyph";
+import "./dashboard-shell.css";
 import { Button } from "./ui/button";
 
 const menuItems = [
@@ -157,7 +159,7 @@ function DashboardLayoutContent({
           className="border-r-0"
           disableTransition={isResizing}
         >
-          <SidebarHeader className="h-16 justify-center">
+          <SidebarHeader className="dashboard-sidebar-header">
             <div className="flex items-center gap-3 px-2 transition-all w-full">
               <button
                 onClick={toggleSidebar}
@@ -167,12 +169,11 @@ function DashboardLayoutContent({
                 <PanelLeft className="h-4 w-4 text-muted-foreground" />
               </button>
               {!isCollapsed ? (
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="font-semibold tracking-tight truncate">
-                    TokenForge
-                  </span>
+                <div className="dashboard-sidebar-brand min-w-0">
+                  <TokenForgeGlyph className="dashboard-sidebar-brand__glyph" />
+                  <div><span>Token<span>Forge</span></span><small>Developer gateway</small></div>
                 </div>
-              ) : null}
+              ) : <TokenForgeGlyph className="dashboard-sidebar-brand__glyph dashboard-sidebar-brand__glyph--collapsed" />}
             </div>
           </SidebarHeader>
 
@@ -240,22 +241,28 @@ function DashboardLayoutContent({
         />
       </div>
 
-      <SidebarInset>
-        {isMobile && (
-          <div className="flex border-b h-14 items-center justify-between bg-background/95 px-2 backdrop-blur supports-[backdrop-filter]:backdrop-blur sticky top-0 z-40">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger className="h-9 w-9 rounded-lg bg-background" />
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col gap-1">
-                  <span className="tracking-tight text-foreground">
-                    {activeMenuItem?.label ?? "Menu"}
-                  </span>
-                </div>
-              </div>
-            </div>
+      <SidebarInset className="dashboard-inset">
+        <header className="dashboard-topbar">
+          <div className="dashboard-topbar__brand">
+            {isMobile && <SidebarTrigger className="dashboard-topbar__trigger" />}
+            <Link href="/dashboard" className="dashboard-topbar__logo" aria-label="TokenForge dashboard home">
+              <TokenForgeGlyph className="dashboard-topbar__glyph" />
+              <span>Token<span>Forge</span></span>
+            </Link>
+            <span className="dashboard-topbar__divider" />
+            <span className="dashboard-topbar__section">{activeMenuItem?.label ?? "Workspace"}</span>
           </div>
-        )}
-        <main className="flex-1 p-4">{children}</main>
+          <div className="dashboard-topbar__actions">
+            <span className="dashboard-topbar__status"><i /> Gateway ready</span>
+            <Link href="/docs">Documentation</Link>
+          </div>
+        </header>
+        <main className="dashboard-main">{children}</main>
+        <footer className="dashboard-footer">
+          <div><TokenForgeGlyph className="dashboard-footer__glyph" /><span>Token<span>Forge</span> developer workspace</span></div>
+          <p>Curated models. Visible limits. Deliberate building.</p>
+          <nav aria-label="Dashboard footer"><Link href="/models">Models</Link><Link href="/pricing">Pricing</Link><Link href="/docs">Docs</Link><Link href="/legal/terms">Trust</Link></nav>
+        </footer>
       </SidebarInset>
     </>
   );
