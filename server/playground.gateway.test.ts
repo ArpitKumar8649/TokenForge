@@ -60,6 +60,11 @@ describe("TokenForge Playground gateway", () => {
       headers: expect.objectContaining({ Authorization: "Bearer server-only-provider-secret" }),
       body: expect.stringContaining('"model":"glm-5.2"'),
     }));
+    const forwardedPayload = JSON.parse(vi.mocked(fetchMock).mock.calls[0][1].body as string);
+    expect(forwardedPayload.messages[0]).toMatchObject({ role: "system" });
+    expect(forwardedPayload.messages[0].content).toContain("selected TokenForge model: glm-5.2");
+    expect(forwardedPayload.messages[0].content).toContain("do not claim to be Google Gemini");
+    expect(forwardedPayload.messages[0].content).toContain("Do not invent a knowledge cutoff");
     expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, modelId: "glm-5.2", status: "success", inputTokens: 12, outputTokens: 18, sourceIpHash: "hashed-source-ip" }));
     expect(vi.mocked(recordUsage).mock.calls[0][0]).not.toHaveProperty("apiKeyId");
   });

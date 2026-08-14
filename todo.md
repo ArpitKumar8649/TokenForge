@@ -49,3 +49,9 @@
 - [x] Add an authenticated dashboard Playground route with model selection limited to glm-5.2 and grok-4.5, prompt controls, response presentation, and polished loading/error/empty states.
 - [x] Route Playground requests through a server-side authenticated procedure that preserves provider credentials, enforces the user’s existing TokenForge quotas, and records usage without exposing an API key.
 - [x] Add Playground navigation and responsive dashboard styling, then cover the server-side Playground contract with Vitest and visually verify the interface before checkpointing.
+- [x] Add server-side Playground guidance that accurately identifies TokenForge as a gateway and prevents unsupported provider, capability, or knowledge-cutoff claims.
+- [x] Redesign the public landing navigation for mobile and desktop: remove the demo entry, place Models, Pricing, Documentation, and Trust in the navbar, and add Sign in and Create account actions.
+- [x] Redesign the authenticated Playground as a premium two-pane workspace with usage, parameters, and model selection on the left and the chat workspace on the right; improve its responsive mobile treatment and visual palette.
+- [x] Add or update tests for the Playground guidance, visually verify landing and Playground on desktop and mobile, and checkpoint the redesign.
+- [x] Move Playground model selection into the left control pane so usage, parameters, and model choice share the left workspace while the right pane is reserved for chat and output.
+- [x] Save a post-redesign checkpoint after the final control-pane verification.

@@ -1,4 +1,4 @@
-import { ArrowUpRight, Hexagon } from "lucide-react";
+import { Hexagon } from "lucide-react";
 import { Link, useLocation } from "wouter";
 
 const navItems = [
@@ -27,12 +27,17 @@ export function PublicNav() {
         </nav>
         <div className="public-nav__actions">
           <Link href="/signin" className="sign-in-button">Sign in</Link>
-          <Link href="/demo" className="nav-cta">Try the demo <ArrowUpRight size={15} /></Link>
+          <Link href="/signup" className="nav-cta">Create account</Link>
+        </div>
+        <div className="public-nav__mobile-actions">
+          <Link href="/signin" className="sign-in-button">Sign in</Link>
+          <Link href="/signup" className="nav-cta">Join beta</Link>
         </div>
         <nav className="public-nav__mobile" aria-label="Mobile navigation">
           <Link href="/models" className={location === "/models" ? "nav-mobile-link nav-mobile-link--active" : "nav-mobile-link"}>Models</Link>
           <Link href="/pricing" className={location === "/pricing" ? "nav-mobile-link nav-mobile-link--active" : "nav-mobile-link"}>Pricing</Link>
           <Link href="/docs" className={location === "/docs" ? "nav-mobile-link nav-mobile-link--active" : "nav-mobile-link"}>Docs</Link>
+          <Link href="/legal/terms" className={location === "/legal/terms" ? "nav-mobile-link nav-mobile-link--active" : "nav-mobile-link"}>Trust</Link>
         </nav>
       </div>
     </header>
