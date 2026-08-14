@@ -1,6 +1,3 @@
-import { Claude, DeepSeek, Gemini, Grok, Kimi, Minimax, Mistral, OpenAI, Qwen, XAI, ZAI } from "@lobehub/icons";
-import type { ComponentType } from "react";
-
 type ProviderMarkProps = {
   provider: string;
   fallback?: string;
@@ -8,23 +5,31 @@ type ProviderMarkProps = {
   className?: string;
 };
 
-type LogoComponent = ComponentType<{ size?: number; className?: string; "aria-hidden"?: boolean }>;
+const OFFICIAL_MARKS: Partial<Record<string, string>> = {
+  "Alibaba Cloud": "/manus-storage/qwen-official-mark_6d32eee6.png",
+  "Moonshot AI": "/manus-storage/kimi-official-mark_f3ab99a3.png",
+  Anthropic: "/manus-storage/anthropic_21a2c9bb.svg",
+  Google: "/manus-storage/google_8bc26cff.svg",
+  DeepSeek: "/manus-storage/deepseek_3213d99a.svg",
+};
 
-const PROVIDER_MARKS: Record<string, LogoComponent> = {
-  "Alibaba Cloud": Qwen,
-  Anthropic: Claude,
-  "Moonshot AI": Kimi,
-  "Z.AI": ZAI,
-  xAI: Grok ?? XAI,
-  Google: Gemini,
-  OpenAI,
-  DeepSeek,
-  "Mistral AI": Mistral,
-  MiniMax: Minimax,
+const PROVIDER_MONOGRAMS: Record<string, string> = {
+  "Z.AI": "GLM",
+  xAI: "G",
+  OpenAI: "O",
+  "Mistral AI": "M",
+  MiniMax: "MM",
 };
 
 export function ProviderMark({ provider, fallback = provider.slice(0, 1), size = 18, className }: ProviderMarkProps) {
-  const Logo = PROVIDER_MARKS[provider];
-  if (!Logo) return <span className={className} aria-hidden="true">{fallback}</span>;
-  return <Logo size={size} className={className} aria-hidden={true} />;
+  const image = OFFICIAL_MARKS[provider];
+  if (image) {
+    return <img src={image} width={size} height={size} className={className} alt="" aria-hidden="true" />;
+  }
+
+  return (
+    <span className={className} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: size, height: size, color: "currentColor", fontSize: Math.max(8, Math.floor(size * 0.5)), fontWeight: 800, letterSpacing: "-0.06em", lineHeight: 1 }} aria-hidden="true">
+      {PROVIDER_MONOGRAMS[provider] ?? fallback}
+    </span>
+  );
 }
