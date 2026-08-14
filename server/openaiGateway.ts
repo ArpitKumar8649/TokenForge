@@ -33,7 +33,7 @@ const activeRequests = new Map<number, number>();
 export type TokenForgeChatMessage = { role?: string; content?: unknown };
 type ChatMessage = TokenForgeChatMessage;
 type ChatInput = { model?: string; messages?: ChatMessage[]; stream?: boolean; max_tokens?: number; [key: string]: unknown };
-type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number };
 
 function playgroundPlatformGuidance(model: TokenForgeModelId): TokenForgeChatMessage {
   return {
@@ -95,8 +95,8 @@ function usageFrom(payload: unknown): Usage {
 }
 
 function normalizedTokens(usage: Usage, inputEstimate: number) {
-  const inputTokens = Number(usage.prompt_tokens ?? inputEstimate);
-  const outputTokens = Number(usage.completion_tokens ?? Math.max(0, Number(usage.total_tokens ?? inputTokens) - inputTokens));
+  const inputTokens = Number(usage.prompt_tokens ?? usage.input_tokens ?? inputEstimate);
+  const outputTokens = Number(usage.completion_tokens ?? usage.output_tokens ?? Math.max(0, Number(usage.total_tokens ?? inputTokens) - inputTokens));
   return { inputTokens, outputTokens };
 }
 
@@ -129,10 +129,13 @@ async function forwardClusterRequest(input: ChatInput, signal: AbortSignal) {
   const base = process.env.CLUSTER_PROTOCOL_BASE_URL?.replace(/\/$/, "");
   const secret = process.env.CLUSTER_PROTOCOL_API_KEY;
   if (!base || !secret) throw new Error("TokenForge Cluster Protocol inference is not configured");
+  const requestBody = input.stream
+    ? { ...input, stream_options: { include_usage: true } }
+    : input;
   return fetch(`${base}/v1/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify(requestBody),
     signal,
   });
 }

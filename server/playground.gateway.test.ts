@@ -101,7 +101,7 @@ describe("TokenForge Playground gateway", () => {
   it("routes a verified Cluster Protocol model through its server-only credential and preserves metering", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: "Cluster-routed completion" } }],
-      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+      usage: { input_tokens: 10, output_tokens: 20, total_tokens: 30 },
     }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -118,7 +118,8 @@ describe("TokenForge Playground gateway", () => {
       body: expect.stringContaining('"model":"kimi-k3"'),
     }));
     expect(JSON.stringify(fetchMock.mock.calls[0][1].headers)).not.toContain("server-only-provider-secret");
-    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "kimi-k3", status: "success" }));
+    expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 330_000 }));
+    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "kimi-k3", status: "success", inputTokens: 10, outputTokens: 20, chargeNanos: 96_000 }));
   });
 
   it("stops before provider execution when the promotional credit reservation is denied", async () => {

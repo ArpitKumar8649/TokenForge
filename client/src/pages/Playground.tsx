@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
 import { trpc } from "@/lib/trpc";
 import { ChevronDown, CircleDollarSign, Cpu, Radio, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, Thermometer, WandSparkles } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import "./playground-control-pane.css";
 
 const suggestedPrompts = [
@@ -20,6 +20,7 @@ export default function Playground() {
   const utils = trpc.useUtils();
   const wallet = trpc.developer.wallet.useQuery(undefined, { enabled: Boolean(user) });
   const [model, setModel] = useState("glm-5.2");
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [showSystemPrompt, setShowSystemPrompt] = useState(false);
@@ -131,6 +132,11 @@ export default function Playground() {
   };
 
   const activeModel = TOKENFORGE_MODELS.find(candidate => candidate.id === model) ?? TOKENFORGE_MODELS[0];
+  const modelOptions = useMemo(() => {
+    const featuredIds = ["kimi-k3", "qwen3.7-max"];
+    const featured = featuredIds.flatMap(id => TOKENFORGE_MODELS.filter(candidate => candidate.id === id));
+    return [...featured, ...TOKENFORGE_MODELS.filter(candidate => !featuredIds.includes(candidate.id))];
+  }, []);
   const creditBalance = Number(wallet.data?.balanceNanos ?? 0) / 1_000_000_000;
 
   return (
@@ -153,8 +159,16 @@ export default function Playground() {
           <div className="playground-divider" />
           <section className="playground-model-selection">
             <div className="playground-panel-title"><Cpu size={15} /><span>Selected model</span></div>
-            <div className="playground-model-picker"><span className={`playground-model-orb playground-model-orb--${activeModel.tone}`}>{activeModel.providerMark}</span><label><span>{activeModel.provider} · {activeModel.eyebrow}</span><select value={model} onChange={event => setModel(event.target.value)} disabled={complete.isPending || isStreaming} aria-label="Choose a model">{TOKENFORGE_MODELS.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.provider}</option>)}</select></label></div>
-            <p className="playground-model-route">{TOKENFORGE_MODELS.length} verified text routes · {activeModel.capabilities.join(" · ")}</p>
+            <div className="playground-model-picker">
+              <span className={`playground-model-orb playground-model-orb--${activeModel.tone}`}>{activeModel.providerMark}</span>
+              <div className="playground-model-picker__selected"><span>{activeModel.provider} · {activeModel.eyebrow}</span><strong>{activeModel.name}</strong></div>
+              <button type="button" className="playground-model-picker__toggle" onClick={() => setIsModelMenuOpen(value => !value)} disabled={complete.isPending || isStreaming} aria-expanded={isModelMenuOpen} aria-haspopup="listbox" aria-label="Choose a model"><ChevronDown size={15} /></button>
+              {isModelMenuOpen ? <div className="playground-model-menu" role="listbox" aria-label="Available text models">
+                <div className="playground-model-menu__head"><span>Choose a text model</span><b>{TOKENFORGE_MODELS.length} routes</b></div>
+                {modelOptions.map((candidate, index) => <button type="button" role="option" aria-selected={candidate.id === model} key={candidate.id} className={`playground-model-menu__option${candidate.id === model ? " playground-model-menu__option--active" : ""}`} onClick={() => { setModel(candidate.id); setIsModelMenuOpen(false); }}><span className={`playground-model-orb playground-model-orb--${candidate.tone}`}>{candidate.providerMark}</span><span><b>{candidate.name}</b><small>{candidate.provider} · {candidate.eyebrow}</small></span>{index < 2 ? <em>Featured</em> : null}</button>)}
+              </div> : null}
+            </div>
+            <p className="playground-model-route"><b>Kimi K3</b> is featured first · {TOKENFORGE_MODELS.length} verified text routes · {activeModel.capabilities.join(" · ")}</p>
           </section>
 
           <div className="playground-divider" />

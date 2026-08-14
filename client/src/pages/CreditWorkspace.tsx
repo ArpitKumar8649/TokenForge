@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
 import { trpc } from "@/lib/trpc";
 import { ArrowDownLeft, ArrowUpRight, CalendarCheck, CalendarDays, CheckCircle2, CircleDollarSign, Clock3, Coins, Filter, KeyRound, Loader2, ReceiptText, RotateCcw, ShieldCheck, Sparkles, WalletCards, Zap } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -42,7 +43,7 @@ export function CreditOverview() {
 }
 
 function displayModel(modelId: string) {
-  return modelId === "glm-5.2" ? "GLM-5.2" : "Grok 4.5";
+  return TOKENFORGE_MODELS.find(model => model.id === modelId)?.name ?? modelId;
 }
 
 function formatLogDate(value: Date | string) {
@@ -61,7 +62,7 @@ function ledgerDescriptor(kind: string) {
 }
 
 export function UsageLogs() {
-  const [modelId, setModelId] = useState<"glm-5.2" | "grok-4.5" | "">("");
+  const [modelId, setModelId] = useState<string>("");
   const [source, setSource] = useState<"api" | "playground" | "">("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -101,7 +102,7 @@ export function UsageLogs() {
         <div className="usage-log-filter-shell">
           <div className="usage-log-filter-meta"><span>Refine activity</span>{activeFilters ? <b>{activeFilters} active filter{activeFilters === 1 ? "" : "s"}</b> : <small>Last 100 requests</small>}</div>
           <div className="usage-log-filters">
-            <label><span>Model</span><select aria-label="Filter by model" value={modelId} onChange={event => setModelId(event.target.value as typeof modelId)}><option value="">All models</option><option value="glm-5.2">GLM-5.2</option><option value="grok-4.5">Grok 4.5</option></select></label>
+            <label><span>Model</span><select aria-label="Filter by model" value={modelId} onChange={event => setModelId(event.target.value)}><option value="">All models</option>{TOKENFORGE_MODELS.map(model => <option key={model.id} value={model.id}>{model.name} · {model.provider}</option>)}</select></label>
             <label><span>Source</span><select aria-label="Filter by source" value={source} onChange={event => setSource(event.target.value as typeof source)}><option value="">All sources</option><option value="playground">Playground</option><option value="api">API key</option></select></label>
             <label><span>From</span><input aria-label="From date" type="date" value={from} onChange={event => setFrom(event.target.value)} /></label>
             <label><span>To</span><input aria-label="To date" type="date" value={to} onChange={event => setTo(event.target.value)} /></label>
@@ -115,7 +116,7 @@ export function UsageLogs() {
               const successful = log.status === "success";
               return <article key={log.id} className="usage-log-card" role="listitem">
                 <div className="usage-log-card__topline">
-                  <div className="usage-log-card__model"><span className={log.modelId === "glm-5.2" ? "model-signal model-signal--glm" : "model-signal model-signal--grok"}>{log.modelId === "glm-5.2" ? "G" : "X"}</span><div><b>{displayModel(log.modelId)}</b><small>{created.date} · {created.time}</small></div></div>
+                  <div className="usage-log-card__model"><span className="model-signal">{TOKENFORGE_MODELS.find(model => model.id === log.modelId)?.providerMark ?? "TF"}</span><div><b>{displayModel(log.modelId)}</b><small>{created.date} · {created.time}</small></div></div>
                   <div className="usage-log-card__status"><span className={successful ? "request-status request-status--success" : "request-status"}>{successful ? "Settled" : log.status.replaceAll("_", " ")}</span><span className={log.stream ? "stream-chip stream-chip--live" : "stream-chip"}>{log.stream ? "Stream" : "Standard"}</span></div>
                 </div>
                 <div className="usage-log-card__details">

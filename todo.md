@@ -119,3 +119,7 @@
 - [x] Preserve credit settlement, quota, concurrency, audit, and provider-error guarantees for every activated Cluster Protocol model.
 - [x] Update the model-config bootstrap and Playground input contract to use the verified multi-provider catalogue instead of a fixed two-model union.
 - [x] Add regression tests for provider selection, non-FXQidian streaming, model selection, and first-party rate settlement.
+- [x] Investigate why Kimi K3 is difficult to locate in the expanded Playground selector and make its availability explicit.
+- [x] Diagnose and fix missing usage-log records and credit debits for successful Cluster Protocol model completions while retaining safe no-charge behavior for unknown usage.
+- [x] Replace the expanded native model selector with an accessible fixed-height, scrollable model picker that is usable on a 390px mobile viewport.
+- [x] Add regression coverage and visual validation for Kimi selection, Cluster Protocol settlement/logging, and the mobile model picker, then checkpoint the repairs.
