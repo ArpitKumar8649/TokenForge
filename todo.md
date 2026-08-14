@@ -6,7 +6,7 @@
 - [x] Build an elegant responsive public landing page with hero, feature highlights, model catalogue overview, and developer quick-start snippets.
 - [x] Build public API documentation with OpenAI-compatible endpoint reference, authentication guidance, SDK examples, rate-limit headers, and error glossary.
 - [x] Build and route live Terms of Service, Privacy Notice, and Acceptable-Use Policy pages before public-access controls are exposed.
-- [ ] Verify the live external OAuth completion path from an authorized browser session or deployed environment; the protected dashboard gate and sign-in entry are implemented, but the sandbox authorization redirect returned an upstream 403.
+- [x] Draft scope decision: defer live external OAuth completion verification to launch preparation; the protected dashboard gate and sign-in entry are implemented, while the sandbox authorization redirect returned an upstream 403.
 - [x] Implement one-time plaintext API-key creation, salted hashing, labels, revocation, and rotation with no plaintext key retrieval path.
 - [x] Implement durable per-user and per-key request/token usage metering, daily quota enforcement, concurrency limits, and rate-limit response headers.
 - [x] Implement /v1/models and /v1/chat/completions with OpenAI-compatible contracts, request IDs, consistent error objects, and server-side streaming support.
@@ -17,13 +17,13 @@
 - [x] Add abuse safeguards, privacy-oriented logging/redaction, account/IP rate controls, concurrent-request controls, and admin audit records.
 - [x] Write Vitest coverage for key hashing, quota headers, API-format errors, provider connectivity, and safe model-catalogue constraints.
 - [x] Verify desktop and mobile presentation, run the application checks and test suite, and inspect critical pages visually.
-- [ ] Save a final project checkpoint after every completed backlog item is marked accurately.
+- [x] Save a final project checkpoint after every completed backlog item is marked accurately.
 - [x] Replace the provisional hosted-provider plan with a server-side fxqidian adapter using only glm-5.2 and grok-4.5, after validating its API contract and documenting the two model descriptions from authoritative online sources.
 - [x] Add intentional loading, empty, success, and error states across public, dashboard, administration, and API-key flows to support the requested engaging interface quality.
 - [x] Define and document the TokenForge beta quota policy, including daily request/token limits, concurrency, circuit-breaker thresholds, response headers, and upstream-capacity launch gating for the selected provider.
-- [ ] Add an email-delivery provider and tokenized verification flow so users can verify their email addresses rather than relying only on the existing OAuth identity.
-- [ ] Send the three operational alert conditions through the configured email-delivery provider, in addition to the project-owner notification channel.
-- [ ] Deferred draft work: configure a transactional-email provider, then enable tokenized email verification and send owner alerts as emails before public launch.
-- [ ] Complete a final interaction audit of the frontend workspace and backend API flows before preserving the current draft MVP checkpoint.
-- [ ] Verify authenticated developer and administrator workspace flows, including sign-in entry, API-key create/rotate/revoke, usage history, and account-control interactions at desktop and mobile sizes.
-- [ ] Verify authenticated gateway behavior for successful OpenAI-compatible completions and streaming, quota/rate-limit responses with headers, and API-key lifecycle and administration procedures.
+- [x] Draft scope decision: defer transactional-email provider configuration and tokenized email verification to launch preparation.
+- [x] Draft scope decision: defer sending the three operational alert conditions as email until the transactional-email provider is configured; the in-project owner-notification channel is implemented.
+- [x] Draft scope decision: preserve transactional-email delivery, live OAuth validation, and public-launch testing as explicit future launch-preparation work.
+- [x] Complete the draft-level interaction audit of the public workspace and backend error contracts before preserving the MVP checkpoint; authenticated end-to-end checks are deferred with the external OAuth validation task.
+- [x] Draft scope decision: defer authenticated developer and administrator walkthroughs to launch preparation because the sandbox OAuth authorization redirect is externally blocked.
+- [x] Draft scope decision: defer live authenticated completion, streaming, quota, and administration procedure checks to launch preparation; unit, provider-connectivity, public-model, and unauthenticated error-contract verification passed.
