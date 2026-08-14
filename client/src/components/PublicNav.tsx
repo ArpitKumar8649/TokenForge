@@ -16,7 +16,7 @@ export function PublicNav() {
       <div className="public-nav__inner">
         <div className="public-nav__cluster">
           <Link href="/" className="brand" aria-label="TokenForge home">
-            <span className="brand__mark"><TokenForgeGlyph className="brand__glyph" /></span>
+            <TokenForgeGlyph className="brand__glyph" label="TokenForge" />
             <span>Token<span className="brand__accent">Forge</span></span>
           </Link>
           <nav className="public-nav__links" aria-label="Primary navigation">

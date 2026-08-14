@@ -1,15 +1,15 @@
-import { TokenForgeGlyph } from "@/components/TokenForgeGlyph";
 import { ArrowRight, Braces, CheckCircle2, ChevronLeft, CircleDollarSign, Cpu, Play, Radio, Route } from "lucide-react";
 import { Link } from "wouter";
 import "./dashboard-models.css";
+import "./dashboard-model-marks.css";
 
 const DASHBOARD_MODELS = [
-  { id: "glm-5.2", name: "GLM-5.2", provider: "Z.AI", status: "Available", eyebrow: "Long-horizon intelligence", description: "A focused option for complex engineering, coding, and extended-context work where careful reasoning matters.", input: "$1.40", output: "$4.40", capabilities: ["Reasoning", "Long context", "Streaming", "Coding"] },
-  { id: "grok-4.5", name: "Grok 4.5", provider: "xAI", status: "Available", eyebrow: "Fast engineering reasoning", description: "A reasoning-forward option for code, agentic workflows, and practical knowledge work in the same dependable request surface.", input: "$2.00", output: "$6.00", capabilities: ["Reasoning", "Agentic", "Streaming", "Coding"] },
+  { id: "glm-5.2", name: "GLM-5.2", provider: "Z.AI", mark: "/manus-storage/zai-mark_d665cf0c.png", status: "Available", eyebrow: "Long-horizon intelligence", description: "A focused option for complex engineering, coding, and extended-context work where careful reasoning matters.", input: "$1.40", output: "$4.40", capabilities: ["Reasoning", "Long context", "Streaming", "Coding"] },
+  { id: "grok-4.5", name: "Grok 4.5", provider: "xAI", mark: "/manus-storage/grok-mark-source_3ee41dfe.png", status: "Available", eyebrow: "Fast engineering reasoning", description: "A reasoning-forward option for code, agentic workflows, and practical knowledge work in the same dependable request surface.", input: "$2.00", output: "$6.00", capabilities: ["Reasoning", "Agentic", "Streaming", "Coding"] },
 ] as const;
 
 function ModelBadge({ model }: { model: typeof DASHBOARD_MODELS[number] }) {
-  return <div className={`dashboard-model-mark dashboard-model-mark--${model.id === "glm-5.2" ? "lime" : "cyan"}`}><TokenForgeGlyph className="size-7" label={`${model.name} in TokenForge`} /></div>;
+  return <div className={`dashboard-model-mark dashboard-model-mark--${model.id === "glm-5.2" ? "lime" : "cyan"}`}><img src={model.mark} alt={`${model.provider} mark`} /></div>;
 }
 
 export function DashboardModels({ modelId }: { modelId?: string }) {

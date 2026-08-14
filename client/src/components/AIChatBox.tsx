@@ -229,6 +229,7 @@ export function AIChatBox({
               {displayMessages.map((message, index) => {
                 // Apply min-height to last message only if NOT loading (when loading, the loading indicator gets it)
                 const isLastMessage = index === displayMessages.length - 1;
+                const isPendingAssistant = message.role === "assistant" && isLoading && isLastMessage && !message.content;
                 const shouldApplyMinHeight =
                   isLastMessage && !isLoading && minHeightForLastMessage > 0;
 
@@ -261,8 +262,10 @@ export function AIChatBox({
                           : "bg-muted text-foreground"
                       )}
                     >
-                      {message.role === "assistant" ? (
-                        <div className="prose prose-sm dark:prose-invert max-w-none">
+                      {isPendingAssistant ? (
+                        <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label="TokenForge is responding" />
+                      ) : message.role === "assistant" ? (
+                        <div className="prose prose-sm dark:prose-invert max-w-none leading-6 prose-p:my-2 prose-p:text-[14px] prose-p:leading-6 prose-headings:my-3 prose-headings:font-bold prose-h1:text-[21px] prose-h2:text-[19px] prose-h3:text-[17px] prose-li:my-1 prose-li:text-[14px]">
                           <Streamdown>{message.content}</Streamdown>
                         </div>
                       ) : (
@@ -281,7 +284,7 @@ export function AIChatBox({
                 );
               })}
 
-              {isLoading && (
+              {isLoading && displayMessages[displayMessages.length - 1]?.role !== "assistant" && (
                 <div
                   className="flex items-start gap-3"
                   style={

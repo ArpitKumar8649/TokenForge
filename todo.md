@@ -87,3 +87,10 @@
 - [x] Expose a truthful aggregate all-user token counter on the landing page, updated through bounded client refreshes and without leaking individual account data.
 - [x] Add focused tests and visual verification for authentication restrictions, Playground controls and streaming, model discovery/details, card sizing, and aggregate token display.
 - [x] Save a final checkpoint for the verified authentication, Playground, dashboard model, public catalogue, and aggregate metric enhancements.
+- [x] Normalize the reported mobile typography and card scale so body copy remains medium-sized while headings retain intentional emphasis.
+- [x] Add deliberate spacing between stacked dashboard cards and prevent any top-right control overlap on narrow screens.
+- [x] Remove the boxed treatment around the TokenForge header logo on the landing page while retaining a clear compact mark.
+- [x] Fix the Playground message lifecycle so a streamed assistant response has exactly one visible pending/completed message state.
+- [x] Source and use permissible official GLM and Grok marks in the dashboard Models catalogue and detail views instead of TokenForge placeholder glyphs.
+- [x] Test and visually verify the repaired mobile experiences, then checkpoint the corrected interface.
+- [ ] Save a final checkpoint for the corrected TokenForge responsive interface and source-attributed dashboard model marks.

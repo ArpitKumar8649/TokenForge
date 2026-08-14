@@ -33,3 +33,7 @@ The publisher-provided social card for the announcement is served from: <https:/
 ## Display policy
 
 Use source-attributed, publisher-provided imagery as a contained editorial visual above the model description, with a dark overlay that keeps TokenForge copy legible. Do not alter publisher marks, represent the assets as TokenForge-owned, or imply a partnership.
+
+## Dashboard provider marks
+
+The dashboard uses compact GLM and Grok source marks only as provider identifiers beside their respective model names. They are not presented as TokenForge trademarks and do not imply endorsement, comparative performance, or a provider partnership.
