@@ -9,10 +9,13 @@ import {
   InsertUser,
   usageEvents,
   users,
+  loginAttempts,
   modelConfigs,
+  passwordCredentials,
   providerConfigs,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { hashPassword, normalizeEmail, nextFailedLoginState, retryAfterSeconds, verifyPassword } from "./localAuth";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -96,6 +99,95 @@ export async function getUserByOpenId(openId: string) {
   if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
   return result[0];
+}
+
+export async function createPasswordUser(input: { email: string; password: string; name?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const email = normalizeEmail(input.email);
+  const existing = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
+  if (existing[0]) return null;
+
+  const passwordHash = await hashPassword(input.password);
+  const openId = `tf_local_${randomBytes(18).toString("base64url")}`;
+  try {
+    const userId = await db.transaction(async tx => {
+      const inserted = await tx.insert(users).values({
+        openId,
+        email,
+        name: input.name?.trim() || email.split("@")[0] || "TokenForge developer",
+        loginMethod: "password",
+        lastSignedIn: new Date(),
+      });
+      const createdUserId = Number(inserted[0].insertId);
+      await tx.insert(passwordCredentials).values({ userId: createdUserId, passwordHash });
+      return createdUserId;
+    });
+    await ensureAccountControl(userId);
+    return getUserByOpenId(openId);
+  } catch (error: any) {
+    if (error?.code === "ER_DUP_ENTRY") return null;
+    throw error;
+  }
+}
+
+export async function authenticatePasswordUser(emailInput: string, password: string) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const email = normalizeEmail(emailInput);
+  const rows = await db
+    .select({ user: users, passwordHash: passwordCredentials.passwordHash })
+    .from(users)
+    .innerJoin(passwordCredentials, eq(passwordCredentials.userId, users.id))
+    .where(eq(users.email, email))
+    .limit(1);
+  const account = rows[0];
+  if (!account || !(await verifyPassword(password, account.passwordHash))) return null;
+  await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, account.user.id));
+  return account.user;
+}
+
+function hashLoginIdentifier(email: string) {
+  const pepper = process.env.JWT_SECRET;
+  if (!pepper) throw new Error("JWT_SECRET is required for TokenForge authentication throttling");
+  return createHmac("sha256", pepper).update(`login:${normalizeEmail(email)}`).digest("hex");
+}
+
+export async function getPasswordLoginThrottle(email: string, now = new Date()) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const identifierHash = hashLoginIdentifier(email);
+  const record = (await db.select().from(loginAttempts).where(eq(loginAttempts.identifierHash, identifierHash)).limit(1))[0];
+  const retryAfter = retryAfterSeconds(record?.blockedUntil ?? null, now);
+  return { blocked: retryAfter > 0, retryAfterSeconds: retryAfter };
+}
+
+export async function recordFailedPasswordLogin(email: string, now = new Date()) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const identifierHash = hashLoginIdentifier(email);
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const current = (await db.select().from(loginAttempts).where(eq(loginAttempts.identifierHash, identifierHash)).limit(1))[0];
+    const next = nextFailedLoginState(current ? { failureCount: current.failureCount, windowStartedAt: current.windowStartedAt, blockedUntil: current.blockedUntil } : null, now);
+    try {
+      if (current) {
+        await db.update(loginAttempts).set(next).where(eq(loginAttempts.id, current.id));
+      } else {
+        await db.insert(loginAttempts).values({ identifierHash, ...next });
+      }
+      return { blocked: retryAfterSeconds(next.blockedUntil, now) > 0, retryAfterSeconds: retryAfterSeconds(next.blockedUntil, now) };
+    } catch (error: any) {
+      if (error?.code !== "ER_DUP_ENTRY" || attempt === 1) throw error;
+    }
+  }
+  return { blocked: false, retryAfterSeconds: 0 };
+}
+
+export async function clearFailedPasswordLogin(email: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(loginAttempts).where(eq(loginAttempts.identifierHash, hashLoginIdentifier(email)));
 }
 
 export async function ensureAccountControl(userId: number) {

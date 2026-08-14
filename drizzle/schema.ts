@@ -33,10 +33,37 @@ export const users = mysqlTable("users", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
-});
+}, table => [uniqueIndex("users_email_unique_idx").on(table.email)]);
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+/** First-party credentials. Passwords are stored only as salted scrypt derivations. */
+export const passwordCredentials = mysqlTable(
+  "password_credentials",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    userId: int("userId").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+    passwordHash: varchar("passwordHash", { length: 255 }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("password_credentials_user_idx").on(table.userId)],
+);
+
+/** Hashed login identifiers with bounded counters for first-party sign-in throttling. */
+export const loginAttempts = mysqlTable(
+  "login_attempts",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    identifierHash: varchar("identifierHash", { length: 128 }).notNull().unique(),
+    failureCount: int("failureCount").default(0).notNull(),
+    windowStartedAt: timestamp("windowStartedAt").defaultNow().notNull(),
+    blockedUntil: timestamp("blockedUntil"),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("login_attempts_blocked_idx").on(table.blockedUntil)],
+);
 
 export const apiKeys = mysqlTable(
   "api_keys",
@@ -180,3 +207,4 @@ export type ProviderConfig = typeof providerConfigs.$inferSelect;
 export type ModelConfig = typeof modelConfigs.$inferSelect;
 export type AccountFlag = typeof accountFlags.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
+export type PasswordCredential = typeof passwordCredentials.$inferSelect;

@@ -19,11 +19,11 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
 import { ChartNoAxesCombined, KeyRound, LayoutDashboard, LogOut, PanelLeft, Shield } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
+import { Link } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
 
@@ -67,16 +67,13 @@ export default function DashboardLayout({
               Sign in to continue
             </h1>
             <p className="text-sm text-muted-foreground text-center max-w-sm">
-              Access to this dashboard requires authentication. Continue to launch the login flow.
+              Access to this dashboard requires a TokenForge account. Create one or sign in to continue.
             </p>
           </div>
-          <Button
-            onClick={() => startLogin()}
-            size="lg"
-            className="w-full shadow-lg hover:shadow-xl transition-all"
-          >
-            Sign in
-          </Button>
+          <div className="w-full grid grid-cols-2 gap-3">
+            <Button asChild size="lg" className="shadow-lg hover:shadow-xl transition-all"><Link href="/signin">Sign in</Link></Button>
+            <Button asChild variant="outline" size="lg"><Link href="/signup">Create account</Link></Button>
+          </div>
         </div>
       </div>
     );

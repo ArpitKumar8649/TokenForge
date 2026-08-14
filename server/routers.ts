@@ -14,10 +14,17 @@ import {
   setModelEnabled,
   setProviderEnabled,
   writeAuditEvent,
+  authenticatePasswordUser,
+  clearFailedPasswordLogin,
+  createPasswordUser,
+  getPasswordLoginThrottle,
+  recordFailedPasswordLogin,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { PASSWORD_MIN_LENGTH } from "./localAuth";
 
 const apiKeyLabel = z
   .string()
@@ -25,10 +32,45 @@ const apiKeyLabel = z
   .min(1, "Choose a label for this key")
   .max(100, "Key labels must be 100 characters or fewer");
 
+const localCredentials = z.object({
+  email: z.string().trim().email("Enter a valid email address").max(320),
+  password: z.string().min(PASSWORD_MIN_LENGTH, `Use at least ${PASSWORD_MIN_LENGTH} characters`).max(256),
+});
+const registrationInput = localCredentials.extend({ name: z.string().trim().min(1).max(120).optional() });
+const LOCAL_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function startLocalSession(ctx: { req: any; res: any }, user: { openId: string; name: string | null }) {
+  const token = await sdk.createSessionToken(user.openId, { expiresInMs: LOCAL_SESSION_MAX_AGE_MS, name: user.name ?? "TokenForge developer" });
+  ctx.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(ctx.req), maxAge: LOCAL_SESSION_MAX_AGE_MS });
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    register: publicProcedure.input(registrationInput).mutation(async ({ ctx, input }) => {
+      const user = await createPasswordUser(input);
+      if (!user) throw new TRPCError({ code: "CONFLICT", message: "An account already exists for this email" });
+      await startLocalSession(ctx, user);
+      return { user };
+    }),
+    login: publicProcedure.input(localCredentials).mutation(async ({ ctx, input }) => {
+      const throttle = await getPasswordLoginThrottle(input.email);
+      if (throttle.blocked) {
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: `Too many sign-in attempts. Try again in ${throttle.retryAfterSeconds} seconds.` });
+      }
+      const user = await authenticatePasswordUser(input.email, input.password);
+      if (!user) {
+        const failedAttempt = await recordFailedPasswordLogin(input.email);
+        if (failedAttempt.blocked) {
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: `Too many sign-in attempts. Try again in ${failedAttempt.retryAfterSeconds} seconds.` });
+        }
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect email or password" });
+      }
+      await clearFailedPasswordLogin(input.email);
+      await startLocalSession(ctx, user);
+      return { user };
+    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });

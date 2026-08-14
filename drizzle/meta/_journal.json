@@ -15,6 +15,20 @@
       "when": 1786677477421,
       "tag": "0001_bizarre_jamie_braddock",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1786681897936,
+      "tag": "0002_abandoned_rattler",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1786682347850,
+      "tag": "0003_lonely_starjammers",
+      "breakpoints": true
     }
   ]
 }

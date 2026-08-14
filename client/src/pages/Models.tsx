@@ -1,8 +1,7 @@
 import { PublicNav } from "@/components/PublicNav";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { startLogin } from "@/const";
 import { ArrowRight, BrainCircuit, Braces, Code2, Gauge, Network } from "lucide-react";
+import { Link } from "wouter";
 
 const models = [
   {
@@ -29,7 +28,7 @@ const models = [
 
 export default function Models() {
   return (
-    <div className="public-page">
+    <div className="public-page tf-public-surface models-page">
       <PublicNav />
       <main className="catalogue-page">
         <div className="page-eyebrow"><span className="status-dot" /> Curated catalogue</div>
@@ -72,7 +71,7 @@ export default function Models() {
             <strong>Capability labels are intentional, not promises.</strong>
             <p>Availability, throughput, and feature support are verified at request time. TokenForge never silently switches models or routes a request outside the selected catalogue.</p>
           </div>
-          <Button variant="outline" onClick={() => startLogin()}>Get an API key <Braces size={16} /></Button>
+          <Link href="/signup" className="models-cta">Create an account <Braces size={16} /></Link>
         </section>
       </main>
       <PublicFooter />
@@ -83,14 +82,16 @@ export default function Models() {
 export function PublicFooter() {
   return (
     <footer className="public-footer">
-      <div><span className="footer-brand">Token<span>Forge</span></span><p>A quieter kind of API gateway.</p></div>
+      <div><span className="footer-brand">Token<span>Forge</span></span><p>A considered AI gateway for serious building.</p></div>
       <div className="footer-links">
+        <a href="/models">Models</a>
+        <a href="/pricing">Pricing</a>
         <a href="/docs">Documentation</a>
         <a href="/legal/terms">Terms</a>
         <a href="/legal/privacy">Privacy</a>
         <a href="/legal/acceptable-use">Acceptable use</a>
       </div>
-      <small>© 2026 TokenForge</small>
+      <small>© 2026 TokenForge · <a href="/signin">Sign in</a></small>
     </footer>
   );
 }

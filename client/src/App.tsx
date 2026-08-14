@@ -12,6 +12,7 @@ import Home from "./pages/Home";
 import Legal from "./pages/Legal";
 import Models from "./pages/Models";
 import Pricing from "./pages/Pricing";
+import LocalAuth from "./pages/LocalAuth";
 import { RouteLoader } from "./components/RouteLoader";
 import "./tokenforge-refresh.css";
 
@@ -24,6 +25,8 @@ function Router() {
       <Route path={"/docs"} component={Docs} />
       <Route path={"/demo"} component={DemoWorkspace} />
       <Route path={"/pricing"} component={Pricing} />
+      <Route path={"/signin"}>{() => <LocalAuth mode="signin" />}</Route>
+      <Route path={"/signup"}>{() => <LocalAuth mode="signup" />}</Route>
       <Route path={"/dashboard"}>{() => <DeveloperDashboard section="overview" />}</Route>
       <Route path={"/dashboard/keys"}>{() => <DeveloperDashboard section="keys" />}</Route>
       <Route path={"/dashboard/usage"}>{() => <DeveloperDashboard section="usage" />}</Route>

@@ -35,7 +35,7 @@ export default function Docs() {
   };
 
   return (
-    <div className="public-page">
+    <div className="public-page tf-public-surface docs-page">
       <PublicNav />
       <main className="docs-shell">
         <aside className="docs-sidebar">

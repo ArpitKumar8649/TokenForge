@@ -29,9 +29,20 @@
 - [x] Draft scope decision: defer live authenticated completion, streaming, quota, and administration procedure checks to launch preparation; unit, provider-connectivity, public-model, and unauthenticated error-contract verification passed.
 - [x] Review both user-provided documents, identify compatible TokenForge requirements, and document any rejected or deferred instructions that conflict with security, provider, or draft-scope decisions.
 - [x] Incorporate the approved document-derived frontend and backend updates into TokenForge and cover the resulting behavior with appropriate validation.
-- [ ] Verify the document-derived changes, update the project backlog, and save a new TokenForge draft checkpoint.
+- [x] Verify the document-derived changes, update the project backlog, and save a new TokenForge draft checkpoint.
 - [x] Add a clearly labeled, read-only demo workspace entry that bypasses login without exposing protected API keys, live usage records, or administration procedures.
 - [x] Redesign the public TokenForge landing experience with a creative new colour system and a responsive animated visual accent derived from the supplied shader component.
 - [x] Add an accessible branded loading overlay that is visible for approximately 2.4 seconds on a full reload and during client-side route transitions without blocking essential server behavior.
 - [x] Add a public TokenForge pricing page adapted to the current free-beta and future-contact model, without implying live billing or fabricating unavailable plan entitlements.
 - [x] Document the supplied-document review outcome, including adopted requirements and any rejected or deferred instructions with security, provider, or draft-scope rationale.
+- [x] Add prominent, working Models and Pricing links to the TokenForge public navigation across desktop and mobile layouts.
+- [x] Apply the current TokenForge visual system consistently to the Models, Documentation, legal, and footer surfaces without weakening content readability or public navigation.
+- [x] Add database-backed first-party email-and-password registration, password hashing, sign-in, sign-out, session handling, and dashboard protection as an alternative to the blocked external OAuth path.
+- [x] Add validation and Vitest coverage for first-party credential handling, authentication errors, and protected dashboard access.
+- [x] Verify the updated public navigation, cross-page presentation, and first-party sign-in and registration flows before saving a new checkpoint.
+- [x] Add bounded failed-sign-in throttling to the first-party authentication flow and cover the protected failure behavior with tests.
+- [x] Add Vitest coverage for first-party registration and sign-in error responses, including duplicate-email conflict and incorrect-password handling.
+- [x] Add integration-style Vitest coverage proving repeated failed local sign-ins return the throttle response after the configured limit.
+- [x] Add session-contract coverage for protected dashboard procedure access with and without a local first-party session.
+- [x] Exercise consecutive failed sign-in attempts against a non-mocked throttle state and assert the configured boundary transitions from generic rejection to retry guidance.
+- [x] Add isolated setup and cleanup for a real `login_attempts` record so the failed-sign-in throttle boundary is verified against the persisted TokenForge data path.
