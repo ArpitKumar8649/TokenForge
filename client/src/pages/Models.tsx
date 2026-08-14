@@ -3,6 +3,7 @@ import { TokenForgeGlyph } from "@/components/TokenForgeGlyph";
 import { Badge } from "@/components/ui/badge";
 import { ArrowRight, BrainCircuit, Braces, Code2, Gauge, Network } from "lucide-react";
 import { Link } from "wouter";
+import "./models.css";
 
 const models = [
   {
@@ -13,8 +14,12 @@ const models = [
     badges: ["Long context", "Reasoning", "Streaming", "Coding"],
     icon: BrainCircuit,
     source: "https://docs.z.ai/guides/llm/glm-5.2",
+    visualSource: "https://z.ai/blog/glm-5.2",
+    visualSourceLabel: "Publisher visual · Z.AI",
+    visual: "/manus-storage/glm-5-2-zai-reference_bfc9a0e7.png",
+    visualAlt: "Publisher-provided GLM-5.2 benchmark figure from Z.AI.",
     tone: "orchid",
-    visual: "/manus-storage/tokenforge-glm52-model-bg_80b65d65.png",
+    pricing: { input: "$1.40", output: "$4.40" },
   },
   {
     id: "grok-4.5",
@@ -24,8 +29,12 @@ const models = [
     badges: ["Reasoning", "Agentic", "Coding", "Streaming"],
     icon: Network,
     source: "https://x.ai/news/grok-4-5",
+    visualSource: "https://x.ai/news/grok-4-5",
+    visualSourceLabel: "Publisher visual · xAI",
+    visual: "/manus-storage/grok-4-5-xai-reference_a284fce8.png",
+    visualAlt: "Publisher-provided visual for Grok 4.5 from xAI.",
     tone: "blue",
-    visual: "/manus-storage/tokenforge-grok45-model-bg_1935b4eb.png",
+    pricing: { input: "$2.00", output: "$6.00" },
   },
 ];
 
@@ -50,7 +59,10 @@ export default function Models() {
             const Icon = model.icon;
             return (
               <article key={model.id} className={`model-detail-card model-detail-card--${model.tone}`}>
-                <div className="model-card-visual" style={{ backgroundImage: `url(${model.visual})` }} aria-hidden="true" />
+                <figure className="model-source-visual">
+                  <img src={model.visual} alt={model.visualAlt} />
+                  <figcaption><a href={model.visualSource} target="_blank" rel="noreferrer">{model.visualSourceLabel}</a></figcaption>
+                </figure>
                 <div className="model-card-topline">
                   <span className="model-icon"><Icon size={21} /></span>
                   <Badge variant="secondary">Available in beta</Badge>
@@ -61,9 +73,14 @@ export default function Models() {
                 <div className="capability-row">
                   {model.badges.map(badge => <span key={badge}>{badge}</span>)}
                 </div>
+                <section className="model-rate-card" aria-label={`${model.name} TokenForge credit rate`}>
+                  <div className="model-rate-card__head"><p>TokenForge credit rate</p><span>per 1M tokens</span></div>
+                  <dl><div><dt>Input</dt><dd>{model.pricing.input}</dd><small>per 1M tokens</small></div><div><dt>Output</dt><dd>{model.pricing.output}</dd><small>per 1M tokens</small></div></dl>
+                  <p className="model-rate-note">Applied only to successful requests, using the provider-reported input and output token counts.</p>
+                </section>
                 <div className="model-card-footer">
                   <code>{model.id}</code>
-                  <a href={model.source} target="_blank" rel="noreferrer">Source notes <ArrowRight size={14} /></a>
+                  <a href={model.source} target="_blank" rel="noreferrer">Model source <ArrowRight size={14} /></a>
                 </div>
               </article>
             );
@@ -73,7 +90,7 @@ export default function Models() {
           <div className="catalogue-note__icon"><Gauge size={20} /></div>
           <div>
             <strong>Capability labels are intentional, not promises.</strong>
-            <p>Availability, throughput, and feature support are verified at request time. TokenForge never silently switches models or routes a request outside the selected catalogue.</p>
+            <p>Publisher-provided visuals are credited above. Availability, throughput, and feature support are verified at request time; TokenForge never silently switches models or routes a request outside the selected catalogue.</p>
           </div>
           <Link href="/signup" className="models-cta">Create an account <Braces size={16} /></Link>
         </section>

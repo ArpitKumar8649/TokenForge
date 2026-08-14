@@ -72,3 +72,9 @@
 - [x] Add focused Vitest coverage for the authenticated usageLogs contract, including filters and returned charge, source, and stream metadata.
 - [x] Save a new checkpoint after the completed credit, request-log, and Profile feature set passes final validation.
 - [x] Save the verified credit wallet, detailed request-log, Profile, and daily check-in feature set after the latest passing tests.
+- [x] Preserve the current account and API key while clearing only historical usage events, daily usage aggregates, and related usage charge/ledger activity for a clean credit baseline.
+- [x] Rebuild the Profile and Usage Logs mobile experiences with deliberate cards, readable filters, a responsive log layout, and calendar/reward affordances rather than raw stacked text.
+- [x] Show TokenForge’s documented per-1M input and output credit rates for GLM-5.2 and Grok 4.5 directly in the Models catalogue.
+- [x] Source and use permissible online model imagery above each catalogue description, with appropriate attribution or licensing notes where needed.
+- [x] Test, visually verify the reset and redesigned mobile interfaces, then checkpoint the improved experience.
+- [ ] Save a checkpoint covering the verified usage-data reset, mobile Profile and Usage Logs redesign, and source-attributed Models catalogue update.
