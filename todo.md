@@ -1,0 +1,29 @@
+# Project TODO
+
+- [x] Define the hosted-provider integration boundary, quota policy, model catalogue, and provider-terms decision record.
+- [x] Add database tables and migrations for API keys, usage events, daily quotas, model/provider configuration, account flags, and audit events.
+- [x] Add query helpers and typed server procedures for secure API-key lifecycle, usage summaries, quotas, models, provider controls, and account moderation.
+- [x] Build an elegant responsive public landing page with hero, feature highlights, model catalogue overview, and developer quick-start snippets.
+- [x] Build public API documentation with OpenAI-compatible endpoint reference, authentication guidance, SDK examples, rate-limit headers, and error glossary.
+- [x] Build and route live Terms of Service, Privacy Notice, and Acceptable-Use Policy pages before public-access controls are exposed.
+- [ ] Verify the live external OAuth completion path from an authorized browser session or deployed environment; the protected dashboard gate and sign-in entry are implemented, but the sandbox authorization redirect returned an upstream 403.
+- [x] Implement one-time plaintext API-key creation, salted hashing, labels, revocation, and rotation with no plaintext key retrieval path.
+- [x] Implement durable per-user and per-key request/token usage metering, daily quota enforcement, concurrency limits, and rate-limit response headers.
+- [x] Implement /v1/models and /v1/chat/completions with OpenAI-compatible contracts, request IDs, consistent error objects, and server-side streaming support.
+- [x] Add a server-only fxqidian inference adapter controlled by a managed secret, with provider timeouts, safe error normalization, and no browser-side upstream credential exposure.
+- [x] Build polished user dashboard screens for quota status, API-key management, daily/cumulative usage charts, and usage history.
+- [x] Build role-protected administrative controls for provider/model enablement, account suspension, quota adjustments, and usage-trend review.
+- [x] Configure owner notifications for quota exceedance, rate-limit circuit breakers, and suspicious-usage flags through the available project notification channel.
+- [x] Add abuse safeguards, privacy-oriented logging/redaction, account/IP rate controls, concurrent-request controls, and admin audit records.
+- [x] Write Vitest coverage for key hashing, quota headers, API-format errors, provider connectivity, and safe model-catalogue constraints.
+- [x] Verify desktop and mobile presentation, run the application checks and test suite, and inspect critical pages visually.
+- [ ] Save a final project checkpoint after every completed backlog item is marked accurately.
+- [x] Replace the provisional hosted-provider plan with a server-side fxqidian adapter using only glm-5.2 and grok-4.5, after validating its API contract and documenting the two model descriptions from authoritative online sources.
+- [x] Add intentional loading, empty, success, and error states across public, dashboard, administration, and API-key flows to support the requested engaging interface quality.
+- [x] Define and document the TokenForge beta quota policy, including daily request/token limits, concurrency, circuit-breaker thresholds, response headers, and upstream-capacity launch gating for the selected provider.
+- [ ] Add an email-delivery provider and tokenized verification flow so users can verify their email addresses rather than relying only on the existing OAuth identity.
+- [ ] Send the three operational alert conditions through the configured email-delivery provider, in addition to the project-owner notification channel.
+- [ ] Deferred draft work: configure a transactional-email provider, then enable tokenized email verification and send owner alerts as emails before public launch.
+- [ ] Complete a final interaction audit of the frontend workspace and backend API flows before preserving the current draft MVP checkpoint.
+- [ ] Verify authenticated developer and administrator workspace flows, including sign-in entry, API-key create/rotate/revoke, usage history, and account-control interactions at desktop and mobile sizes.
+- [ ] Verify authenticated gateway behavior for successful OpenAI-compatible completions and streaming, quota/rate-limit responses with headers, and API-key lifecycle and administration procedures.
