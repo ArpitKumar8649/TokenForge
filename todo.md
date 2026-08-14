@@ -77,4 +77,4 @@
 - [x] Show TokenForge’s documented per-1M input and output credit rates for GLM-5.2 and Grok 4.5 directly in the Models catalogue.
 - [x] Source and use permissible online model imagery above each catalogue description, with appropriate attribution or licensing notes where needed.
 - [x] Test, visually verify the reset and redesigned mobile interfaces, then checkpoint the improved experience.
-- [ ] Save a checkpoint covering the verified usage-data reset, mobile Profile and Usage Logs redesign, and source-attributed Models catalogue update.
+- [x] Save a checkpoint covering the verified usage-data reset, mobile Profile and Usage Logs redesign, and source-attributed Models catalogue update.
