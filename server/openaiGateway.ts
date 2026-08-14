@@ -12,7 +12,7 @@ import {
 } from "./db";
 import { raiseOperationalAlert } from "./operationalAlerts";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
-import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, getTokenForgeProviderSlug, isTokenForgeModelId, TOKENFORGE_MODEL_CATALOGUE, type TokenForgeModelId } from "./modelCatalogue";
+import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, getTokenForgeProviderSlug, getTokenForgeUpstreamModelId, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, type TokenForgeModelId } from "./modelCatalogue";
 import { sdk } from "./_core/sdk";
 
 export const TOKENFORGE_CATALOGUE = TOKENFORGE_MODEL_CATALOGUE.map(model => ({
@@ -140,10 +140,25 @@ async function forwardClusterRequest(input: ChatInput, signal: AbortSignal) {
   });
 }
 
+async function forwardTokenHarborRequest(input: ChatInput, signal: AbortSignal) {
+  const base = process.env.TOKENHARBOR_BASE_URL?.replace(/\/$/, "");
+  const secret = process.env.TOKENHARBOR_API_KEY;
+  if (!base || !secret) throw new Error("TokenForge TokenHarbor inference is not configured");
+  const upstreamModel = typeof input.model === "string" ? getTokenForgeUpstreamModelId(input.model) : undefined;
+  const requestBody = upstreamModel ? { ...input, model: upstreamModel } : input;
+  return fetch(`${base}/v1/chat/completions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
+    body: JSON.stringify(requestBody),
+    signal,
+  });
+}
+
 export async function forwardProviderRequest(model: TokenForgeModelId, input: ChatInput, signal: AbortSignal) {
   const provider = getTokenForgeProviderSlug(model);
   if (provider === FXQIDIAN_PROVIDER_SLUG) return forwardFxqidianRequest(input, signal);
   if (provider === CLUSTER_PROTOCOL_PROVIDER_SLUG) return forwardClusterRequest(input, signal);
+  if (provider === TOKENHARBOR_PROVIDER_SLUG) return forwardTokenHarborRequest(input, signal);
   throw new Error("TokenForge inference routing is not configured for this model");
 }
 

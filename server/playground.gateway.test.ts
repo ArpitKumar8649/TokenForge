@@ -36,6 +36,8 @@ beforeEach(() => {
   process.env.FXQIDIAN_API_KEY = "server-only-provider-secret";
   process.env.CLUSTER_PROTOCOL_BASE_URL = "https://cluster.example";
   process.env.CLUSTER_PROTOCOL_API_KEY = "server-only-cluster-secret";
+  process.env.TOKENHARBOR_BASE_URL = "https://tokenharbor.example";
+  process.env.TOKENHARBOR_API_KEY = "server-only-tokenharbor-secret";
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
   vi.mocked(getRecentRequestCounts).mockResolvedValue({ account: 0, ip: 0 });
@@ -120,6 +122,34 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.stringify(fetchMock.mock.calls[0][1].headers)).not.toContain("server-only-provider-secret");
     expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 330_000 }));
     expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "kimi-k3", status: "success", inputTokens: 10, outputTokens: 20, chargeNanos: 96_000 }));
+  });
+
+  it("routes both DeepSeek aliases through TokenHarbor while translating only the upstream model identifier", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: "TokenHarbor-routed completion" } }],
+      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runPlaygroundCompletion({
+      userId: 42,
+      model: "deepseek-v4-pro",
+      messages: [{ role: "user", content: "Explain safe model alias routing." }],
+      sourceIpHash: "hashed-source-ip",
+    });
+
+    expect(result).toMatchObject({ model: "deepseek-v4-pro", usage: { totalTokens: 30 } });
+    expect(fetchMock).toHaveBeenCalledWith("https://tokenharbor.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenharbor-secret" }),
+      body: expect.stringContaining('"model":"deepseek-v4-flash:free"'),
+    }));
+    const forwardedPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(forwardedPayload.model).toBe("deepseek-v4-flash:free");
+    expect(forwardedPayload.messages[0].content).toContain("selected TokenForge model: deepseek-v4-pro");
+    expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toContain("server-only-provider-secret");
+    expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toContain("server-only-cluster-secret");
+    expect(reserveCredit).toHaveBeenCalledWith(42, 0, expect.stringMatching(/^tf_pg_/));
+    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "deepseek-v4-pro", status: "success", inputTokens: 10, outputTokens: 20 }));
   });
 
   it("stops before provider execution when the promotional credit reservation is denied", async () => {

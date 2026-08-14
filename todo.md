@@ -138,3 +138,7 @@
 - [x] Add regression coverage and responsive validation for the reduced active catalogue and repaired landing section, then checkpoint the changes.
 - [x] Commit the latest validated TokenForge changes and push them to the selected GitHub repository.
 - [x] Refine the public landing page navigation, hero, model ribbon, and metric layout for stable tablet responsiveness.
+- [x] Verify the TokenHarbor `deepseek-v4-flash:free` route server-side without exposing its credential.
+- [x] Align the provider diagnostic payload with the user-confirmed request and retain the sandbox HTTP 403 as an environment-access diagnostic rather than treating it as model unavailability.
+- [x] If verified, add `deepseek-v4-flash` and `deepseek-v4-pro` as two TokenForge catalogue routes pointing to the same TokenHarbor underlying model.
+- [x] Add regression coverage and document the GitHub OAuth login configuration prerequisites for TokenForge.

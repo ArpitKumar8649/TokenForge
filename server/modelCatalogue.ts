@@ -1,7 +1,8 @@
 export const FXQIDIAN_PROVIDER_SLUG = "fxqidian" as const;
 export const CLUSTER_PROTOCOL_PROVIDER_SLUG = "cluster-protocol" as const;
+export const TOKENHARBOR_PROVIDER_SLUG = "tokenharbor" as const;
 
-export type TokenForgeProviderSlug = typeof FXQIDIAN_PROVIDER_SLUG | typeof CLUSTER_PROTOCOL_PROVIDER_SLUG;
+export type TokenForgeProviderSlug = typeof FXQIDIAN_PROVIDER_SLUG | typeof CLUSTER_PROTOCOL_PROVIDER_SLUG | typeof TOKENHARBOR_PROVIDER_SLUG;
 
 export type TokenForgeModelDefinition = {
   id: string;
@@ -14,6 +15,7 @@ export type TokenForgeModelDefinition = {
   outputUsdPerMillion: number;
   pricingSource: string;
   pricingUrl: string;
+  upstreamModelId?: string;
 };
 
 const claude = (id: string, displayName: string, inputUsdPerMillion: number, outputUsdPerMillion: number): TokenForgeModelDefinition => ({
@@ -53,6 +55,32 @@ export const TOKENFORGE_MODEL_CATALOGUE = [
     outputUsdPerMillion: 6,
     pricingSource: "xAI API pricing",
     pricingUrl: "https://docs.x.ai/developers/pricing",
+  },
+  {
+    id: "deepseek-v4-flash",
+    displayName: "DeepSeek V4 Flash",
+    description: "A fast DeepSeek text-chat route served through TokenHarbor’s `deepseek-v4-flash:free` endpoint.",
+    providerSlug: TOKENHARBOR_PROVIDER_SLUG,
+    providerName: "DeepSeek",
+    capabilities: ["streaming", "coding"],
+    inputUsdPerMillion: 0,
+    outputUsdPerMillion: 0,
+    pricingSource: "TokenHarbor DeepSeek V4 Flash route",
+    pricingUrl: "https://tokenharbor.ai/docs",
+    upstreamModelId: "deepseek-v4-flash:free",
+  },
+  {
+    id: "deepseek-v4-pro",
+    displayName: "DeepSeek V4 Pro",
+    description: "A TokenForge compatibility route currently backed by the same TokenHarbor `deepseek-v4-flash:free` endpoint as DeepSeek V4 Flash.",
+    providerSlug: TOKENHARBOR_PROVIDER_SLUG,
+    providerName: "DeepSeek",
+    capabilities: ["streaming", "coding"],
+    inputUsdPerMillion: 0,
+    outputUsdPerMillion: 0,
+    pricingSource: "TokenHarbor DeepSeek V4 Flash route",
+    pricingUrl: "https://tokenharbor.ai/docs",
+    upstreamModelId: "deepseek-v4-flash:free",
   },
   {
     id: "glm-5.1",
@@ -148,7 +176,7 @@ export const TOKENFORGE_MODEL_CATALOGUE = [
 
 export type TokenForgeModelId = (typeof TOKENFORGE_MODEL_CATALOGUE)[number]["id"];
 export const TOKENFORGE_MODEL_IDS = TOKENFORGE_MODEL_CATALOGUE.map(model => model.id) as TokenForgeModelId[];
-const modelById = new Map<string, (typeof TOKENFORGE_MODEL_CATALOGUE)[number]>(TOKENFORGE_MODEL_CATALOGUE.map(model => [model.id, model]));
+const modelById = new Map<string, TokenForgeModelDefinition>(TOKENFORGE_MODEL_CATALOGUE.map(model => [model.id, model]));
 
 export function isTokenForgeModelId(model: string): model is TokenForgeModelId {
   return modelById.has(model);
@@ -160,4 +188,8 @@ export function getTokenForgeModel(model: string) {
 
 export function getTokenForgeProviderSlug(model: string): TokenForgeProviderSlug | undefined {
   return modelById.get(model)?.providerSlug;
+}
+
+export function getTokenForgeUpstreamModelId(model: string) {
+  return modelById.get(model)?.upstreamModelId ?? modelById.get(model)?.id;
 }

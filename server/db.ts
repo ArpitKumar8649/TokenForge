@@ -20,7 +20,7 @@ import {
 import { ENV } from "./_core/env";
 import { hashPassword, normalizeEmail, nextFailedLoginState, retryAfterSeconds, verifyPassword } from "./localAuth";
 import { DAILY_CHECKIN_CREDIT_NANOS, INTRODUCTORY_CREDIT_NANOS } from "./creditPricing";
-import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, TOKENFORGE_MODEL_IDS, type TokenForgeModelId } from "./modelCatalogue";
+import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, TOKENFORGE_MODEL_IDS, type TokenForgeModelId } from "./modelCatalogue";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -552,9 +552,11 @@ export async function ensureCatalogue() {
   if (!db) return;
   const baseUrl = process.env.FXQIDIAN_BASE_URL ?? "https://fxqidian.de5.net";
   const clusterBaseUrl = process.env.CLUSTER_PROTOCOL_BASE_URL ?? "https://api.clusterprotocol.ai";
+  const tokenHarborBaseUrl = process.env.TOKENHARBOR_BASE_URL ?? "https://tokenharbor.ai";
   await db.insert(providerConfigs).values([
     { slug: FXQIDIAN_PROVIDER_SLUG, displayName: "Selected hosted inference", baseUrl },
     { slug: CLUSTER_PROTOCOL_PROVIDER_SLUG, displayName: "Cluster Protocol", baseUrl: clusterBaseUrl },
+    { slug: TOKENHARBOR_PROVIDER_SLUG, displayName: "TokenHarbor", baseUrl: tokenHarborBaseUrl },
   ]).onDuplicateKeyUpdate({ set: { baseUrl: sql`values(${providerConfigs.baseUrl})`, displayName: sql`values(${providerConfigs.displayName})` } });
   for (const model of CATALOGUE_DEFINITIONS) {
     await db.insert(modelConfigs).values({ modelId: model.id, displayName: model.displayName, description: model.description, capabilities: [...model.capabilities], providerSlug: model.providerSlug }).onDuplicateKeyUpdate({

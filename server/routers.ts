@@ -30,7 +30,7 @@ import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { isPermanentEmailAddress, PASSWORD_MIN_LENGTH } from "./localAuth";
-import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, isTokenForgeModelId, type TokenForgeModelId } from "./modelCatalogue";
+import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, type TokenForgeModelId } from "./modelCatalogue";
 import { runPlaygroundCompletion, TokenForgePlaygroundError, tokenForgeRequestIpHash } from "./openaiGateway";
 
 const apiKeyLabel = z
@@ -211,7 +211,7 @@ export const appRouter = router({
       await writeAuditEvent({ actorUserId: ctx.user.id, action: input.enabled ? "model.enabled" : "model.disabled", entityType: "model", entityId: input.modelId });
       return { success: true } as const;
     }),
-    setProviderEnabled: adminProcedure.input(z.object({ slug: z.enum([FXQIDIAN_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG]), enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
+    setProviderEnabled: adminProcedure.input(z.object({ slug: z.enum([FXQIDIAN_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG]), enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
       const updated = await setProviderEnabled(input.slug, input.enabled);
       if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Provider configuration not found" });
       await writeAuditEvent({ actorUserId: ctx.user.id, action: input.enabled ? "provider.enabled" : "provider.disabled", entityType: "provider", entityId: input.slug });
