@@ -36,7 +36,8 @@ const activeRequests = new Map<number, number>();
 
 export type TokenForgeChatMessage = { role?: string; content?: unknown };
 type ChatMessage = TokenForgeChatMessage;
-type ChatInput = { model?: string; messages?: ChatMessage[]; stream?: boolean; max_tokens?: number; [key: string]: unknown };
+export type TokenForgeChatInput = { model?: string; messages?: ChatMessage[]; stream?: boolean; max_tokens?: number; [key: string]: unknown };
+type ChatInput = TokenForgeChatInput;
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number };
 
 function playgroundPlatformGuidance(model: TokenForgeModelId): TokenForgeChatMessage {
@@ -205,7 +206,7 @@ async function forwardTokenHarborRequest(input: ChatInput, signal: AbortSignal) 
   }
 }
 
-export async function forwardProviderRequest(model: TokenForgeModelId, input: ChatInput, signal: AbortSignal) {
+export async function forwardProviderRequest(model: TokenForgeModelId, input: TokenForgeChatInput, signal: AbortSignal) {
   const provider = getTokenForgeProviderSlug(model);
   if (provider === FXQIDIAN_PROVIDER_SLUG) return forwardFxqidianRequest(input, signal);
   if (provider === CLUSTER_PROTOCOL_PROVIDER_SLUG) return forwardClusterRequest(input, signal);

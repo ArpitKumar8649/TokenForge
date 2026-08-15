@@ -7,6 +7,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerGitHubOAuthRoutes } from "../githubOAuth";
 import { registerStorageProxy } from "./storageProxy";
 import { registerOpenAiGateway, registerPlaygroundGateway } from "../openaiGateway";
+import { registerAnthropicMessagesGateway } from "../anthropicGateway";
 import { appRouter } from "../routers";
 import { clearLegacyAdministratorRoles, ensureCatalogue } from "../db";
 import { createContext } from "./context";
@@ -42,6 +43,7 @@ async function startServer() {
   registerOAuthRoutes(app);
   registerGitHubOAuthRoutes(app);
   registerOpenAiGateway(app);
+  registerAnthropicMessagesGateway(app);
   registerPlaygroundGateway(app);
   // tRPC API
   app.use(
