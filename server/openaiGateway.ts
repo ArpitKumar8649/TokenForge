@@ -13,6 +13,7 @@ import {
 } from "./db";
 import { raiseOperationalAlert } from "./operationalAlerts";
 import { selectNextClusterProtocolCredential } from "./clusterProtocolCredentials";
+import { selectNextFxqidianCredential } from "./fxqidianCredentials";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
 import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, getTokenForgeProviderSlug, getTokenForgeUpstreamModelId, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, type TokenForgeModelId } from "./modelCatalogue";
 import { sdk } from "./_core/sdk";
@@ -117,7 +118,7 @@ function releaseRequestSlot(userId: number) {
 
 async function forwardFxqidianRequest(input: ChatInput, signal: AbortSignal) {
   const base = process.env.FXQIDIAN_BASE_URL?.replace(/\/$/, "");
-  const secret = process.env.FXQIDIAN_API_KEY;
+  const secret = selectNextFxqidianCredential();
   if (!base || !secret) throw new Error("TokenForge inference is not configured");
   return fetch(`${base}/v1/chat/completions`, {
     method: "POST",

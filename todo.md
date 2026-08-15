@@ -182,3 +182,6 @@
 - [x] Redirect completed TokenForge sign-outs to the public landing page instead of leaving the user in an authenticated-route context.
 - [x] Redesign the public model catalogue cards for cleaner tablet and mobile presentation, removing the unwanted GLM-5.2 and Grok 4.5 background-image treatments.
 - [x] Add regression coverage and visual validation for sign-out navigation plus the redesigned catalogue at mobile and tablet widths.
+- [x] Replace the remaining blue/purple public model-card surface with a neutral graphite treatment while preserving clear provider and rate hierarchy.
+- [x] Add the supplied FXQidian credential as a server-only secret and alternate eligible FXQidian inference calls fairly across the credential pool.
+- [x] Add deterministic rotation coverage and validate the neutral responsive model-card presentation.

@@ -18,6 +18,7 @@ import { getQuotaStatus, getRecentRequestCounts, isModelAvailable, recordUsage, 
 import { raiseOperationalAlert } from "./operationalAlerts";
 import { forwardProviderRequest, runPlaygroundCompletion, TokenForgePlaygroundError } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
+import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 
 const availableQuota = {
   day: "2026-08-14",
@@ -36,6 +37,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   process.env.FXQIDIAN_BASE_URL = "https://provider.example";
   process.env.FXQIDIAN_API_KEY = "server-only-provider-secret";
+  process.env.FXQIDIAN_API_KEY_2 = "server-only-provider-secret-2";
   process.env.CLUSTER_PROTOCOL_BASE_URL = "https://cluster.example";
   process.env.CLUSTER_PROTOCOL_API_KEY = "server-only-cluster-secret";
   process.env.CLUSTER_PROTOCOL_API_KEY_2 = "server-only-cluster-secret-2";
@@ -52,6 +54,7 @@ beforeEach(() => {
     balanceNanos: 50_000_000_000 - finalChargeNanos,
   }));
   resetClusterProtocolCredentialRotation();
+  resetFxqidianCredentialRotation();
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -106,6 +109,22 @@ describe("TokenForge Playground gateway", () => {
     const forwardedPayload = JSON.parse(vi.mocked(fetchMock).mock.calls[0][1].body as string);
     expect(forwardedPayload).toMatchObject({ model: "grok-4.5", stream: false, max_tokens: 2048, temperature: 0.3 });
     expect(reserveCredit).toHaveBeenCalledWith(42, expect.any(Number), expect.stringMatching(/^tf_pg_/));
+  });
+
+  it("rotates sequential FXQidian gateway calls across both configured server-only credentials", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ choices: [] }), { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+    const signal = new AbortController().signal;
+
+    await forwardProviderRequest("glm-5.2", { model: "glm-5.2", messages: [{ role: "user", content: "Rotate safely." }] }, signal);
+    await forwardProviderRequest("grok-4.5", { model: "grok-4.5", messages: [{ role: "user", content: "Rotate safely." }] }, signal);
+    await forwardProviderRequest("glm-5.2", { model: "glm-5.2", messages: [{ role: "user", content: "Rotate safely." }] }, signal);
+
+    expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
+      "Bearer server-only-provider-secret",
+      "Bearer server-only-provider-secret-2",
+      "Bearer server-only-provider-secret",
+    ]);
   });
 
   it("routes a verified Cluster Protocol model through its server-only credential and preserves metering", async () => {
