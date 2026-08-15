@@ -7,6 +7,7 @@ import { ESTABLISHED_EMAIL_DOMAIN_GUIDANCE, isEstablishedEmailAddress } from "@s
 import { ArrowRight, CheckCircle2, Eye, EyeOff, Github, KeyRound, ShieldCheck } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { Link, useLocation } from "wouter";
+import "../auth-refresh.css";
 
 type LocalAuthProps = { mode: "signin" | "signup" };
 
@@ -50,12 +51,18 @@ export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
 
   return (
     <main className="local-auth-page">
-      <section className="local-auth-intro">
+      <section className="local-auth-showcase" aria-label="TokenForge workspace introduction">
         <Link href="/" className="local-auth-brand"><TokenForgeGlyph className="local-auth-brand__glyph" /><span>Token<span>Forge</span></span></Link>
-        <div className="local-auth-intro__copy">
-          <p className="demo-kicker"><span /> PRIVATE BY DEFAULT</p>
-          <h1>A careful gateway for <em>serious</em> builders.</h1>
-          <p>Your API keys remain one-time secrets. Passwords are stored only as salted, one-way derivations; TokenForge never keeps the plaintext.</p>
+        <div className="local-auth-showcase__center">
+          <div className="local-auth-artwork-wrap">
+            <div className="local-auth-artwork__glow" aria-hidden="true" />
+            <img src="/manus-storage/tokenforge-auth-ghost_e3dbdc71.jpg" alt="TokenForge ghost artwork, forging a clearer path" className="local-auth-artwork" />
+          </div>
+          <div className="local-auth-intro__copy">
+            <p className="demo-kicker"><span /> {isSignup ? "CREATE YOUR WORKSPACE" : "PRIVATE BY DEFAULT"}</p>
+            <h1>{isSignup ? <>Forge your first <em>connection.</em></> : <>A clearer path to <em>your workspace.</em></>}</h1>
+            <p>{isSignup ? "Start with a protected workspace, transparent model pricing, and OpenAI-compatible routes built for deliberate shipping." : "Continue with your TokenForge account to manage keys, track credits, and work with verified text-chat models."}</p>
+          </div>
         </div>
         <div className="local-auth-promises">
           <div><ShieldCheck size={18} /><span><b>Protected workspace</b><small>Keys, quotas, and activity stay behind your session.</small></span></div>
@@ -65,20 +72,20 @@ export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
       <section className="local-auth-form-panel">
         <div className="local-auth-form-wrap">
           <div className="local-auth-form__heading">
-            <p>{isSignup ? "Create a workspace" : "Welcome back"}</p>
-            <h2>{isSignup ? "Start building with quiet confidence." : "Sign in to your TokenForge workspace."}</h2>
-            <span>{isSignup ? "No billing details are required for the current beta." : "Use the email and password you registered with."}</span>
+            <p>{isSignup ? "TokenForge account creation" : "TokenForge account access"}</p>
+            <h2>{isSignup ? "Create your account." : "Sign in to your workspace."}</h2>
+            <span>{isSignup ? "Use your email and password, or continue securely with GitHub." : "Use your email and password, or continue securely with GitHub."}</span>
           </div>
+          <Button type="button" variant="outline" className="local-auth-github" onClick={() => window.location.assign("/api/auth/github")}><Github size={17} /> Continue with GitHub</Button>
+          {githubError && <p className="local-auth-error mt-3" role="alert">{githubError}</p>}
+          <div className="local-auth-divider" aria-hidden="true"><span /><p>or continue with email</p><span /></div>
           <form className="local-auth-form" onSubmit={submit}>
             {isSignup && <div className="local-auth-field"><Label htmlFor="name">Name <small>Optional</small></Label><Input id="name" autoComplete="name" value={name} onChange={event => setName(event.target.value)} placeholder="Ada Lovelace" maxLength={120} /></div>}
             <div className="local-auth-field"><Label htmlFor="email">Email address</Label><Input id="email" type="email" autoComplete="email" value={email} onChange={event => { setEmail(event.target.value); setEmailPolicyError(null); }} placeholder="you@gmail.com" required maxLength={320} /><small className="local-auth-help"><CheckCircle2 size={13} /> Accepted providers include {ESTABLISHED_EMAIL_DOMAIN_GUIDANCE}.</small></div>
             <div className="local-auth-field"><Label htmlFor="password">Password</Label><div className="local-auth-password"><Input id="password" type={showPassword ? "text" : "password"} autoComplete={isSignup ? "new-password" : "current-password"} value={password} onChange={event => setPassword(event.target.value)} placeholder={isSignup ? "At least 12 characters" : "Your password"} required minLength={12} maxLength={256} /><button type="button" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>{isSignup && <small className="local-auth-help"><CheckCircle2 size={13} /> Use 12 or more characters.</small>}</div>
             {error && <p className="local-auth-error" role="alert">{error}</p>}
-            <Button type="submit" disabled={pending} className="local-auth-submit">{pending ? "Securing your session…" : isSignup ? "Create account" : "Sign in"}<ArrowRight size={16} /></Button>
+            <Button type="submit" disabled={pending} className="local-auth-submit">{pending ? "Securing your session…" : isSignup ? "Create account with email" : "Sign in with email"}<ArrowRight size={16} /></Button>
           </form>
-          <div className="my-5 flex items-center gap-3" aria-hidden="true"><span className="h-px flex-1 bg-white/10" /><span className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#86879a]">or</span><span className="h-px flex-1 bg-white/10" /></div>
-          <Button type="button" variant="outline" className="h-11 w-full border-white/14 bg-white/[.025] text-[#ececf2] hover:bg-white/[.08]" onClick={() => window.location.assign("/api/auth/github")}><Github size={17} /> Continue with GitHub</Button>
-          {githubError && <p className="local-auth-error mt-3" role="alert">{githubError}</p>}
           <p className="mt-3 text-center text-[10px] leading-5 text-[#86879a]">GitHub is used only to verify your identity. TokenForge does not request repository access.</p>
           <p className="local-auth-switch">{isSignup ? "Already have an account?" : "New to TokenForge?"} <Link href={isSignup ? "/signin" : "/signup"}>{isSignup ? "Sign in" : "Create one"}</Link></p>
           <Link href="/" className="local-auth-back">← Back to TokenForge</Link>

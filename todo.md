@@ -201,3 +201,5 @@
 - [x] Relocate the cURL and SDK quick-start guidance from the API Keys workspace to the main developer dashboard Overview, leaving API Keys dedicated to credential lifecycle actions.
 - [x] Validate the revised dashboard information hierarchy on mobile and retain secure placeholder and one-time-key behavior.
 - [x] Install the user-supplied TokenForge ghost artwork as the browser-tab favicon and validate its delivery across standard favicon formats.
+- [x] Redesign the TokenForge sign-in and sign-up pages around the supplied ghost artwork, replacing generic onboarding language with clear manual account and GitHub sign-in options.
+- [x] Preserve the existing secure email/password, accepted-email policy, GitHub OAuth, error, and accessibility behavior while validating the redesigned authentication surfaces on desktop and mobile.
