@@ -2,11 +2,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ProviderMark } from "@/components/ProviderMark";
 import { TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
+import { calculateSettledUsagePricingBreakdownNanos } from "@shared/usagePricing";
 import { trpc } from "@/lib/trpc";
-import { ArrowDownLeft, ArrowUpRight, CalendarCheck, CalendarDays, CheckCircle2, CircleDollarSign, Clock3, Coins, Filter, KeyRound, Loader2, ReceiptText, RotateCcw, ShieldCheck, Sparkles, WalletCards, Zap } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, CalendarCheck, CalendarDays, CheckCircle2, ChevronDown, CircleDollarSign, Clock3, Coins, Filter, KeyRound, Loader2, ReceiptText, RotateCcw, ShieldCheck, Sparkles, WalletCards, Zap } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import "./credit-workspace.css";
+import "./credit-pricing-breakdown.css";
 
 const NANO_DOLLARS = 1_000_000_000;
 
@@ -53,6 +55,18 @@ function formatLogDate(value: Date | string) {
     date: date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }),
     time: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
   };
+}
+
+export function calculateUsagePricingBreakdown(modelId: string, inputTokens: number | string | null | undefined, outputTokens: number | string | null | undefined, chargeNanos: number | string | null | undefined) {
+  const model = TOKENFORGE_MODELS.find(candidate => candidate.id === modelId);
+  if (!model) return null;
+  return calculateSettledUsagePricingBreakdownNanos({
+    inputTokens: Number(inputTokens ?? 0),
+    outputTokens: Number(outputTokens ?? 0),
+    upstreamInputUsdPerMillion: model.inputUsdPerMillion / 1.5,
+    upstreamOutputUsdPerMillion: model.outputUsdPerMillion / 1.5,
+    finalCreditDeductionNanos: Number(chargeNanos ?? 0),
+  });
 }
 
 function ledgerDescriptor(kind: string) {
@@ -115,6 +129,7 @@ export function UsageLogs() {
             {logs.data.map(log => {
               const created = formatLogDate(log.createdAt);
               const successful = log.status === "success";
+              const pricing = successful ? calculateUsagePricingBreakdown(log.modelId, log.inputTokens, log.outputTokens, log.chargeNanos) : null;
               return <article key={log.id} className="usage-log-card" role="listitem">
                 <div className="usage-log-card__topline">
                   <div className="usage-log-card__model"><span className="model-signal">{(() => { const model = TOKENFORGE_MODELS.find(candidate => candidate.id === log.modelId); return model ? <ProviderMark provider={model.provider} fallback={model.providerMark} size={17} /> : "TF"; })()}</span><div><b>{displayModel(log.modelId)}</b><small>{created.date} · {created.time}</small></div></div>
@@ -126,6 +141,14 @@ export function UsageLogs() {
                   <div><span>Output</span><b>{Number(log.outputTokens).toLocaleString()}</b></div>
                   <div className="usage-log-card__charge"><span>Credit charge</span><b>{successful ? `−${formatCreditNanos(log.chargeNanos)}` : "No debit"}</b></div>
                 </div>
+                {successful && <details className="usage-pricing-breakdown">
+                  <summary>See request pricing <ChevronDown size={14} aria-hidden="true" /></summary>
+                  {pricing ? <div className="usage-pricing-breakdown__rows">
+                    <div><span>Provider base cost</span><b>{formatCreditNanos(pricing.providerBaseNanos)}</b></div>
+                    <div><span>Platform charge <small>(1.5× rate)</small></span><b>{formatCreditNanos(pricing.platformChargeNanos)}</b></div>
+                    <div><span>Final credit deduction</span><b>−{formatCreditNanos(pricing.finalCreditDeductionNanos)}</b></div>
+                  </div> : <p className="usage-pricing-breakdown__unavailable">Pricing details are unavailable for this historical model route.</p>}
+                </details>}
               </article>;
             })}
           </div>

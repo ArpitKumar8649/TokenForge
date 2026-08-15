@@ -171,3 +171,6 @@
 - [x] Propagate model and provider availability changes to developer dashboards in real time and reject disabled-model API/Playground requests with a consistent temporary-unavailability response.
 - [x] Apply a transparent 1.5× TokenForge platform charge to each billable model request across reservation, settlement, credits, and usage records.
 - [x] Synchronize public documentation, dashboard credit disclosures, model pricing, and API guidance with the 1.5× platform-charge credit system.
+- [x] Add a per-request Usage Logs pricing breakdown that shows the provider base cost, 1.5× platform charge, and final credit deduction.
+- [x] Add a persisted first-time-user onboarding flow that invites new accounts to join the TokenForge Discord community.
+- [x] Add a passcode-admin-managed rolling announcement with safe text editing that appears below the header on both the public site and developer dashboard.

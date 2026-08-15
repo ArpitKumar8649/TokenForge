@@ -33,6 +33,8 @@ import {
   getAuthSessionVersion,
   listAdminAuditEvents,
   revokeAllTokenForgeSessions,
+  getAnnouncementText,
+  setAnnouncementText,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -77,6 +79,7 @@ const permanentAccountDeleteInput = z.object({
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["confirmation"], message: `Type DELETE ACCOUNT ${input.userId} to permanently delete this account` });
   }
 });
+const announcementInput = z.object({ text: z.string().max(500, "Announcements must be 500 characters or fewer") });
 
 function playgroundTrpcError(error: TokenForgePlaygroundError) {
   const code = error.code === "model_not_found" ? "NOT_FOUND"
@@ -102,6 +105,7 @@ export const appRouter = router({
   system: systemRouter,
   public: router({
     modelTokenMetrics: publicProcedure.query(() => getPublicModelTokenMetrics()),
+    announcement: publicProcedure.query(() => getAnnouncementText()),
   }),
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -296,6 +300,18 @@ export const appRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "TokenForge could not save the email allowlist" });
         }
       }),
+    announcement: adminProcedure.query(() => getAnnouncementText()),
+    setAnnouncement: adminProcedure.input(announcementInput).mutation(async ({ ctx, input }) => {
+      const text = await setAnnouncementText(input.text, ctx.user.id);
+      await writeAuditEvent({
+        actorUserId: ctx.user.id,
+        action: "announcement.updated",
+        entityType: "platform_setting",
+        entityId: "announcement_text",
+        metadata: { published: Boolean(text), characterCount: text?.length ?? 0 },
+      });
+      return { text };
+    }),
     setModelEnabled: adminProcedure.input(z.object({ modelId: tokenForgeModelId, enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
       const updated = await setModelEnabled(input.modelId, input.enabled);
       if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Model configuration not found" });

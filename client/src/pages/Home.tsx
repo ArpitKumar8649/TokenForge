@@ -1,6 +1,7 @@
 import { PublicNav } from "@/components/PublicNav";
 import { TokenForgeGlyph } from "@/components/TokenForgeGlyph";
 import { ProviderMark } from "@/components/ProviderMark";
+import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 import { ArrowRight, Braces, KeyRound, ShieldCheck } from "lucide-react";
 import { Link } from "wouter";
 import { PublicFooter } from "./Models";
@@ -48,6 +49,7 @@ export default function Home() {
   return (
     <div className="aurora-home">
       <PublicNav />
+      <AnnouncementBanner />
       <main>
         <section className="aurora-hero"><div className="aurora-hero__copy"><div className="aurora-kicker"><span /> VERIFIED MODELS · ACCOUNTABLE ROUTING</div><h1>Build with a<br /><em>clearer signal.</em></h1><p>TokenForge brings verified text-chat models to one considered OpenAI-compatible surface, so your requests, quotas, rates, and credentials stay understandable as you build.</p><div className="aurora-actions"><Link href="/signup" className="aurora-button">Create your account <ArrowRight size={16} /></Link><Link href="/docs" className="aurora-link">Read the API reference <ArrowRight size={15} /></Link></div><div className="aurora-points"><span>OpenAI-compatible</span><span>First-party rates</span><span>Clear allowance</span></div></div><div className="aurora-hero__visual"><div className="aurora-blur" /><TokenForgeGlyph className="aurora-hero__glyph" /><div className="aurora-request"><div className="aurora-request__top"><span>request surface</span><i /></div><pre><span className="orange">POST</span> /v1/chat/completions{`\n`}model: <span className="ice">"glm-5.2"</span>{`\n`}stream: true{`\n`}status: 200</pre></div></div></section>
         <section className="aurora-statement"><div><p>Developer infrastructure, made <em>legible.</em></p><span>Built for deliberate shipping</span></div></section>

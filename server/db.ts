@@ -33,6 +33,7 @@ export const DEFAULT_DAILY_TOKEN_LIMIT = 100_000;
 export const DEFAULT_MAX_CONCURRENT_REQUESTS = 2;
 const INTRODUCTORY_CREDIT_REFERENCE = "introductory-credit-v1";
 const EMAIL_ALLOWLIST_SETTING_KEY = "email_allowlist";
+const ANNOUNCEMENT_TEXT_SETTING_KEY = "announcement_text";
 const SESSION_VERSION_SETTING_KEY = "auth_session_version";
 
 export class DeletedAccountIdentityError extends Error {
@@ -407,6 +408,28 @@ export async function setEmailAllowlistConfig(entries: readonly string[], update
   const saved = await getEmailAllowlistConfig();
   if (!saved) throw new Error("Email allowlist configuration did not persist");
   return saved;
+}
+
+/** Returns the currently published public announcement, normalized so whitespace-only values remain unpublished. */
+export async function getAnnouncementText(): Promise<string | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const record = (await db.select({ value: platformSettings.value }).from(platformSettings).where(eq(platformSettings.settingKey, ANNOUNCEMENT_TEXT_SETTING_KEY)).limit(1))[0];
+  const text = record?.value.trim() ?? "";
+  return text || null;
+}
+
+/** Persists an administrator-authored announcement. An empty value intentionally clears the public banner. */
+export async function setAnnouncementText(text: string, updatedByUserId: number): Promise<string | null> {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const value = text.trim().slice(0, 500);
+  await db.insert(platformSettings).values({
+    settingKey: ANNOUNCEMENT_TEXT_SETTING_KEY,
+    value,
+    updatedByUserId,
+  }).onDuplicateKeyUpdate({ set: { value, updatedByUserId, updatedAt: new Date() } });
+  return value || null;
 }
 
 export async function promoteUserToAdmin(userId: number) {

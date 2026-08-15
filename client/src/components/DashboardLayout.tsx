@@ -25,6 +25,8 @@ import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Link } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
+import { FirstTimeOnboarding } from "./FirstTimeOnboarding";
+import { AnnouncementBanner } from "./AnnouncementBanner";
 import { TokenForgeGlyph } from "./TokenForgeGlyph";
 import "./dashboard-shell.css";
 import { Button } from "./ui/button";
@@ -96,6 +98,7 @@ export default function DashboardLayout({
       <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
         {children}
       </DashboardLayoutContent>
+      <FirstTimeOnboarding user={user} />
     </SidebarProvider>
   );
 }
@@ -262,6 +265,7 @@ function DashboardLayoutContent({
             <Link href="/docs">Documentation</Link>
           </div>
         </header>
+        <AnnouncementBanner />
         <main className="dashboard-main">{children}</main>
         <footer className="dashboard-footer">
           <div><TokenForgeGlyph className="dashboard-footer__glyph" /><span>Token<span>Forge</span> developer workspace</span></div>
