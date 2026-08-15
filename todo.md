@@ -158,3 +158,6 @@
 - [x] Replace the oversized unlabelled mobile model toggle list with compact, labelled, searchable model availability controls and clear enabled-state feedback.
 - [x] Add admin-data authorization and live-overview regression coverage, then validate the redesigned workspace at desktop and mobile widths.
 - [x] Prune removed model configurations from persisted admin controls so unavailable routes such as `glm-5` do not reappear in the redesigned availability list.
+- [x] Add server-backed account search filters and pagination to the protected Accounts section so administrators can quickly locate specific users without exposing secrets.
+- [x] Refine provider and model availability controls into compact, clearly aligned, accessible switches with polished mobile spacing and interaction feedback.
+- [x] Add GitHub OAuth sign-in and sign-up with server-only credentials, CSRF/state protection, account-linking safeguards, and first-party authentication regression coverage.

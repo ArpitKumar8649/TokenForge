@@ -43,6 +43,13 @@
       "when": 1786766117197,
       "tag": "0005_flaky_santa_claus",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1786769912503,
+      "tag": "0006_deep_big_bertha",
+      "breakpoints": true
     }
   ]
 }

@@ -4,9 +4,11 @@ import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
+import { registerGitHubOAuthRoutes } from "../githubOAuth";
 import { registerStorageProxy } from "./storageProxy";
 import { registerOpenAiGateway, registerPlaygroundGateway } from "../openaiGateway";
 import { appRouter } from "../routers";
+import { ensureCatalogue } from "../db";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 
@@ -38,6 +40,7 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "1mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  registerGitHubOAuthRoutes(app);
   registerOpenAiGateway(app);
   registerPlaygroundGateway(app);
   // tRPC API
@@ -53,6 +56,12 @@ async function startServer() {
     await setupVite(app, server);
   } else {
     serveStatic(app);
+  }
+
+  try {
+    await ensureCatalogue();
+  } catch (error) {
+    console.error("[TokenForge] Catalogue warmup failed; requests will retry initialization on demand", error);
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");

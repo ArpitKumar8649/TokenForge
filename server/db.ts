@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, lte, notInArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createHmac, randomBytes } from "node:crypto";
 import {
@@ -14,6 +14,7 @@ import {
   users,
   loginAttempts,
   modelConfigs,
+  oauthIdentities,
   passwordCredentials,
   platformSettings,
   providerConfigs,
@@ -594,23 +595,32 @@ export async function getRecentRequestCounts(userId: number, sourceIpHash: strin
   return { account: Number(accountRows[0]?.count ?? 0), ip: Number(ipRows[0]?.count ?? 0) };
 }
 
+let catalogueInitialization: Promise<void> | null = null;
+
 export async function ensureCatalogue() {
-  const db = await getDb();
-  if (!db) return;
-  const baseUrl = process.env.FXQIDIAN_BASE_URL ?? "https://fxqidian.de5.net";
-  const clusterBaseUrl = process.env.CLUSTER_PROTOCOL_BASE_URL ?? "https://api.clusterprotocol.ai";
-  const tokenHarborBaseUrl = process.env.TOKENHARBOR_BASE_URL ?? "https://tokenharbor.ai";
-  await db.insert(providerConfigs).values([
-    { slug: FXQIDIAN_PROVIDER_SLUG, displayName: "Selected hosted inference", baseUrl },
-    { slug: CLUSTER_PROTOCOL_PROVIDER_SLUG, displayName: "Cluster Protocol", baseUrl: clusterBaseUrl },
-    { slug: TOKENHARBOR_PROVIDER_SLUG, displayName: "TokenHarbor", baseUrl: tokenHarborBaseUrl },
-  ]).onDuplicateKeyUpdate({ set: { baseUrl: sql`values(${providerConfigs.baseUrl})`, displayName: sql`values(${providerConfigs.displayName})` } });
-  for (const model of CATALOGUE_DEFINITIONS) {
-    await db.insert(modelConfigs).values({ modelId: model.id, displayName: model.displayName, description: model.description, capabilities: [...model.capabilities], providerSlug: model.providerSlug }).onDuplicateKeyUpdate({
-      set: { displayName: model.displayName, description: model.description, capabilities: [...model.capabilities], providerSlug: model.providerSlug },
+  if (catalogueInitialization) return catalogueInitialization;
+  catalogueInitialization = (async () => {
+    const db = await getDb();
+    if (!db) return;
+    const baseUrl = process.env.FXQIDIAN_BASE_URL ?? "https://fxqidian.de5.net";
+    const clusterBaseUrl = process.env.CLUSTER_PROTOCOL_BASE_URL ?? "https://api.clusterprotocol.ai";
+    const tokenHarborBaseUrl = process.env.TOKENHARBOR_BASE_URL ?? "https://tokenharbor.ai";
+    await db.insert(providerConfigs).values([
+      { slug: FXQIDIAN_PROVIDER_SLUG, displayName: "Selected hosted inference", baseUrl },
+      { slug: CLUSTER_PROTOCOL_PROVIDER_SLUG, displayName: "Cluster Protocol", baseUrl: clusterBaseUrl },
+      { slug: TOKENHARBOR_PROVIDER_SLUG, displayName: "TokenHarbor", baseUrl: tokenHarborBaseUrl },
+    ]).onDuplicateKeyUpdate({ set: { baseUrl: sql`values(${providerConfigs.baseUrl})`, displayName: sql`values(${providerConfigs.displayName})` } });
+    await db.insert(modelConfigs).values(CATALOGUE_DEFINITIONS.map(model => ({ modelId: model.id, displayName: model.displayName, description: model.description, capabilities: [...model.capabilities], providerSlug: model.providerSlug }))).onDuplicateKeyUpdate({
+      set: { displayName: sql`values(${modelConfigs.displayName})`, description: sql`values(${modelConfigs.description})`, capabilities: sql`values(${modelConfigs.capabilities})`, providerSlug: sql`values(${modelConfigs.providerSlug})` },
     });
+    await db.delete(modelConfigs).where(notInArray(modelConfigs.modelId, [...TOKENFORGE_MODEL_IDS]));
+  })();
+  try {
+    await catalogueInitialization;
+  } catch (error) {
+    catalogueInitialization = null;
+    throw error;
   }
-  await db.delete(modelConfigs).where(notInArray(modelConfigs.modelId, [...TOKENFORGE_MODEL_IDS]));
 }
 
 export async function isModelAvailable(modelId: string) {
@@ -646,6 +656,24 @@ export type AdminAccountUsage = {
   lastActivityAt: Date | string | null;
 };
 
+export type AdminAccountDirectoryInput = {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  role?: "all" | "admin" | "user";
+  status?: "all" | "active" | "suspended" | "flagged";
+};
+
+export function normalizeAdminAccountDirectoryInput(input: AdminAccountDirectoryInput = {}) {
+  return {
+    page: Math.max(1, Math.trunc(input.page ?? 1)),
+    pageSize: Math.min(50, Math.max(5, Math.trunc(input.pageSize ?? 10))),
+    search: input.search?.trim().slice(0, 120) ?? "",
+    role: input.role ?? "all",
+    status: input.status ?? "all",
+  };
+}
+
 /** Combines separately aggregated sensitive account data without returning any API-key material. */
 export function composeAdminAccountOverview(accounts: AdminAccountBase[], usageRows: AdminAccountUsage[]) {
   const usageByUser = new Map(usageRows.map(row => [row.userId, row]));
@@ -660,6 +688,99 @@ export function composeAdminAccountOverview(accounts: AdminAccountBase[], usageR
       lastActivityAt: lastActivity && !Number.isNaN(lastActivity.getTime()) ? lastActivity : null,
     };
   });
+}
+
+function escapeMysqlLike(value: string) {
+  return value.replace(/[\\%_]/g, character => `\\${character}`);
+}
+
+/** Returns a privacy-safe, server-paginated directory without selecting API-key records or key material. */
+export async function listAdminAccounts(input: AdminAccountDirectoryInput = {}) {
+  const db = await getDb();
+  const query = normalizeAdminAccountDirectoryInput(input);
+  if (!db) return { items: [], total: 0, page: query.page, pageSize: query.pageSize, pageCount: 0 };
+
+  const filters = [];
+  if (query.search) {
+    const pattern = `%${escapeMysqlLike(query.search)}%`;
+    filters.push(or(
+      like(users.name, pattern),
+      like(users.email, pattern),
+      sql`cast(${users.id} as char) like ${pattern}`,
+    ));
+  }
+  if (query.role !== "all") filters.push(eq(users.role, query.role));
+  if (query.status === "suspended") filters.push(eq(accountControls.isSuspended, true));
+  if (query.status === "flagged") filters.push(eq(accountControls.isSuspicious, true));
+  if (query.status === "active") {
+    filters.push(or(eq(accountControls.isSuspended, false), sql`${accountControls.userId} is null`));
+  }
+  const whereClause = filters.length ? and(...filters) : undefined;
+  const [{ total }] = await db
+    .select({ total: sql<number>`count(*)` })
+    .from(users)
+    .leftJoin(accountControls, eq(users.id, accountControls.userId))
+    .where(whereClause);
+  const pageCount = Math.ceil(Number(total) / query.pageSize);
+  const page = pageCount ? Math.min(query.page, pageCount) : 1;
+  const accounts = await db
+    .select({ id: users.id, name: users.name, email: users.email, role: users.role, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos })
+    .from(users)
+    .leftJoin(accountControls, eq(users.id, accountControls.userId))
+    .leftJoin(creditAccounts, eq(users.id, creditAccounts.userId))
+    .where(whereClause)
+    .orderBy(desc(users.lastSignedIn), desc(users.id))
+    .limit(query.pageSize)
+    .offset((page - 1) * query.pageSize);
+  const userIds = accounts.map(account => account.id);
+  const usageRows = userIds.length
+    ? await db.select({ userId: usageEvents.userId, requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, lastActivityAt: sql<Date | null>`max(${usageEvents.createdAt})` }).from(usageEvents).where(inArray(usageEvents.userId, userIds)).groupBy(usageEvents.userId)
+    : [];
+
+  return { items: composeAdminAccountOverview(accounts, usageRows), total: Number(total), page, pageSize: query.pageSize, pageCount };
+}
+
+export type GitHubIdentityInput = { providerUserId: string; email: string; name: string | null };
+
+/** Resolves GitHub by immutable provider subject. An existing matching email is never auto-linked. */
+export async function resolveGitHubIdentity(input: GitHubIdentityInput) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const provider = "github";
+  const existingIdentity = (await db.select({ user: users }).from(oauthIdentities).innerJoin(users, eq(oauthIdentities.userId, users.id)).where(and(eq(oauthIdentities.provider, provider), eq(oauthIdentities.providerUserId, input.providerUserId))).limit(1))[0]?.user;
+  if (existingIdentity) {
+    const lastSignedIn = new Date();
+    await db.update(users).set({ lastSignedIn }).where(eq(users.id, existingIdentity.id));
+    return { kind: "resolved" as const, user: { ...existingIdentity, lastSignedIn } };
+  }
+
+  const email = normalizeEmail(input.email);
+  const existingEmail = (await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1))[0];
+  if (existingEmail) return { kind: "link_required" as const };
+
+  try {
+    const userId = await db.transaction(async tx => {
+      const inserted = await tx.insert(users).values({
+        openId: `tf_github_${input.providerUserId}`,
+        email,
+        name: input.name?.trim() || email.split("@")[0] || "GitHub developer",
+        loginMethod: "github",
+        lastSignedIn: new Date(),
+      });
+      const createdUserId = Number(inserted[0].insertId);
+      await tx.insert(oauthIdentities).values({ userId: createdUserId, provider, providerUserId: input.providerUserId });
+      return createdUserId;
+    });
+    await Promise.all([ensureAccountControl(userId), ensureCreditAccount(userId)]);
+    const user = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+    if (!user) throw new Error("TokenForge could not load the new GitHub account");
+    return { kind: "resolved" as const, user };
+  } catch (error: any) {
+    if (error?.code !== "ER_DUP_ENTRY") throw error;
+    const concurrentIdentity = (await db.select({ user: users }).from(oauthIdentities).innerJoin(users, eq(oauthIdentities.userId, users.id)).where(and(eq(oauthIdentities.provider, provider), eq(oauthIdentities.providerUserId, input.providerUserId))).limit(1))[0]?.user;
+    if (concurrentIdentity) return { kind: "resolved" as const, user: concurrentIdentity };
+    return { kind: "link_required" as const };
+  }
 }
 
 export async function getModelAvailabilitySnapshot() {

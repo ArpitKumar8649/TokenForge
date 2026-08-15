@@ -18,6 +18,7 @@ vi.mock("./db", () => ({
   getUsageLogs: vi.fn(),
   getQuotaStatus: vi.fn(),
   getUsageSummary: vi.fn(),
+  listAdminAccounts: vi.fn(),
   listApiKeys: vi.fn(),
   listOpenFlags: vi.fn(),
   recordFailedPasswordLogin: vi.fn(),
@@ -49,6 +50,7 @@ import {
   getPasswordLoginThrottle,
   getPublicModelTokenMetrics,
   getEmailAllowlistConfig,
+  listAdminAccounts,
   listApiKeys,
   demoteUserToStandardRole,
   promoteUserToAdmin,
@@ -302,5 +304,17 @@ describe("first-party authentication procedures", () => {
     const { ctx } = makeContext();
 
     await expect(appRouter.createCaller(ctx).public.modelTokenMetrics()).resolves.toEqual({ totalTokens: 4560, byModel: { "glm-5.2": 1234, "grok-4.5": 3326 } });
+  });
+});
+
+describe("protected administrator account directory", () => {
+  it("requires an administrator and forwards bounded account search filters to the server directory", async () => {
+    const page = { items: [], total: 12, page: 2, pageSize: 10, pageCount: 2 };
+    vi.mocked(listAdminAccounts).mockResolvedValue(page);
+    const admin = { ...localUser, role: "admin" as const };
+
+    await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.accounts({ page: 2, pageSize: 10, search: "arpit", role: "user", status: "active" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.accounts({ page: 2, pageSize: 10, search: "arpit", role: "user", status: "active" })).resolves.toEqual(page);
+    expect(listAdminAccounts).toHaveBeenCalledWith({ page: 2, pageSize: 10, search: "arpit", role: "user", status: "active" });
   });
 });

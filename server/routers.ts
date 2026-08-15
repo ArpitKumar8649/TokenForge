@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   createApiKey,
   getAdminOverview,
+  listAdminAccounts,
   getEmailAllowlistConfig,
   getQuotaStatus,
   getUsageSummary,
@@ -58,6 +59,13 @@ const tokenForgeModelId = z.string()
   .refine(isTokenForgeModelId, "The requested model is not in the active TokenForge catalogue.")
   .transform(model => model as TokenForgeModelId);
 const adminPasscodeInput = z.object({ passcode: z.string().min(4, "Enter the administrator passcode").max(128) });
+const adminAccountDirectoryInput = z.object({
+  page: z.number().int().min(1).max(100_000).default(1),
+  pageSize: z.number().int().min(5).max(50).default(10),
+  search: z.string().trim().max(120).default(""),
+  role: z.enum(["all", "admin", "user"]).default("all"),
+  status: z.enum(["all", "active", "suspended", "flagged"]).default("all"),
+});
 
 function playgroundTrpcError(error: TokenForgePlaygroundError) {
   const code = error.code === "model_not_found" ? "NOT_FOUND"
@@ -242,6 +250,7 @@ export const appRouter = router({
       return { success: true } as const;
     }),
     overview: adminProcedure.query(() => getAdminOverview()),
+    accounts: adminProcedure.input(adminAccountDirectoryInput).query(({ input }) => listAdminAccounts(input)),
     flags: adminProcedure.query(() => listOpenFlags()),
     emailAllowlist: adminProcedure.query(async () => {
       const saved = await getEmailAllowlistConfig();

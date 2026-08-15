@@ -51,6 +51,23 @@ export const passwordCredentials = mysqlTable(
   table => [index("password_credentials_user_idx").on(table.userId)],
 );
 
+/** Stable external identities used for sign-in. Tokens are deliberately never stored here. */
+export const oauthIdentities = mysqlTable(
+  "oauth_identities",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    provider: varchar("provider", { length: 32 }).notNull(),
+    providerUserId: varchar("providerUserId", { length: 128 }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("oauth_identities_provider_subject_idx").on(table.provider, table.providerUserId),
+    uniqueIndex("oauth_identities_user_provider_idx").on(table.userId, table.provider),
+  ],
+);
+
 /** Hashed login identifiers with bounded counters for first-party sign-in throttling. */
 export const loginAttempts = mysqlTable(
   "login_attempts",

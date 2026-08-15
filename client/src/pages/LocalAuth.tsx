@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
-import { ArrowRight, CheckCircle2, Eye, EyeOff, KeyRound, ShieldCheck } from "lucide-react";
+import { ArrowRight, CheckCircle2, Eye, EyeOff, Github, KeyRound, ShieldCheck } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { Link, useLocation } from "wouter";
 
@@ -21,6 +21,8 @@ export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
   const login = trpc.auth.login.useMutation();
   const pending = register.isPending || login.isPending;
   const error = register.error?.message ?? login.error?.message;
+  const githubOutcome = new URLSearchParams(window.location.search).get("github");
+  const githubError = githubOutcome === "link-required" ? "An account already uses that email. Sign in with your password before linking GitHub." : githubOutcome === "email-not-allowed" ? "Use a verified permanent GitHub email address to continue." : githubOutcome ? "GitHub sign-in could not be completed. Please try again." : null;
 
   const finish = async (user: unknown) => {
     utils.auth.me.setData(undefined, user as any);
@@ -67,6 +69,10 @@ export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
             {error && <p className="local-auth-error" role="alert">{error}</p>}
             <Button type="submit" disabled={pending} className="local-auth-submit">{pending ? "Securing your session…" : isSignup ? "Create account" : "Sign in"}<ArrowRight size={16} /></Button>
           </form>
+          <div className="my-5 flex items-center gap-3" aria-hidden="true"><span className="h-px flex-1 bg-white/10" /><span className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#86879a]">or</span><span className="h-px flex-1 bg-white/10" /></div>
+          <Button type="button" variant="outline" className="h-11 w-full border-white/14 bg-white/[.025] text-[#ececf2] hover:bg-white/[.08]" onClick={() => window.location.assign("/api/auth/github")}><Github size={17} /> Continue with GitHub</Button>
+          {githubError && <p className="local-auth-error mt-3" role="alert">{githubError}</p>}
+          <p className="mt-3 text-center text-[10px] leading-5 text-[#86879a]">GitHub is used only to verify your identity. TokenForge does not request repository access.</p>
           <p className="local-auth-switch">{isSignup ? "Already have an account?" : "New to TokenForge?"} <Link href={isSignup ? "/signin" : "/signup"}>{isSignup ? "Sign in" : "Create one"}</Link></p>
           <Link href="/" className="local-auth-back">← Back to TokenForge</Link>
         </div>
