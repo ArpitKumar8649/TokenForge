@@ -126,6 +126,30 @@ describe("first-party authentication procedures", () => {
     }
   });
 
+  it("accepts major international permanent mailbox domains when no explicit allowlist is configured", () => {
+    const previous = process.env.TOKENFORGE_EMAIL_ALLOWLIST;
+    delete process.env.TOKENFORGE_EMAIL_ALLOWLIST;
+    try {
+      for (const email of [
+        "developer@qq.com",
+        "developer@163.com",
+        "developer@naver.com",
+        "developer@yandex.com",
+        "developer@gmx.de",
+        "developer@web.de",
+        "developer@proton.me",
+        "developer@tuta.com",
+        "developer@university.example",
+        "developer@company.example",
+      ]) {
+        expect(isPermanentEmailAddress(email)).toBe(true);
+      }
+    } finally {
+      if (previous === undefined) delete process.env.TOKENFORGE_EMAIL_ALLOWLIST;
+      else process.env.TOKENFORGE_EMAIL_ALLOWLIST = previous;
+    }
+  });
+
   it("returns a generic unauthorized error for an incorrect password and records the failure", async () => {
     vi.mocked(authenticatePasswordUser).mockResolvedValue(null);
     const { ctx } = makeContext();

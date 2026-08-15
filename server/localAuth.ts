@@ -14,8 +14,10 @@ export const LOGIN_BLOCK_MS = 15 * 60 * 1000;
 
 /**
  * A deliberately small, audited deny-list of well-known throwaway email hosts.
- * We allow normal personal, school, and work domains rather than restricting
- * TokenForge to a brittle list of mailbox providers.
+ * We allow normal personal, school, and work domains—including major
+ * international mailbox providers—rather than restricting TokenForge to a
+ * brittle provider allowlist. A configured explicit allowlist remains stricter
+ * by design and must name an accepted address or domain.
  */
 const DISPOSABLE_EMAIL_DOMAINS = new Set([
   "10minutemail.com", "33mail.com", "dispostable.com", "dropmail.me",

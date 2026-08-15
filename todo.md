@@ -145,3 +145,5 @@
 - [x] Research and apply authoritative pricing for the TokenHarbor-backed DeepSeek V4 Flash and V4 Pro aliases so usage deducts accurate promotional credit.
 - [x] Update the API-key creation flow so the newly generated key appears immediately in the dashboard without a manual reload.
 - [x] Add focused pricing and API-key-list regression coverage, then validate the responsive dashboard behavior.
+- [x] Expand the permanent-email policy to recognize major international mailbox providers while continuing to block disposable and throwaway domains.
+- [x] Add regression coverage for the international provider policy and validate that ordinary custom business and education domains remain supported.
