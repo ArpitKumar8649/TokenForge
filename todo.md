@@ -195,3 +195,6 @@
 - [x] Standardize the hosted TokenForge API base URL across documentation, API guidance, and developer-facing product surfaces.
 - [x] Add a copyable dashboard cURL example that uses a newly created key in the current session and otherwise shows a safe placeholder format.
 - [x] Add regression coverage and responsive validation for base-URL consistency and dashboard cURL guidance.
+- [x] Add copyable JavaScript and Python SDK quick-start snippets to the dashboard API Keys workspace, preserving one-time API-key visibility safeguards.
+- [x] Add regression coverage and responsive validation for the dashboard SDK quick-start guidance.
+- [x] Prepare professional, ready-to-post Discord rules and launch announcement copy aligned with TokenForge’s API, community, security, and acceptable-use standards.

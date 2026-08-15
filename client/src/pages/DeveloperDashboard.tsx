@@ -15,7 +15,7 @@ import "../dashboard.css";
 import Playground from "./Playground";
 import { CreditOverview, Profile, UsageLogs } from "./CreditWorkspace";
 import { DashboardModels } from "./DashboardModels";
-import { buildTokenForgeCurl, TOKENFORGE_API_BASE_URL } from "../../../shared/tokenforgeApi";
+import { buildTokenForgeCurl, buildTokenForgeJavaScript, buildTokenForgePython, TOKENFORGE_API_BASE_URL } from "../../../shared/tokenforgeApi";
 
 type Section = "overview" | "keys" | "usage" | "playground" | "profile" | "models" | "model";
 type UsageData = {
@@ -59,6 +59,32 @@ function CurlExample({ apiKey }: { apiKey?: string }) {
   </section>;
 }
 
+type SdkLanguage = "javascript" | "python";
+
+function SdkQuickStart({ apiKey }: { apiKey?: string }) {
+  const [language, setLanguage] = useState<SdkLanguage>("javascript");
+  const [copied, setCopied] = useState(false);
+  const isJavaScript = language === "javascript";
+  const installCommand = isJavaScript ? "npm install openai" : "pip install openai";
+  const code = isJavaScript ? buildTokenForgeJavaScript(apiKey) : buildTokenForgePython(apiKey);
+  const copy = async () => {
+    await navigator.clipboard.writeText(code);
+    setCopied(true);
+    toast.success(`${isJavaScript ? "JavaScript" : "Python"} quick-start copied`);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  return <section className="rounded-xl border border-white/10 bg-[#111218] p-4" aria-labelledby="sdk-quickstart-title">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#befe6c]">OpenAI-compatible SDKs</p><h3 id="sdk-quickstart-title" className="mt-1 text-sm font-bold text-white">Start from your language</h3><p className="mt-1 max-w-xl text-xs leading-5 text-[#9fa0af]">Use the standard OpenAI SDK with TokenForge’s hosted base URL. {apiKey ? "The selected snippet includes the new plaintext key shown above." : "Create or rotate a key to populate a selected snippet automatically."}</p></div><Button variant="outline" size="sm" className="border-white/15 text-[#e4e4ea] hover:bg-white/10" onClick={copy}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy code"}</Button></div>
+    <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="SDK language">
+      <button type="button" role="tab" aria-selected={isJavaScript} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${isJavaScript ? "border-[#befe6c]/40 bg-[#befe6c]/10 text-[#d9ff9d]" : "border-white/10 bg-black/15 text-[#a9aab7] hover:bg-white/5 hover:text-white"}`} onClick={() => setLanguage("javascript")}>JavaScript</button>
+      <button type="button" role="tab" aria-selected={!isJavaScript} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${!isJavaScript ? "border-[#befe6c]/40 bg-[#befe6c]/10 text-[#d9ff9d]" : "border-white/10 bg-black/15 text-[#a9aab7] hover:bg-white/5 hover:text-white"}`} onClick={() => setLanguage("python")}>Python</button>
+    </div>
+    <div className="mt-3 flex items-center gap-2 text-[11px] text-[#a7a8b5]"><span className="font-semibold text-[#d6d6df]">Install:</span><code className="rounded border border-white/10 bg-black/20 px-2 py-1 font-mono text-[#dfe0e7]">{installCommand}</code></div>
+    <pre className="mt-3 overflow-x-auto rounded-lg border border-white/8 bg-[#08090d] p-3"><code className="font-mono text-[11px] leading-5 text-[#dfe0e7]">{code}</code></pre>
+  </section>;
+}
+
 function KeyCreateForm({ onSuccess }: { onSuccess: (value: NewApiKeyResult) => void }) {
   const [label, setLabel] = useState("");
   const create = trpc.developer.createApiKey.useMutation({ onSuccess: value => { onSuccess(value); setLabel(""); toast.success("New API key created"); }, onError: error => toast.error(error.message) });
@@ -86,7 +112,7 @@ function ApiKeyList() {
     toast.success("Key rotated — copy the new secret now");
   }, onError: error => toast.error(error.message) });
   if (keys.isLoading) return <div className="grid min-h-48 place-items-center rounded-xl border border-white/10 bg-[#15161f]"><Loader2 className="animate-spin text-[#b89aff]" /></div>;
-  return <div className="space-y-3">{plainTextKey && <KeySecret value={plainTextKey} onDismiss={() => setPlainTextKey(null)} />}<CurlExample apiKey={plainTextKey ?? undefined} /><KeyCreateForm onSuccess={showNewKey} />{keys.data?.length ? <div className="overflow-hidden rounded-xl border border-white/10 bg-[#15161f]">{keys.data.map(key => <div key={key.id} className="flex flex-wrap items-center gap-3 border-b border-white/8 p-4 last:border-0"><div className="grid h-9 w-9 place-items-center rounded-lg bg-white/5 text-[#cbb7ff]"><KeyRound size={16} /></div><div className="min-w-40 flex-1"><p className="text-xs font-bold text-white">{key.label}</p><code className="mt-1 block font-mono text-[10px] text-[#9394a7]">{key.prefix}</code></div><div className="text-[10px] text-[#8e8fa1]">Created {new Date(key.createdAt).toLocaleDateString()}</div><Badge className={key.status === "active" ? "border-0 bg-[#7debbd]/10 text-[#8aefc0]" : "border-0 bg-red-400/10 text-red-300"}>{key.status}</Badge>{key.status === "active" && <div className="flex gap-1"><Button variant="ghost" size="sm" title="Rotate key" className="text-[#c7c5d2] hover:bg-white/8 hover:text-white" disabled={rotate.isPending} onClick={() => rotate.mutate({ apiKeyId: key.id, label: `${key.label.slice(0, 85)} · rotated` })}><RefreshCw size={14} /></Button><Button variant="ghost" size="sm" title="Revoke key" className="text-[#d69ca6] hover:bg-red-400/10 hover:text-red-200" disabled={revoke.isPending} onClick={() => revoke.mutate({ apiKeyId: key.id })}><Trash2 size={14} /></Button></div>}</div>)}</div> : <div className="rounded-xl border border-dashed border-white/12 p-8 text-center"><KeyRound className="mx-auto text-[#77788b]" size={22} /><p className="mt-3 text-sm font-bold text-white">No keys yet</p><p className="mt-1 text-xs text-[#9394a7]">Create a labeled key above to begin making requests.</p></div>}</div>;
+  return <div className="space-y-3">{plainTextKey && <KeySecret value={plainTextKey} onDismiss={() => setPlainTextKey(null)} />}<CurlExample apiKey={plainTextKey ?? undefined} /><SdkQuickStart apiKey={plainTextKey ?? undefined} /><KeyCreateForm onSuccess={showNewKey} />{keys.data?.length ? <div className="overflow-hidden rounded-xl border border-white/10 bg-[#15161f]">{keys.data.map(key => <div key={key.id} className="flex flex-wrap items-center gap-3 border-b border-white/8 p-4 last:border-0"><div className="grid h-9 w-9 place-items-center rounded-lg bg-white/5 text-[#cbb7ff]"><KeyRound size={16} /></div><div className="min-w-40 flex-1"><p className="text-xs font-bold text-white">{key.label}</p><code className="mt-1 block font-mono text-[10px] text-[#9394a7]">{key.prefix}</code></div><div className="text-[10px] text-[#8e8fa1]">Created {new Date(key.createdAt).toLocaleDateString()}</div><Badge className={key.status === "active" ? "border-0 bg-[#7debbd]/10 text-[#8aefc0]" : "border-0 bg-red-400/10 text-red-300"}>{key.status}</Badge>{key.status === "active" && <div className="flex gap-1"><Button variant="ghost" size="sm" title="Rotate key" className="text-[#c7c5d2] hover:bg-white/8 hover:text-white" disabled={rotate.isPending} onClick={() => rotate.mutate({ apiKeyId: key.id, label: `${key.label.slice(0, 85)} · rotated` })}><RefreshCw size={14} /></Button><Button variant="ghost" size="sm" title="Revoke key" className="text-[#d69ca6] hover:bg-red-400/10 hover:text-red-200" disabled={revoke.isPending} onClick={() => revoke.mutate({ apiKeyId: key.id })}><Trash2 size={14} /></Button></div>}</div>)}</div> : <div className="rounded-xl border border-dashed border-white/12 p-8 text-center"><KeyRound className="mx-auto text-[#77788b]" size={22} /><p className="mt-3 text-sm font-bold text-white">No keys yet</p><p className="mt-1 text-xs text-[#9394a7]">Create a labeled key above to begin making requests.</p></div>}</div>;
 }
 
 function UsageChart({ daily }: { daily: { day: string; requests: number; tokens: number }[] }) {
