@@ -951,9 +951,17 @@ export async function setModelEnabled(modelId: string, enabled: boolean) {
 
 export async function setProviderEnabled(slug: string, enabled: boolean) {
   const db = await getDb();
-  if (!db) return false;
-  const result = await db.update(providerConfigs).set({ enabled }).where(eq(providerConfigs.slug, slug));
-  return result[0].affectedRows > 0;
+  if (!db) return { updated: false, disabledModels: 0 };
+  return db.transaction(async tx => {
+    const providerResult = await tx.update(providerConfigs).set({ enabled }).where(eq(providerConfigs.slug, slug));
+    if (!providerResult[0].affectedRows) return { updated: false, disabledModels: 0 };
+    if (enabled) return { updated: true, disabledModels: 0 };
+
+    const modelResult = await tx.update(modelConfigs)
+      .set({ enabled: false })
+      .where(and(eq(modelConfigs.providerSlug, slug), eq(modelConfigs.enabled, true)));
+    return { updated: true, disabledModels: modelResult[0].affectedRows };
+  });
 }
 
 export async function setAccountControl(input: { userId: number; isSuspended?: boolean; dailyRequestLimit?: number; dailyTokenLimit?: number }) {

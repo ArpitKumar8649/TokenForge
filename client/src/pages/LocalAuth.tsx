@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
+import { ESTABLISHED_EMAIL_DOMAIN_GUIDANCE, isEstablishedEmailAddress } from "@shared/emailPolicy";
 import { ArrowRight, CheckCircle2, Eye, EyeOff, Github, KeyRound, ShieldCheck } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { Link, useLocation } from "wouter";
@@ -16,11 +17,12 @@ export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [emailPolicyError, setEmailPolicyError] = useState<string | null>(null);
   const isSignup = initialMode === "signup";
   const register = trpc.auth.register.useMutation();
   const login = trpc.auth.login.useMutation();
   const pending = register.isPending || login.isPending;
-  const error = register.error?.message ?? login.error?.message;
+  const error = emailPolicyError ?? register.error?.message ?? login.error?.message;
   const githubOutcome = new URLSearchParams(window.location.search).get("github");
   const githubError = githubOutcome === "link-required" ? "An account already uses that email. Sign in with your password before linking GitHub." : githubOutcome === "email-not-allowed" ? "Use a verified permanent GitHub email address to continue." : githubOutcome ? "GitHub sign-in could not be completed. Please try again." : null;
 
@@ -32,6 +34,11 @@ export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (!isEstablishedEmailAddress(email)) {
+      setEmailPolicyError(`Use an accepted mailbox provider. Try ${ESTABLISHED_EMAIL_DOMAIN_GUIDANCE}.`);
+      return;
+    }
+    setEmailPolicyError(null);
     if (isSignup) {
       const response = await register.mutateAsync({ email, password, name: name || undefined });
       await finish(response.user);
@@ -64,7 +71,7 @@ export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
           </div>
           <form className="local-auth-form" onSubmit={submit}>
             {isSignup && <div className="local-auth-field"><Label htmlFor="name">Name <small>Optional</small></Label><Input id="name" autoComplete="name" value={name} onChange={event => setName(event.target.value)} placeholder="Ada Lovelace" maxLength={120} /></div>}
-            <div className="local-auth-field"><Label htmlFor="email">Email address</Label><Input id="email" type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@company.com" required maxLength={320} /></div>
+            <div className="local-auth-field"><Label htmlFor="email">Email address</Label><Input id="email" type="email" autoComplete="email" value={email} onChange={event => { setEmail(event.target.value); setEmailPolicyError(null); }} placeholder="you@gmail.com" required maxLength={320} /><small className="local-auth-help"><CheckCircle2 size={13} /> Accepted providers include {ESTABLISHED_EMAIL_DOMAIN_GUIDANCE}.</small></div>
             <div className="local-auth-field"><Label htmlFor="password">Password</Label><div className="local-auth-password"><Input id="password" type={showPassword ? "text" : "password"} autoComplete={isSignup ? "new-password" : "current-password"} value={password} onChange={event => setPassword(event.target.value)} placeholder={isSignup ? "At least 12 characters" : "Your password"} required minLength={12} maxLength={256} /><button type="button" aria-label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword(value => !value)}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>{isSignup && <small className="local-auth-help"><CheckCircle2 size={13} /> Use 12 or more characters.</small>}</div>
             {error && <p className="local-auth-error" role="alert">{error}</p>}
             <Button type="submit" disabled={pending} className="local-auth-submit">{pending ? "Securing your session…" : isSignup ? "Create account" : "Sign in"}<ArrowRight size={16} /></Button>

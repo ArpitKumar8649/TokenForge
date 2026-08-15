@@ -1,5 +1,6 @@
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
+import { isEstablishedEmailAddress } from "../shared/emailPolicy";
 
 const scrypt = promisify(scryptCallback);
 const KEY_LENGTH = 64;
@@ -12,13 +13,7 @@ export const LOGIN_FAILURE_LIMIT = 5;
 export const LOGIN_FAILURE_WINDOW_MS = 15 * 60 * 1000;
 export const LOGIN_BLOCK_MS = 15 * 60 * 1000;
 
-/**
- * A deliberately small, audited deny-list of well-known throwaway email hosts.
- * We allow normal personal, school, and work domains—including major
- * international mailbox providers—rather than restricting TokenForge to a
- * brittle provider allowlist. A configured explicit allowlist remains stricter
- * by design and must name an accepted address or domain.
- */
+/** A narrow deny-list is retained as defense in depth beside the provider allowlist. */
 const DISPOSABLE_EMAIL_DOMAINS = new Set([
   "10minutemail.com", "33mail.com", "dispostable.com", "dropmail.me",
   "emailondeck.com", "fakemail.net", "getnada.com", "guerrillamail.com",
@@ -64,6 +59,7 @@ export function isPermanentEmailAddress(value: string, persistedAllowlist?: read
   const domain = email.split("@")[1];
   if (!domain) return false;
   if (DISPOSABLE_EMAIL_DOMAINS.has(domain) || domain.includes("tempmail") || domain.includes("throwaway")) return false;
+  if (!isEstablishedEmailAddress(email)) return false;
   const allowlist = persistedAllowlist === undefined || persistedAllowlist === null
     ? configuredEmailAllowlist()
     : new Set(persistedAllowlist.map(normalizeEmail).filter(Boolean));

@@ -176,3 +176,6 @@
 - [x] Add a passcode-admin-managed rolling announcement with safe text editing that appears below the header on both the public site and developer dashboard.
 - [x] Add two server-only Cluster Protocol credentials and rotate eligible inference calls fairly across the configured credential pool.
 - [x] Add deterministic credential-rotation regression coverage and validate the gateway’s existing billing and error behavior.
+- [x] Cascade a disabled provider state to every routed model and propagate the resulting unavailability consistently across admin controls, developer surfaces, Playground, and API requests.
+- [x] Replace permissive email-domain handling with a documented allowlist of established international mailbox providers, rejecting unlisted addresses before account creation with clear accepted-domain guidance.
+- [x] Add regression coverage and responsive validation for provider-wide availability updates and the restrictive email-registration experience.

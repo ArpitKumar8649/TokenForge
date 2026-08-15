@@ -1,6 +1,7 @@
 import { COOKIE_NAME } from "@shared/const";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { ESTABLISHED_EMAIL_DOMAIN_GUIDANCE } from "../shared/emailPolicy";
 import {
   createApiKey,
   getAdminOverview,
@@ -112,7 +113,7 @@ export const appRouter = router({
     register: publicProcedure.input(registrationInput).mutation(async ({ ctx, input }) => {
       const emailPolicy = await getEmailAllowlistConfig();
       if (!isPermanentEmailAddress(input.email, emailPolicy?.entries)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Use a permanent email address to create a TokenForge account." });
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Use an accepted mailbox provider to create a TokenForge account. Accepted providers include ${ESTABLISHED_EMAIL_DOMAIN_GUIDANCE}.` });
       }
       const user = await createPasswordUser(input);
       if (!user) throw new TRPCError({ code: "CONFLICT", message: "An account already exists for this email" });
@@ -319,10 +320,10 @@ export const appRouter = router({
       return { success: true } as const;
     }),
     setProviderEnabled: adminProcedure.input(z.object({ slug: z.enum([FXQIDIAN_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG]), enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
-      const updated = await setProviderEnabled(input.slug, input.enabled);
-      if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Provider configuration not found" });
-      await writeAuditEvent({ actorUserId: ctx.user.id, action: input.enabled ? "provider.enabled" : "provider.disabled", entityType: "provider", entityId: input.slug });
-      return { success: true } as const;
+      const result = await setProviderEnabled(input.slug, input.enabled);
+      if (!result.updated) throw new TRPCError({ code: "NOT_FOUND", message: "Provider configuration not found" });
+      await writeAuditEvent({ actorUserId: ctx.user.id, action: input.enabled ? "provider.enabled" : "provider.disabled", entityType: "provider", entityId: input.slug, metadata: { disabledModels: result.disabledModels } });
+      return { success: true, disabledModels: result.disabledModels } as const;
     }),
     setAccountControl: adminProcedure
       .input(z.object({ userId: z.number().int().positive(), isSuspended: z.boolean().optional(), dailyRequestLimit: z.number().int().min(1).max(1_000_000).optional(), dailyTokenLimit: z.number().int().min(1_000).max(10_000_000).optional() }))
