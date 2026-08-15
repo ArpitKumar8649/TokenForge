@@ -215,3 +215,4 @@
 - [x] Diagnose the reported production chat-completions curl failure, provide a syntactically correct request, and verify whether the gateway requires a remediation.
 - [x] Migrate TokenForge referrals to four-character alphanumeric affiliate codes using the `aff` sign-up parameter, including persistence, dashboard links, local registration, GitHub OAuth, validation, and regression coverage.
 - [x] Add a privacy-safe live bar chart to the administrator dashboard that groups account counts by normalized email provider and automatically includes providers used by new registrations.
+- [x] Repair the administrator email-provider aggregate query so the protected admin overview loads on the deployed database, while retaining privacy-safe domain-only counts and regression coverage.

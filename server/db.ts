@@ -56,6 +56,8 @@ export type EmailAllowlistConfig = { entries: string[]; updatedAt: Date; updated
 export type AdminEmailProviderCount = { provider: string; accountCount: number };
 
 const CATALOGUE_DEFINITIONS = TOKENFORGE_MODEL_CATALOGUE;
+/** Standalone `users` aggregate expression; deliberately unqualified for deployed MySQL compatibility. */
+export const ADMIN_EMAIL_PROVIDER_EXPRESSION = "lower(substring_index(email, '@', -1))";
 
 export function utcUsageDate(value = new Date()) {
   return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
@@ -1014,7 +1016,9 @@ export async function getAdminOverview() {
   await ensureCatalogue();
   const db = await getDb();
   if (!db) return { models: [], providers: [], accounts: [], usage: [], emailProviders: [], totals: { totalTokens: 0, totalRequests: 0 }, providerTelemetry: getProviderCredentialTelemetry({}) };
-  const emailProvider = sql<string>`lower(substring_index(${users.email}, '@', -1))`;
+  // This aggregate queries only `users`; keep this expression unqualified so the SELECT,
+  // GROUP BY, and ORDER BY clauses remain byte-for-byte compatible on the deployed MySQL dialect.
+  const emailProvider = sql<string>`${sql.raw(ADMIN_EMAIL_PROVIDER_EXPRESSION)}`;
   const [models, providers, accounts, usage, accountUsage, totals, emailProviderRows] = await Promise.all([
     db.select().from(modelConfigs).orderBy(modelConfigs.displayName),
     db.select().from(providerConfigs).orderBy(providerConfigs.displayName),
@@ -1022,7 +1026,7 @@ export async function getAdminOverview() {
     db.select({ day: dailyUsage.usageDate, requests: sql<number>`coalesce(sum(${dailyUsage.requestCount}), 0)`, tokens: sql<number>`coalesce(sum(${dailyUsage.totalTokens}), 0)` }).from(dailyUsage).where(gte(dailyUsage.usageDate, utcUsageDate(new Date(Date.now() - 13 * 86_400_000)))).groupBy(dailyUsage.usageDate).orderBy(dailyUsage.usageDate),
     db.select({ userId: usageEvents.userId, requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, lastActivityAt: sql<Date | null>`max(${usageEvents.createdAt})` }).from(usageEvents).groupBy(usageEvents.userId),
     db.select({ totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, totalRequests: sql<number>`coalesce(count(${usageEvents.id}), 0)` }).from(usageEvents),
-    db.select({ provider: emailProvider, accountCount: sql<number>`count(${users.id})` }).from(users).where(sql`${users.email} is not null and ${users.email} like '%@%'`).groupBy(emailProvider).orderBy(desc(sql`count(${users.id})`), emailProvider),
+    db.select({ provider: emailProvider, accountCount: sql<number>`count(id)` }).from(users).where(sql`${users.email} is not null and ${users.email} like '%@%'`).groupBy(emailProvider).orderBy(desc(sql`count(id)`), emailProvider),
   ]);
   const providerTelemetry = getProviderCredentialTelemetry({
     [FXQIDIAN_PROVIDER_SLUG]: getFxqidianCredentialPool().length,

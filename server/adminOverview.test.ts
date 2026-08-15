@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composeAdminAccountOverview, normalizeAdminEmailProviderCounts } from "./db";
+import { ADMIN_EMAIL_PROVIDER_EXPRESSION, composeAdminAccountOverview, normalizeAdminEmailProviderCounts } from "./db";
 
 describe("composeAdminAccountOverview", () => {
   it("attaches live credit and usage aggregates without returning API-key material", () => {
@@ -47,6 +47,11 @@ describe("composeAdminAccountOverview", () => {
 });
 
 describe("normalizeAdminEmailProviderCounts", () => {
+  it("uses the deployed MySQL-compatible standalone users expression", () => {
+    expect(ADMIN_EMAIL_PROVIDER_EXPRESSION).toBe("lower(substring_index(email, '@', -1))");
+    expect(ADMIN_EMAIL_PROVIDER_EXPRESSION).not.toContain("users.email");
+  });
+
   it("groups and sorts normalized provider-only counts without exposing mailbox identities", () => {
     const distribution = normalizeAdminEmailProviderCounts([
       { provider: "GMAIL.COM", accountCount: 2 },
