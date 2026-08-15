@@ -29,13 +29,24 @@ const DISPOSABLE_EMAIL_DOMAINS = new Set([
   "tempmailo.com", "throwawaymail.com", "trashmail.com", "yopmail.com",
 ]);
 
-function configuredEmailAllowlist() {
+export function configuredEmailAllowlist() {
   return new Set(
     (process.env.TOKENFORGE_EMAIL_ALLOWLIST ?? "")
       .split(",")
       .map(entry => normalizeEmail(entry))
       .filter(Boolean),
   );
+}
+
+export function normalizeEmailAllowlistEntries(entries: readonly string[]) {
+  const normalized = Array.from(new Set(entries.map(entry => normalizeEmail(entry)).filter(Boolean)));
+  if (normalized.length > 250) throw new Error("An email allowlist can contain at most 250 entries.");
+  const invalid = normalized.find(entry => {
+    const domain = entry.includes("@") ? entry.split("@")[1] : entry;
+    return !domain || entry.startsWith("@") || !domain.includes(".") || /[^a-z0-9@._-]/.test(entry);
+  });
+  if (invalid) throw new Error(`Invalid email allowlist entry: ${invalid}`);
+  return normalized;
 }
 
 export type LoginAttemptState = {
@@ -48,12 +59,14 @@ export function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
 }
 
-export function isPermanentEmailAddress(value: string) {
+export function isPermanentEmailAddress(value: string, persistedAllowlist?: readonly string[] | null) {
   const email = normalizeEmail(value);
   const domain = email.split("@")[1];
   if (!domain) return false;
   if (DISPOSABLE_EMAIL_DOMAINS.has(domain) || domain.includes("tempmail") || domain.includes("throwaway")) return false;
-  const allowlist = configuredEmailAllowlist();
+  const allowlist = persistedAllowlist === undefined || persistedAllowlist === null
+    ? configuredEmailAllowlist()
+    : new Set(persistedAllowlist.map(normalizeEmail).filter(Boolean));
   return allowlist.size === 0 || allowlist.has(email) || allowlist.has(domain);
 }
 

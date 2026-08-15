@@ -10,6 +10,7 @@ vi.mock("./db", () => ({
   claimDailyCheckin: vi.fn(),
   getAdminOverview: vi.fn(),
   getCreditProfile: vi.fn(),
+  getEmailAllowlistConfig: vi.fn(),
   getPublicModelTokenMetrics: vi.fn(),
   getPasswordLoginThrottle: vi.fn(),
   getUsageLogs: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("./db", () => ({
   revokeApiKey: vi.fn(),
   rotateApiKey: vi.fn(),
   setAccountControl: vi.fn(),
+  setEmailAllowlistConfig: vi.fn(),
   setModelEnabled: vi.fn(),
   setProviderEnabled: vi.fn(),
   writeAuditEvent: vi.fn(),
@@ -40,8 +42,10 @@ import {
   getUsageLogs,
   getPasswordLoginThrottle,
   getPublicModelTokenMetrics,
+  getEmailAllowlistConfig,
   listApiKeys,
   recordFailedPasswordLogin,
+  setEmailAllowlistConfig,
 } from "./db";
 import { appRouter } from "./routers";
 import { COOKIE_NAME } from "../shared/const";
@@ -77,6 +81,7 @@ beforeEach(() => {
   vi.mocked(getPasswordLoginThrottle).mockResolvedValue({ blocked: false, retryAfterSeconds: 0 });
   vi.mocked(recordFailedPasswordLogin).mockResolvedValue({ blocked: false, retryAfterSeconds: 0 });
   vi.mocked(clearFailedPasswordLogin).mockResolvedValue(undefined);
+  vi.mocked(getEmailAllowlistConfig).mockResolvedValue(null);
 });
 
 describe("first-party authentication procedures", () => {
@@ -148,6 +153,25 @@ describe("first-party authentication procedures", () => {
       if (previous === undefined) delete process.env.TOKENFORGE_EMAIL_ALLOWLIST;
       else process.env.TOKENFORGE_EMAIL_ALLOWLIST = previous;
     }
+  });
+
+  it("applies a persisted administrator allowlist ahead of the environment fallback", async () => {
+    vi.mocked(getEmailAllowlistConfig).mockResolvedValue({ entries: ["qq.com", "approved@forge.test"], updatedAt: new Date(), updatedByUserId: 1 });
+    vi.mocked(createPasswordUser).mockResolvedValue(localUser);
+    const { ctx } = makeContext();
+    await expect(appRouter.createCaller(ctx).auth.register({ email: "developer@qq.com", password: "secure-passphrase" })).resolves.toEqual({ user: localUser });
+    await expect(appRouter.createCaller(ctx).auth.register({ email: "developer@gmail.com", password: "secure-passphrase" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("allows only administrators to view and update the persisted email allowlist", async () => {
+    const admin = { ...localUser, id: 1, role: "admin" as const };
+    const saved = { entries: ["company.com"], updatedAt: new Date(), updatedByUserId: 1 };
+    vi.mocked(getEmailAllowlistConfig).mockResolvedValue(saved);
+    vi.mocked(setEmailAllowlistConfig).mockResolvedValue(saved);
+    const adminCaller = appRouter.createCaller(makeContext(admin).ctx);
+    await expect(adminCaller.admin.emailAllowlist()).resolves.toMatchObject({ entries: ["company.com"], source: "database" });
+    await expect(adminCaller.admin.setEmailAllowlist({ entries: ["company.com"] })).resolves.toEqual(saved);
+    await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.emailAllowlist()).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("returns a generic unauthorized error for an incorrect password and records the failure", async () => {

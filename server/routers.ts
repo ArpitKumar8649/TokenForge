@@ -4,6 +4,7 @@ import { z } from "zod";
 import {
   createApiKey,
   getAdminOverview,
+  getEmailAllowlistConfig,
   getQuotaStatus,
   getUsageSummary,
   listOpenFlags,
@@ -11,6 +12,7 @@ import {
   revokeApiKey,
   rotateApiKey,
   setAccountControl,
+  setEmailAllowlistConfig,
   setModelEnabled,
   setProviderEnabled,
   writeAuditEvent,
@@ -29,7 +31,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
-import { isPermanentEmailAddress, PASSWORD_MIN_LENGTH } from "./localAuth";
+import { configuredEmailAllowlist, isPermanentEmailAddress, PASSWORD_MIN_LENGTH } from "./localAuth";
 import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, type TokenForgeModelId } from "./modelCatalogue";
 import { runPlaygroundCompletion, TokenForgePlaygroundError, tokenForgeRequestIpHash } from "./openaiGateway";
 
@@ -76,7 +78,8 @@ export const appRouter = router({
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     register: publicProcedure.input(registrationInput).mutation(async ({ ctx, input }) => {
-      if (!isPermanentEmailAddress(input.email)) {
+      const emailPolicy = await getEmailAllowlistConfig();
+      if (!isPermanentEmailAddress(input.email, emailPolicy?.entries)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Use a permanent email address to create a TokenForge account." });
       }
       const user = await createPasswordUser(input);
@@ -89,7 +92,8 @@ export const appRouter = router({
       if (throttle.blocked) {
         throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: `Too many sign-in attempts. Try again in ${throttle.retryAfterSeconds} seconds.` });
       }
-      if (!isPermanentEmailAddress(input.email)) {
+      const emailPolicy = await getEmailAllowlistConfig();
+      if (!isPermanentEmailAddress(input.email, emailPolicy?.entries)) {
         const failedAttempt = await recordFailedPasswordLogin(input.email);
         if (failedAttempt.blocked) {
           throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: `Too many sign-in attempts. Try again in ${failedAttempt.retryAfterSeconds} seconds.` });
@@ -205,6 +209,26 @@ export const appRouter = router({
   admin: router({
     overview: adminProcedure.query(() => getAdminOverview()),
     flags: adminProcedure.query(() => listOpenFlags()),
+    emailAllowlist: adminProcedure.query(async () => {
+      const saved = await getEmailAllowlistConfig();
+      return {
+        entries: saved?.entries ?? Array.from(configuredEmailAllowlist()),
+        updatedAt: saved?.updatedAt ?? null,
+        updatedByUserId: saved?.updatedByUserId ?? null,
+        source: saved ? "database" as const : "environment" as const,
+      };
+    }),
+    setEmailAllowlist: adminProcedure
+      .input(z.object({ entries: z.array(z.string().trim().min(3).max(320)).max(250) }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const saved = await setEmailAllowlistConfig(input.entries, ctx.user.id);
+          await writeAuditEvent({ actorUserId: ctx.user.id, action: "email.allowlist.updated", entityType: "platform_setting", entityId: "email_allowlist", metadata: { entryCount: saved.entries.length } });
+          return saved;
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "TokenForge could not save the email allowlist" });
+        }
+      }),
     setModelEnabled: adminProcedure.input(z.object({ modelId: tokenForgeModelId, enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
       const updated = await setModelEnabled(input.modelId, input.enabled);
       if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "Model configuration not found" });

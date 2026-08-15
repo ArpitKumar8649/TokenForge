@@ -205,6 +205,14 @@ export const providerConfigs = mysqlTable("provider_configs", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+/** Singleton-like platform settings keyed by a stable, audited identifier. */
+export const platformSettings = mysqlTable("platform_settings", {
+  settingKey: varchar("settingKey", { length: 96 }).primaryKey(),
+  value: text("value").notNull(),
+  updatedByUserId: int("updatedByUserId").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const modelConfigs = mysqlTable(
   "model_configs",
   {
@@ -263,3 +271,4 @@ export type ModelConfig = typeof modelConfigs.$inferSelect;
 export type AccountFlag = typeof accountFlags.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type PasswordCredential = typeof passwordCredentials.$inferSelect;
+export type PlatformSetting = typeof platformSettings.$inferSelect;

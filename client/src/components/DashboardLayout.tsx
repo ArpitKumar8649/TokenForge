@@ -20,7 +20,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Boxes, ChartNoAxesCombined, FlaskConical, KeyRound, LayoutDashboard, LogOut, PanelLeft, Shield, UserRound } from "lucide-react";
+import { Boxes, ChartNoAxesCombined, FlaskConical, KeyRound, LayoutDashboard, LogOut, PanelLeft, Settings2, Shield, UserRound } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Link } from "wouter";
@@ -37,6 +37,7 @@ const menuItems = [
   { icon: ChartNoAxesCombined, label: "Usage logs", path: "/dashboard/usage" },
   { icon: UserRound, label: "Profile", path: "/dashboard/profile" },
   { icon: Shield, label: "Admin", path: "/admin", adminOnly: true },
+  { icon: Settings2, label: "Settings", path: "/admin/settings", adminOnly: true },
 ];
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";

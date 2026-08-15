@@ -147,3 +147,5 @@
 - [x] Add focused pricing and API-key-list regression coverage, then validate the responsive dashboard behavior.
 - [x] Expand the permanent-email policy to recognize major international mailbox providers while continuing to block disposable and throwaway domains.
 - [x] Add regression coverage for the international provider policy and validate that ordinary custom business and education domains remain supported.
+- [x] Add a protected admin configuration screen for viewing, editing, and validating the persistent email allowlist.
+- [x] Persist the admin-managed allowlist securely, apply it during registration and sign-in checks, and cover authorization and update behavior with tests.

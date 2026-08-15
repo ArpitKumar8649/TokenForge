@@ -15,10 +15,11 @@ import {
   loginAttempts,
   modelConfigs,
   passwordCredentials,
+  platformSettings,
   providerConfigs,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
-import { hashPassword, normalizeEmail, nextFailedLoginState, retryAfterSeconds, verifyPassword } from "./localAuth";
+import { hashPassword, normalizeEmail, nextFailedLoginState, normalizeEmailAllowlistEntries, retryAfterSeconds, verifyPassword } from "./localAuth";
 import { DAILY_CHECKIN_CREDIT_NANOS, INTRODUCTORY_CREDIT_NANOS } from "./creditPricing";
 import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, TOKENFORGE_MODEL_IDS, type TokenForgeModelId } from "./modelCatalogue";
 
@@ -28,8 +29,10 @@ export const DEFAULT_DAILY_REQUEST_LIMIT = 100;
 export const DEFAULT_DAILY_TOKEN_LIMIT = 100_000;
 export const DEFAULT_MAX_CONCURRENT_REQUESTS = 2;
 const INTRODUCTORY_CREDIT_REFERENCE = "introductory-credit-v1";
+const EMAIL_ALLOWLIST_SETTING_KEY = "email_allowlist";
 
 export type ApiKeyRecord = typeof apiKeys.$inferSelect;
+export type EmailAllowlistConfig = { entries: string[]; updatedAt: Date; updatedByUserId: number | null };
 
 const CATALOGUE_DEFINITIONS = TOKENFORGE_MODEL_CATALOGUE;
 
@@ -325,6 +328,36 @@ export async function clearFailedPasswordLogin(email: string) {
   const db = await getDb();
   if (!db) return;
   await db.delete(loginAttempts).where(eq(loginAttempts.identifierHash, hashLoginIdentifier(email)));
+}
+
+export async function getEmailAllowlistConfig(): Promise<EmailAllowlistConfig | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const record = (await db.select().from(platformSettings).where(eq(platformSettings.settingKey, EMAIL_ALLOWLIST_SETTING_KEY)).limit(1))[0];
+  if (!record) return null;
+  try {
+    const parsed = JSON.parse(record.value) as { entries?: unknown };
+    const entries = Array.isArray(parsed.entries) && parsed.entries.every(entry => typeof entry === "string")
+      ? normalizeEmailAllowlistEntries(parsed.entries)
+      : [];
+    return { entries, updatedAt: record.updatedAt, updatedByUserId: record.updatedByUserId };
+  } catch {
+    return { entries: [], updatedAt: record.updatedAt, updatedByUserId: record.updatedByUserId };
+  }
+}
+
+export async function setEmailAllowlistConfig(entries: readonly string[], updatedByUserId: number): Promise<EmailAllowlistConfig> {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const normalizedEntries = normalizeEmailAllowlistEntries(entries);
+  await db.insert(platformSettings).values({
+    settingKey: EMAIL_ALLOWLIST_SETTING_KEY,
+    value: JSON.stringify({ entries: normalizedEntries }),
+    updatedByUserId,
+  }).onDuplicateKeyUpdate({ set: { value: JSON.stringify({ entries: normalizedEntries }), updatedByUserId, updatedAt: new Date() } });
+  const saved = await getEmailAllowlistConfig();
+  if (!saved) throw new Error("Email allowlist configuration did not persist");
+  return saved;
 }
 
 export async function ensureAccountControl(userId: number) {

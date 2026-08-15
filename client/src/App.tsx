@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Docs from "./pages/Docs";
 import DeveloperDashboard from "./pages/DeveloperDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
+import AdminSettings from "./pages/AdminSettings";
 import DemoWorkspace from "./pages/DemoWorkspace";
 import Home from "./pages/Home";
 import Legal from "./pages/Legal";
@@ -34,6 +35,7 @@ function Router() {
       <Route path={"/dashboard/keys"}>{() => <DeveloperDashboard section="keys" />}</Route>
       <Route path={"/dashboard/usage"}>{() => <DeveloperDashboard section="usage" />}</Route>
       <Route path={"/dashboard/profile"}>{() => <DeveloperDashboard section="profile" />}</Route>
+      <Route path={"/admin/settings"} component={AdminSettings} />
       <Route path={"/admin"} component={AdminDashboard} />
       <Route path={"/legal/:page"} component={Legal} />
       <Route path={"/404"} component={NotFound} />
