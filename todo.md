@@ -142,3 +142,6 @@
 - [x] Align the provider diagnostic payload with the user-confirmed request and retain the sandbox HTTP 403 as an environment-access diagnostic rather than treating it as model unavailability.
 - [x] If verified, add `deepseek-v4-flash` and `deepseek-v4-pro` as two TokenForge catalogue routes pointing to the same TokenHarbor underlying model.
 - [x] Add regression coverage and document the GitHub OAuth login configuration prerequisites for TokenForge.
+- [x] Research and apply authoritative pricing for the TokenHarbor-backed DeepSeek V4 Flash and V4 Pro aliases so usage deducts accurate promotional credit.
+- [x] Update the API-key creation flow so the newly generated key appears immediately in the dashboard without a manual reload.
+- [x] Add focused pricing and API-key-list regression coverage, then validate the responsive dashboard behavior.

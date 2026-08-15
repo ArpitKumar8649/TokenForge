@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { coalesceDailyUsage } from "../../../shared/usageSeries";
+import { markApiKeyRevoked, prependCreatedApiKey } from "../../../shared/apiKeyListCache";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { AlertTriangle, ArrowRight, BarChart3, BookOpen, Check, Clipboard, Code2, Copy, KeyRound, Loader2, LockKeyhole, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal, Trash2 } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
@@ -35,9 +36,14 @@ function KeySecret({ value, onDismiss }: { value: string; onDismiss: () => void 
   return <div className="rounded-2xl border border-[#b89aff]/40 bg-[#1a1824] p-5 shadow-2xl shadow-black/30"><div className="flex items-start gap-3"><div className="rounded-xl bg-[#b89aff]/15 p-2.5 text-[#d7c6ff]"><ShieldCheck size={18} /></div><div><p className="text-sm font-bold text-white">Copy this key now</p><p className="mt-1 max-w-xl text-xs leading-5 text-[#b4b3c0]">For your security, TokenForge will not show this plaintext key again after you dismiss this message.</p></div></div><div className="mt-4 flex items-center gap-2 rounded-lg border border-white/10 bg-[#0d0e14] p-3"><code className="min-w-0 flex-1 truncate font-mono text-xs text-[#e2d8ff]">{value}</code><Button size="sm" className="bg-[#f0efff] text-[#18151f] hover:bg-white" onClick={copy}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy"}</Button></div><Button variant="outline" size="sm" className="mt-4 border-white/15 text-[#d7d6df] hover:bg-white/10" onClick={onDismiss}>I’ve saved this key</Button></div>;
 }
 
-function KeyCreateForm({ onSuccess }: { onSuccess: (key: string) => void }) {
+type NewApiKeyResult = {
+  key: string;
+  record: { id: number; label: string; prefix: string; status: "active" | "revoked"; createdAt: Date };
+};
+
+function KeyCreateForm({ onSuccess }: { onSuccess: (value: NewApiKeyResult) => void }) {
   const [label, setLabel] = useState("");
-  const create = trpc.developer.createApiKey.useMutation({ onSuccess: value => { onSuccess(value.key); setLabel(""); toast.success("New API key created"); }, onError: error => toast.error(error.message) });
+  const create = trpc.developer.createApiKey.useMutation({ onSuccess: value => { onSuccess(value); setLabel(""); toast.success("New API key created"); }, onError: error => toast.error(error.message) });
   const submit = (event: FormEvent) => { event.preventDefault(); create.mutate({ label }); };
   return <form onSubmit={submit} className="rounded-xl border border-white/10 bg-[#15161f] p-4"><Label htmlFor="key-label" className="text-xs text-[#d7d6df]">Key label</Label><div className="mt-2 flex gap-2"><Input id="key-label" value={label} onChange={event => setLabel(event.target.value)} placeholder="e.g. staging web app" maxLength={100} className="border-white/12 bg-[#0e0f16] text-white placeholder:text-[#6f7181]" /><Button disabled={!label.trim() || create.isPending} className="shrink-0 bg-[#f0efff] text-[#18151f] hover:bg-white">{create.isPending ? <Loader2 className="animate-spin" size={15} /> : <Plus size={15} />} Create</Button></div></form>;
 }
@@ -46,10 +52,23 @@ function ApiKeyList() {
   const keys = trpc.developer.apiKeys.useQuery();
   const utils = trpc.useUtils();
   const [plainTextKey, setPlainTextKey] = useState<string | null>(null);
-  const revoke = trpc.developer.revokeApiKey.useMutation({ onSuccess: () => { utils.developer.apiKeys.invalidate(); toast.success("API key revoked"); }, onError: error => toast.error(error.message) });
-  const rotate = trpc.developer.rotateApiKey.useMutation({ onSuccess: value => { utils.developer.apiKeys.invalidate(); setPlainTextKey(value.key); toast.success("Key rotated — copy the new secret now"); }, onError: error => toast.error(error.message) });
+  const showNewKey = (value: NewApiKeyResult) => {
+    const record = { ...value.record, lastUsedAt: null, revokedAt: null };
+    utils.developer.apiKeys.setData(undefined, current => prependCreatedApiKey(current, record));
+    setPlainTextKey(value.key);
+  };
+  const revoke = trpc.developer.revokeApiKey.useMutation({ onSuccess: (_, variables) => {
+    utils.developer.apiKeys.setData(undefined, current => markApiKeyRevoked(current, variables.apiKeyId, new Date()));
+    toast.success("API key revoked");
+  }, onError: error => toast.error(error.message) });
+  const rotate = trpc.developer.rotateApiKey.useMutation({ onSuccess: (value, variables) => {
+    const record = { ...value.record, lastUsedAt: null, revokedAt: null };
+    utils.developer.apiKeys.setData(undefined, current => prependCreatedApiKey(markApiKeyRevoked(current, variables.apiKeyId, new Date()), record));
+    setPlainTextKey(value.key);
+    toast.success("Key rotated — copy the new secret now");
+  }, onError: error => toast.error(error.message) });
   if (keys.isLoading) return <div className="grid min-h-48 place-items-center rounded-xl border border-white/10 bg-[#15161f]"><Loader2 className="animate-spin text-[#b89aff]" /></div>;
-  return <div className="space-y-3">{plainTextKey && <KeySecret value={plainTextKey} onDismiss={() => setPlainTextKey(null)} />}<KeyCreateForm onSuccess={setPlainTextKey} />{keys.data?.length ? <div className="overflow-hidden rounded-xl border border-white/10 bg-[#15161f]">{keys.data.map(key => <div key={key.id} className="flex flex-wrap items-center gap-3 border-b border-white/8 p-4 last:border-0"><div className="grid h-9 w-9 place-items-center rounded-lg bg-white/5 text-[#cbb7ff]"><KeyRound size={16} /></div><div className="min-w-40 flex-1"><p className="text-xs font-bold text-white">{key.label}</p><code className="mt-1 block font-mono text-[10px] text-[#9394a7]">{key.prefix}</code></div><div className="text-[10px] text-[#8e8fa1]">Created {new Date(key.createdAt).toLocaleDateString()}</div><Badge className={key.status === "active" ? "border-0 bg-[#7debbd]/10 text-[#8aefc0]" : "border-0 bg-red-400/10 text-red-300"}>{key.status}</Badge>{key.status === "active" && <div className="flex gap-1"><Button variant="ghost" size="sm" title="Rotate key" className="text-[#c7c5d2] hover:bg-white/8 hover:text-white" disabled={rotate.isPending} onClick={() => rotate.mutate({ apiKeyId: key.id, label: `${key.label.slice(0, 85)} · rotated` })}><RefreshCw size={14} /></Button><Button variant="ghost" size="sm" title="Revoke key" className="text-[#d69ca6] hover:bg-red-400/10 hover:text-red-200" disabled={revoke.isPending} onClick={() => revoke.mutate({ apiKeyId: key.id })}><Trash2 size={14} /></Button></div>}</div>)}</div> : <div className="rounded-xl border border-dashed border-white/12 p-8 text-center"><KeyRound className="mx-auto text-[#77788b]" size={22} /><p className="mt-3 text-sm font-bold text-white">No keys yet</p><p className="mt-1 text-xs text-[#9394a7]">Create a labeled key above to begin making requests.</p></div>}</div>;
+  return <div className="space-y-3">{plainTextKey && <KeySecret value={plainTextKey} onDismiss={() => setPlainTextKey(null)} />}<KeyCreateForm onSuccess={showNewKey} />{keys.data?.length ? <div className="overflow-hidden rounded-xl border border-white/10 bg-[#15161f]">{keys.data.map(key => <div key={key.id} className="flex flex-wrap items-center gap-3 border-b border-white/8 p-4 last:border-0"><div className="grid h-9 w-9 place-items-center rounded-lg bg-white/5 text-[#cbb7ff]"><KeyRound size={16} /></div><div className="min-w-40 flex-1"><p className="text-xs font-bold text-white">{key.label}</p><code className="mt-1 block font-mono text-[10px] text-[#9394a7]">{key.prefix}</code></div><div className="text-[10px] text-[#8e8fa1]">Created {new Date(key.createdAt).toLocaleDateString()}</div><Badge className={key.status === "active" ? "border-0 bg-[#7debbd]/10 text-[#8aefc0]" : "border-0 bg-red-400/10 text-red-300"}>{key.status}</Badge>{key.status === "active" && <div className="flex gap-1"><Button variant="ghost" size="sm" title="Rotate key" className="text-[#c7c5d2] hover:bg-white/8 hover:text-white" disabled={rotate.isPending} onClick={() => rotate.mutate({ apiKeyId: key.id, label: `${key.label.slice(0, 85)} · rotated` })}><RefreshCw size={14} /></Button><Button variant="ghost" size="sm" title="Revoke key" className="text-[#d69ca6] hover:bg-red-400/10 hover:text-red-200" disabled={revoke.isPending} onClick={() => revoke.mutate({ apiKeyId: key.id })}><Trash2 size={14} /></Button></div>}</div>)}</div> : <div className="rounded-xl border border-dashed border-white/12 p-8 text-center"><KeyRound className="mx-auto text-[#77788b]" size={22} /><p className="mt-3 text-sm font-bold text-white">No keys yet</p><p className="mt-1 text-xs text-[#9394a7]">Create a labeled key above to begin making requests.</p></div>}</div>;
 }
 
 function UsageChart({ daily }: { daily: { day: string; requests: number; tokens: number }[] }) {

@@ -148,7 +148,8 @@ describe("TokenForge Playground gateway", () => {
     expect(forwardedPayload.messages[0].content).toContain("selected TokenForge model: deepseek-v4-pro");
     expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toContain("server-only-provider-secret");
     expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toContain("server-only-cluster-secret");
-    expect(reserveCredit).toHaveBeenCalledWith(42, 0, expect.stringMatching(/^tf_pg_/));
+    expect(reserveCredit).toHaveBeenCalledWith(42, 288_540, expect.stringMatching(/^tf_pg_/));
+    expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 7_000 }));
     expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "deepseek-v4-pro", status: "success", inputTokens: 10, outputTokens: 20 }));
   });
 
