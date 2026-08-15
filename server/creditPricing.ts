@@ -5,22 +5,33 @@ export const INTRODUCTORY_CREDIT_NANOS = 50 * NANODOLLARS_PER_DOLLAR;
 export const DAILY_CHECKIN_CREDIT_NANOS = 5 * NANODOLLARS_PER_DOLLAR;
 export const DEFAULT_MAX_OUTPUT_TOKENS_FOR_CREDIT = 1_024;
 export const MAX_BILLABLE_OUTPUT_TOKENS = 8_192;
+export const TOKENFORGE_PLATFORM_CHARGE_MULTIPLIER = 1.5;
+
+function platformCreditRate(upstreamUsdPerMillion: number) {
+  return Number((upstreamUsdPerMillion * TOKENFORGE_PLATFORM_CHARGE_MULTIPLIER).toFixed(6));
+}
 
 export type CreditPricedModel = TokenForgeModelId;
 
 export const TOKENFORGE_CREDIT_PRICING: Record<CreditPricedModel, {
   inputNanosPerToken: number;
   outputNanosPerToken: number;
+  upstreamInputUsdPerMillion: number;
+  upstreamOutputUsdPerMillion: number;
   inputUsdPerMillion: number;
   outputUsdPerMillion: number;
 }> = Object.fromEntries(TOKENFORGE_MODEL_CATALOGUE.map(model => [model.id, {
-  inputNanosPerToken: Math.round(model.inputUsdPerMillion * 1_000),
-  outputNanosPerToken: Math.round(model.outputUsdPerMillion * 1_000),
-  inputUsdPerMillion: model.inputUsdPerMillion,
-  outputUsdPerMillion: model.outputUsdPerMillion,
+  inputNanosPerToken: Math.round(platformCreditRate(model.inputUsdPerMillion) * 1_000),
+  outputNanosPerToken: Math.round(platformCreditRate(model.outputUsdPerMillion) * 1_000),
+  upstreamInputUsdPerMillion: model.inputUsdPerMillion,
+  upstreamOutputUsdPerMillion: model.outputUsdPerMillion,
+  inputUsdPerMillion: platformCreditRate(model.inputUsdPerMillion),
+  outputUsdPerMillion: platformCreditRate(model.outputUsdPerMillion),
 }])) as Record<CreditPricedModel, {
   inputNanosPerToken: number;
   outputNanosPerToken: number;
+  upstreamInputUsdPerMillion: number;
+  upstreamOutputUsdPerMillion: number;
   inputUsdPerMillion: number;
   outputUsdPerMillion: number;
 }>;

@@ -44,7 +44,10 @@ beforeEach(() => {
   vi.mocked(getRecentRequestCounts).mockResolvedValue({ account: 0, ip: 0 });
   vi.mocked(recordUsage).mockResolvedValue(undefined);
   vi.mocked(reserveCredit).mockResolvedValue({ authorized: true, balanceNanos: 49_990_000_000 });
-  vi.mocked(settleReservedCredit).mockResolvedValue({ chargedNanos: 96_000, balanceNanos: 49_999_904_000 });
+  vi.mocked(settleReservedCredit).mockImplementation(async ({ finalChargeNanos }) => ({
+    chargedNanos: finalChargeNanos,
+    balanceNanos: 50_000_000_000 - finalChargeNanos,
+  }));
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -64,7 +67,7 @@ describe("TokenForge Playground gateway", () => {
       sourceIpHash: "hashed-source-ip",
     });
 
-    expect(result).toMatchObject({ model: "glm-5.2", usage: { totalTokens: 30 }, credit: { chargeNanos: 96_000, balanceNanos: 49_999_904_000 } });
+    expect(result).toMatchObject({ model: "glm-5.2", usage: { totalTokens: 30 }, credit: { chargeNanos: 144_000, balanceNanos: 49_999_856_000 } });
     expect(fetchMock).toHaveBeenCalledWith("https://provider.example/v1/chat/completions", expect.objectContaining({
       headers: expect.objectContaining({ Authorization: "Bearer server-only-provider-secret" }),
       body: expect.stringContaining('"model":"glm-5.2"'),
@@ -75,8 +78,8 @@ describe("TokenForge Playground gateway", () => {
     expect(forwardedPayload.messages[0].content).toContain("do not claim to be Google Gemini");
     expect(forwardedPayload.messages[0].content).toContain("Do not invent a knowledge cutoff");
     expect(reserveCredit).toHaveBeenCalledWith(42, expect.any(Number), expect.stringMatching(/^tf_pg_/));
-    expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 96_000 }));
-    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, modelId: "glm-5.2", status: "success", inputTokens: 12, outputTokens: 18, chargeNanos: 96_000, sourceIpHash: "hashed-source-ip" }));
+    expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 144_000 }));
+    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, modelId: "glm-5.2", status: "success", inputTokens: 12, outputTokens: 18, chargeNanos: 144_000, sourceIpHash: "hashed-source-ip" }));
     expect(vi.mocked(recordUsage).mock.calls[0][0]).not.toHaveProperty("apiKeyId");
   });
 
@@ -121,8 +124,8 @@ describe("TokenForge Playground gateway", () => {
       body: expect.stringContaining('"model":"kimi-k3"'),
     }));
     expect(JSON.stringify(fetchMock.mock.calls[0][1].headers)).not.toContain("server-only-provider-secret");
-    expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 330_000 }));
-    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "kimi-k3", status: "success", inputTokens: 10, outputTokens: 20, chargeNanos: 96_000 }));
+    expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 495_000 }));
+    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "kimi-k3", status: "success", inputTokens: 10, outputTokens: 20, chargeNanos: 495_000 }));
   });
 
   it("routes both DeepSeek aliases through TokenHarbor while translating only the upstream model identifier", async () => {
@@ -149,8 +152,8 @@ describe("TokenForge Playground gateway", () => {
     expect(forwardedPayload.messages[0].content).toContain("selected TokenForge model: deepseek-v4-pro");
     expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toContain("server-only-provider-secret");
     expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toContain("server-only-cluster-secret");
-    expect(reserveCredit).toHaveBeenCalledWith(42, 288_540, expect.stringMatching(/^tf_pg_/));
-    expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 7_000 }));
+    expect(reserveCredit).toHaveBeenCalledWith(42, 432_810, expect.stringMatching(/^tf_pg_/));
+    expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 10_500 }));
     expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "deepseek-v4-pro", status: "success", inputTokens: 10, outputTokens: 20 }));
   });
 

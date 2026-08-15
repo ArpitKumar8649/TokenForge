@@ -29,7 +29,7 @@ function WalletHero({ compact = false }: { compact?: boolean }) {
         <p className="credit-kicker"><WalletCards size={13} /> Promotional credit wallet</p>
         <span className="credit-hero__label">Available to build with</span>
         <h2>{formatCreditWhole(data.balanceNanos)}</h2>
-        <p className="credit-hero__description">Non-withdrawable platform credit. Successful requests settle against the published model rate after token usage is reported.</p>
+        <p className="credit-hero__description">Non-withdrawable platform credit. Successful requests settle from provider-reported usage at the published TokenForge credit rate, including the 1.5× platform charge.</p>
       </div>
       <div className="credit-hero__stats" aria-label="Credit reward details">
         <div><span><Sparkles size={14} /> Starting credit</span><b>$50.00</b><small>for a new wallet</small></div>

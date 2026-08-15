@@ -169,3 +169,5 @@
 - [x] Add a privacy-safe administrator activity timeline covering account moderation, access, and model/provider availability changes.
 - [x] Add downloadable privacy-safe administrator audit exports with no API-key material, credentials, or sensitive identity data.
 - [x] Propagate model and provider availability changes to developer dashboards in real time and reject disabled-model API/Playground requests with a consistent temporary-unavailability response.
+- [x] Apply a transparent 1.5× TokenForge platform charge to each billable model request across reservation, settlement, credits, and usage records.
+- [x] Synchronize public documentation, dashboard credit disclosures, model pricing, and API guidance with the 1.5× platform-charge credit system.
