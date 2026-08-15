@@ -12,7 +12,7 @@ import "../auth-refresh.css";
 type LocalAuthProps = { mode: "signin" | "signup" };
 
 export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const utils = trpc.useUtils();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -20,6 +20,8 @@ export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [emailPolicyError, setEmailPolicyError] = useState<string | null>(null);
   const isSignup = initialMode === "signup";
+  const referralCode = isSignup ? new URLSearchParams(location.split("?")[1] ?? "").get("ref")?.trim().toUpperCase() : undefined;
+  const referralQuery = referralCode ? `?ref=${encodeURIComponent(referralCode)}` : "";
   const register = trpc.auth.register.useMutation();
   const login = trpc.auth.login.useMutation();
   const pending = register.isPending || login.isPending;
@@ -41,7 +43,7 @@ export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
     }
     setEmailPolicyError(null);
     if (isSignup) {
-      const response = await register.mutateAsync({ email, password, name: name || undefined });
+      const response = await register.mutateAsync({ email, password, name: name || undefined, referralCode });
       await finish(response.user);
       return;
     }
@@ -76,7 +78,7 @@ export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
             <h2>{isSignup ? "Create your account." : "Sign in to your workspace."}</h2>
             <span>{isSignup ? "Use your email and password, or continue securely with GitHub." : "Use your email and password, or continue securely with GitHub."}</span>
           </div>
-          <Button type="button" variant="outline" className="local-auth-github" onClick={() => window.location.assign("/api/auth/github")}><Github size={17} /> Continue with GitHub</Button>
+          <Button type="button" variant="outline" className="local-auth-github" onClick={() => window.location.assign(`/api/auth/github${referralQuery}`)}><Github size={17} /> Continue with GitHub</Button>
           {githubError && <p className="local-auth-error mt-3" role="alert">{githubError}</p>}
           <div className="local-auth-divider" aria-hidden="true"><span /><p>or continue with email</p><span /></div>
           <form className="local-auth-form" onSubmit={submit}>
@@ -87,7 +89,7 @@ export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
             <Button type="submit" disabled={pending} className="local-auth-submit">{pending ? "Securing your session…" : isSignup ? "Create account with email" : "Sign in with email"}<ArrowRight size={16} /></Button>
           </form>
           <p className="mt-3 text-center text-[10px] leading-5 text-[#86879a]">GitHub is used only to verify your identity. TokenForge does not request repository access.</p>
-          <p className="local-auth-switch">{isSignup ? "Already have an account?" : "New to TokenForge?"} <Link href={isSignup ? "/signin" : "/signup"}>{isSignup ? "Sign in" : "Create one"}</Link></p>
+          <p className="local-auth-switch">{isSignup ? "Already have an account?" : "New to TokenForge?"} <Link href={isSignup ? "/signin" : `/signup${referralQuery}`}>{isSignup ? "Sign in" : "Create one"}</Link></p>
           <Link href="/" className="local-auth-back">← Back to TokenForge</Link>
         </div>
       </section>

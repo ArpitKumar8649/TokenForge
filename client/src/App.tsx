@@ -33,6 +33,7 @@ function Router() {
       <Route path={"/dashboard/models"}>{() => <DeveloperDashboard section="models" />}</Route>
       <Route path={"/dashboard/models/:modelId"}>{params => <DeveloperDashboard section="model" modelId={params.modelId} />}</Route>
       <Route path={"/dashboard/keys"}>{() => <DeveloperDashboard section="keys" />}</Route>
+      <Route path={"/dashboard/referrals"}>{() => <DeveloperDashboard section="referrals" />}</Route>
       <Route path={"/dashboard/usage"}>{() => <DeveloperDashboard section="usage" />}</Route>
       <Route path={"/dashboard/profile"}>{() => <DeveloperDashboard section="profile" />}</Route>
       <Route path={"/admin/settings"} component={AdminSettings} />

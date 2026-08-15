@@ -20,6 +20,8 @@ import {
   passwordCredentials,
   platformSettings,
   providerConfigs,
+  referralAttributions,
+  referralCodes,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { hashPassword, normalizeEmail, nextFailedLoginState, normalizeEmailAllowlistEntries, retryAfterSeconds, verifyPassword } from "./localAuth";
@@ -28,6 +30,7 @@ import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENHARBOR_PRO
 import { getClusterProtocolCredentialPool } from "./clusterProtocolCredentials";
 import { getFxqidianCredentialPool } from "./fxqidianCredentials";
 import { getProviderCredentialTelemetry } from "./providerCredentialTelemetry";
+import { TOKENFORGE_REFERRAL_REWARD_NANOS, normalizeReferralCode } from "../shared/referrals";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -38,6 +41,7 @@ const INTRODUCTORY_CREDIT_REFERENCE = "introductory-credit-v1";
 const EMAIL_ALLOWLIST_SETTING_KEY = "email_allowlist";
 const ANNOUNCEMENT_TEXT_SETTING_KEY = "announcement_text";
 const SESSION_VERSION_SETTING_KEY = "auth_session_version";
+const REFERRAL_CODE_BYTES = 12;
 
 export class DeletedAccountIdentityError extends Error {
   constructor() {
@@ -120,6 +124,113 @@ export async function ensureCreditAccount(userId: number) {
     if (error?.code !== "ER_DUP_ENTRY") throw error;
     return (await db.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).limit(1))[0] ?? null;
   }
+}
+
+function newReferralCode() {
+  return randomBytes(REFERRAL_CODE_BYTES).toString("hex").toUpperCase();
+}
+
+/** Creates an opaque invite code once per account; the code does not reveal account identity. */
+export async function getOrCreateReferralCode(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const existing = (await db.select().from(referralCodes).where(eq(referralCodes.userId, userId)).limit(1))[0];
+  if (existing) return existing;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      await db.insert(referralCodes).values({ userId, code: newReferralCode() });
+      const created = (await db.select().from(referralCodes).where(eq(referralCodes.userId, userId)).limit(1))[0];
+      if (created) return created;
+    } catch (error: any) {
+      if (error?.code !== "ER_DUP_ENTRY") throw error;
+      const concurrent = (await db.select().from(referralCodes).where(eq(referralCodes.userId, userId)).limit(1))[0];
+      if (concurrent) return concurrent;
+    }
+  }
+  throw new Error("TokenForge could not create a referral link");
+}
+
+/**
+ * Grants both parties exactly once after a new referred account is created.
+ * The unique referred-user record is the authoritative idempotency control.
+ */
+export async function awardReferralForNewUser(referredUserId: number, rawReferralCode?: string | null) {
+  const referralCode = normalizeReferralCode(rawReferralCode);
+  if (!referralCode) return { awarded: false as const, reason: "no_valid_code" as const };
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const invitation = (await db.select().from(referralCodes).where(eq(referralCodes.code, referralCode)).limit(1))[0];
+  if (!invitation || invitation.userId === referredUserId) return { awarded: false as const, reason: "ineligible" as const };
+
+  await Promise.all([ensureCreditAccount(invitation.userId), ensureCreditAccount(referredUserId)]);
+  try {
+    const outcome = await db.transaction(async tx => {
+      const prior = (await tx.select({ id: referralAttributions.id }).from(referralAttributions).where(eq(referralAttributions.referredUserId, referredUserId)).limit(1))[0];
+      if (prior) return { awarded: false as const, reason: "already_rewarded" as const };
+
+      const inserted = await tx.insert(referralAttributions).values({
+        referrerUserId: invitation.userId,
+        referredUserId,
+        rewardNanos: TOKENFORGE_REFERRAL_REWARD_NANOS,
+      });
+      const referralId = Number(inserted[0].insertId);
+      await tx.update(creditAccounts)
+        .set({ balanceNanos: sql`${creditAccounts.balanceNanos} + ${TOKENFORGE_REFERRAL_REWARD_NANOS}` })
+        .where(inArray(creditAccounts.userId, [invitation.userId, referredUserId]));
+      const accounts = await tx.select().from(creditAccounts).where(inArray(creditAccounts.userId, [invitation.userId, referredUserId]));
+      const balances = new Map(accounts.map(account => [account.userId, account.balanceNanos]));
+      await tx.insert(creditLedger).values([
+        {
+          userId: invitation.userId,
+          kind: "referral_reward",
+          amountNanos: TOKENFORGE_REFERRAL_REWARD_NANOS,
+          balanceAfterNanos: balances.get(invitation.userId) ?? TOKENFORGE_REFERRAL_REWARD_NANOS,
+          referenceId: `referral:${referralId}:inviter`,
+          note: "Referral reward for an eligible new member",
+        },
+        {
+          userId: referredUserId,
+          kind: "referral_reward",
+          amountNanos: TOKENFORGE_REFERRAL_REWARD_NANOS,
+          balanceAfterNanos: balances.get(referredUserId) ?? TOKENFORGE_REFERRAL_REWARD_NANOS,
+          referenceId: `referral:${referralId}:new-member`,
+          note: "Welcome reward from a valid referral",
+        },
+      ]);
+      return { awarded: true as const, referralId, referrerUserId: invitation.userId };
+    });
+    if (outcome.awarded) {
+      await writeAuditEvent({ actorUserId: outcome.referrerUserId, targetUserId: referredUserId, action: "referral_reward_awarded", entityType: "referral", entityId: String(outcome.referralId), metadata: { rewardNanos: TOKENFORGE_REFERRAL_REWARD_NANOS } });
+    }
+    return outcome;
+  } catch (error: any) {
+    if (error?.code === "ER_DUP_ENTRY") return { awarded: false as const, reason: "already_rewarded" as const };
+    throw error;
+  }
+}
+
+export async function getReferralOverview(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const code = await getOrCreateReferralCode(userId);
+  const [attributions, received] = await Promise.all([
+    db.select({ id: referralAttributions.id, createdAt: referralAttributions.createdAt, rewardNanos: referralAttributions.rewardNanos, memberName: users.name })
+      .from(referralAttributions)
+      .innerJoin(users, eq(referralAttributions.referredUserId, users.id))
+      .where(eq(referralAttributions.referrerUserId, userId))
+      .orderBy(desc(referralAttributions.createdAt)),
+    db.select({ rewardNanos: referralAttributions.rewardNanos, createdAt: referralAttributions.createdAt })
+      .from(referralAttributions)
+      .where(eq(referralAttributions.referredUserId, userId))
+      .limit(1),
+  ]);
+  return {
+    code: code.code,
+    referrals: attributions.map(item => ({ id: item.id, name: item.memberName || "New TokenForge member", createdAt: item.createdAt, rewardNanos: item.rewardNanos })),
+    totalRewardNanos: attributions.reduce((total, item) => total + item.rewardNanos, 0),
+    receivedRewardNanos: received[0]?.rewardNanos ?? 0,
+  };
 }
 
 export async function reserveCredit(userId: number, amountNanos: number, requestId: string) {
@@ -293,7 +404,7 @@ export async function getUserByOpenId(openId: string) {
   return result[0];
 }
 
-export async function createPasswordUser(input: { email: string; password: string; name?: string }) {
+export async function createPasswordUser(input: { email: string; password: string; name?: string; referralCode?: string }) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const email = normalizeEmail(input.email);
@@ -316,7 +427,8 @@ export async function createPasswordUser(input: { email: string; password: strin
       await tx.insert(passwordCredentials).values({ userId: createdUserId, passwordHash });
       return createdUserId;
     });
-    await Promise.all([ensureAccountControl(userId), ensureCreditAccount(userId)]);
+    await Promise.all([ensureAccountControl(userId), ensureCreditAccount(userId), getOrCreateReferralCode(userId)]);
+    await awardReferralForNewUser(userId, input.referralCode);
     return getUserByOpenId(openId);
   } catch (error: any) {
     if (error?.code === "ER_DUP_ENTRY") return null;
@@ -818,7 +930,7 @@ export async function listAdminAccounts(input: AdminAccountDirectoryInput = {}) 
   return { items: composeAdminAccountOverview(accounts, usageRows), total: Number(total), page, pageSize: query.pageSize, pageCount };
 }
 
-export type GitHubIdentityInput = { providerUserId: string; email: string; name: string | null };
+export type GitHubIdentityInput = { providerUserId: string; email: string; name: string | null; referralCode?: string };
 
 /** Resolves GitHub by immutable provider subject. An existing matching email is never auto-linked. */
 export async function resolveGitHubIdentity(input: GitHubIdentityInput) {
@@ -851,7 +963,8 @@ export async function resolveGitHubIdentity(input: GitHubIdentityInput) {
       await tx.insert(oauthIdentities).values({ userId: createdUserId, provider, providerUserId: input.providerUserId });
       return createdUserId;
     });
-    await Promise.all([ensureAccountControl(userId), ensureCreditAccount(userId)]);
+    await Promise.all([ensureAccountControl(userId), ensureCreditAccount(userId), getOrCreateReferralCode(userId)]);
+    await awardReferralForNewUser(userId, input.referralCode);
     const user = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
     if (!user) throw new Error("TokenForge could not load the new GitHub account");
     return { kind: "resolved" as const, user };

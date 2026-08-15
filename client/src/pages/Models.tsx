@@ -3,7 +3,7 @@ import { TokenForgeGlyph } from "@/components/TokenForgeGlyph";
 import { ProviderMark } from "@/components/ProviderMark";
 import { Badge } from "@/components/ui/badge";
 import { formatTokenForgeCreditRatePerMillion, TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
-import { Braces, ExternalLink, Gauge } from "lucide-react";
+import { Braces, ExternalLink, Gauge, MessageCircle } from "lucide-react";
 import { Link } from "wouter";
 import "./models.css";
 
@@ -80,5 +80,5 @@ export default function Models() {
 }
 
 export function PublicFooter() {
-  return <footer className="public-footer"><div><span className="footer-brand"><TokenForgeGlyph className="public-footer__glyph" />Token<span>Forge</span></span><p>A considered AI gateway for serious building.</p></div><div className="footer-links"><a href="/models">Models</a><a href="/pricing">Pricing</a><a href="/docs">Documentation</a><a href="/legal/terms">Terms</a><a href="/legal/privacy">Privacy</a><a href="/legal/acceptable-use">Acceptable use</a></div><small>© 2026 TokenForge · <a href="/signin">Sign in</a></small></footer>;
+  return <footer className="public-footer"><div><span className="footer-brand"><TokenForgeGlyph className="public-footer__glyph" />Token<span>Forge</span></span><p>A considered AI gateway for serious building.</p></div><div className="footer-links"><a href="/models">Models</a><a href="/pricing">Pricing</a><a href="/docs">Documentation</a><a href="/legal/terms">Terms</a><a href="/legal/privacy">Privacy</a><a href="/legal/acceptable-use">Acceptable use</a><a href="https://discord.gg/pnsWamDbe" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1" aria-label="Join the TokenForge Discord community">Discord <MessageCircle size={13} aria-hidden="true" /></a></div><small>© 2026 TokenForge · <a href="/signin">Sign in</a></small></footer>;
 }

@@ -7,7 +7,7 @@ import { trpc } from "@/lib/trpc";
 import { coalesceDailyUsage } from "../../../shared/usageSeries";
 import { markApiKeyRevoked, prependCreatedApiKey } from "../../../shared/apiKeyListCache";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { AlertTriangle, ArrowRight, BarChart3, BookOpen, Check, Clipboard, Code2, Copy, KeyRound, Loader2, LockKeyhole, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowRight, BarChart3, BookOpen, Check, Clipboard, Code2, Copy, Gift, KeyRound, Loader2, LockKeyhole, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal, Trash2, Users } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
@@ -17,8 +17,9 @@ import { CreditOverview, Profile, UsageLogs } from "./CreditWorkspace";
 import { DashboardModels } from "./DashboardModels";
 import { buildTokenForgeCurl, buildTokenForgeJavaScript, buildTokenForgePython, TOKENFORGE_API_BASE_URL } from "../../../shared/tokenforgeApi";
 import { clearOneTimeApiKey, getOneTimeApiKey, rememberOneTimeApiKey } from "../../../shared/oneTimeApiKey";
+import { buildReferralInviteUrl, TOKENFORGE_REFERRAL_REWARD_USD } from "../../../shared/referrals";
 
-type Section = "overview" | "keys" | "usage" | "playground" | "profile" | "models" | "model";
+type Section = "overview" | "keys" | "usage" | "playground" | "profile" | "referrals" | "models" | "model";
 type UsageData = {
   quota?: { usedRequests: number; requestLimit: number; usedTokens: number; tokenLimit: number; maxConcurrentRequests: number; suspended: boolean; suspicious: boolean } | null;
   totalRequests: number;
@@ -168,6 +169,38 @@ function Overview({ user, loading, usage }: { user: ReturnType<typeof useAuth>["
 export default function DeveloperDashboard({ section = "overview", modelId }: { section?: Section; modelId?: string }) {
   const { user, loading } = useAuth();
   const usage = trpc.developer.usage.useQuery(undefined, { enabled: Boolean(user) });
-  const content = section === "playground" ? <Playground /> : section === "models" ? <DashboardModels /> : section === "model" ? <DashboardModels modelId={modelId} /> : section === "keys" ? <><PageIntro eyebrow="Credentials" title="API keys" subtitle="Create, rotate, or revoke credentials without ever re-exposing a saved secret." /><ApiKeyList /></> : section === "usage" ? <><PageIntro eyebrow="Observability" title="Usage logs" subtitle="A transparent record of request source, model, tokens, and credit cost." /><UsageLogs /></> : section === "profile" ? <><PageIntro eyebrow="Account & rewards" title="Profile" subtitle="Manage your TokenForge identity and claim your daily build credit." /><Profile /></> : <Overview user={user} loading={loading} usage={usage} />;
+  const content = section === "playground" ? <Playground /> : section === "models" ? <DashboardModels /> : section === "model" ? <DashboardModels modelId={modelId} /> : section === "keys" ? <><PageIntro eyebrow="Credentials" title="API keys" subtitle="Create, rotate, or revoke credentials without ever re-exposing a saved secret." /><ApiKeyList /></> : section === "usage" ? <><PageIntro eyebrow="Observability" title="Usage logs" subtitle="A transparent record of request source, model, tokens, and credit cost." /><UsageLogs /></> : section === "profile" ? <><PageIntro eyebrow="Account & rewards" title="Profile" subtitle="Manage your TokenForge identity and claim your daily build credit." /><Profile /></> : section === "referrals" ? <ReferralWorkspace /> : <Overview user={user} loading={loading} usage={usage} />;
   return <DashboardLayout><div className="dashboard-page-surface"><div className="dashboard-page-content">{content}</div></div></DashboardLayout>;
+}
+
+function ReferralWorkspace() {
+  const referralQuery = trpc.developer.referrals.useQuery(undefined, { refetchInterval: 5_000 });
+  const [copied, setCopied] = useState(false);
+  const referral = referralQuery.data;
+  const inviteUrl = referral ? buildReferralInviteUrl(referral.code) : "";
+  const formatCredit = (nanos: number) => `$${(nanos / 1_000_000_000).toFixed(2)}`;
+
+  const copyInvite = async () => {
+    if (!inviteUrl) return;
+    await navigator.clipboard.writeText(inviteUrl);
+    setCopied(true);
+    toast.success("Your referral link was copied");
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  if (referralQuery.isLoading) return <div className="dashboard-loading-panel"><Loader2 className="animate-spin" /></div>;
+  if (referralQuery.error || !referral) return <div className="rounded-2xl border border-red-400/20 bg-red-400/5 p-6 text-sm text-[#f2b1b7]"><AlertTriangle className="mb-3" size={19} />Referral details could not load. Refresh this page to try again.</div>;
+
+  return <>
+    <PageIntro eyebrow="Community rewards" title="Invite builders, earn together." subtitle={`Share your unique link. When an eligible new member creates their TokenForge account with it, you both receive $${TOKENFORGE_REFERRAL_REWARD_USD.toFixed(2)} in promotional credit.`} />
+    <section className="grid gap-4 xl:grid-cols-[1.18fr_.82fr]">
+      <div className="rounded-2xl border border-[#befe6c]/20 bg-[radial-gradient(circle_at_80%_0%,rgba(190,254,108,.11),transparent_42%),#12131a] p-5 sm:p-6">
+        <div className="flex items-start gap-3"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#befe6c]/12 text-[#d8ff9d]"><Gift size={19} /></div><div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#befe6c]">Your invitation</p><h2 className="mt-1 text-xl font-bold text-white">A $10 credit for both accounts.</h2><p className="mt-2 max-w-xl text-xs leading-5 text-[#a9aab7]">Rewards are granted once after a new account is created through your link. Existing accounts, self-referrals, and repeat claims are not eligible.</p></div></div>
+        <div className="mt-5 rounded-xl border border-white/10 bg-black/20 p-3"><p className="text-[10px] font-semibold uppercase tracking-[.13em] text-[#9698a8]">Unique referral link</p><div className="mt-2 flex flex-col gap-2 sm:flex-row"><code className="min-w-0 flex-1 overflow-x-auto rounded-lg border border-white/8 bg-[#090a0f] px-3 py-2.5 font-mono text-[11px] text-[#dfe0e7]">{inviteUrl}</code><Button className="bg-[#e5ffb8] text-[#233310] hover:bg-[#f1ffd3]" onClick={copyInvite}>{copied ? <Check size={15} /> : <Copy size={15} />}{copied ? "Copied" : "Copy link"}</Button></div></div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1"><div className="rounded-2xl border border-white/10 bg-[#15161f] p-5"><div className="flex items-center gap-2 text-[#befe6c]"><Users size={16} /><p className="text-[10px] font-semibold uppercase tracking-[.14em]">Successful invites</p></div><p className="mt-4 text-3xl font-bold text-white">{referral.referrals.length}</p><p className="mt-1 text-xs text-[#9597a7]">New accounts credited through your link</p></div><div className="rounded-2xl border border-white/10 bg-[#15161f] p-5"><div className="flex items-center gap-2 text-[#befe6c]"><Gift size={16} /><p className="text-[10px] font-semibold uppercase tracking-[.14em]">Invitation credit</p></div><p className="mt-4 text-3xl font-bold text-white">{formatCredit(referral.totalRewardNanos)}</p><p className="mt-1 text-xs text-[#9597a7]">Total promotional credit awarded to you</p></div></div>
+    </section>
+    {referral.receivedRewardNanos > 0 && <section className="mt-4 flex items-start gap-3 rounded-xl border border-[#befe6c]/20 bg-[#befe6c]/[.06] p-4"><Gift className="mt-0.5 text-[#cfff8d]" size={18} /><div><p className="text-sm font-bold text-[#efffd3]">Your welcome credit has arrived</p><p className="mt-1 text-xs leading-5 text-[#c4dca6]">You received {formatCredit(referral.receivedRewardNanos)} in referral credit when you joined TokenForge. It is available in your wallet now.</p></div></section>}
+    <section className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#15161f]"><div className="border-b border-white/8 p-5"><p className="text-[10px] font-semibold uppercase tracking-[.14em] text-[#befe6c]">Reward activity</p><h2 className="mt-1 text-lg font-bold text-white">Your successful invitations</h2></div>{referral.referrals.length ? <div>{referral.referrals.map(item => <div key={item.id} className="flex items-center justify-between gap-4 border-b border-white/8 px-5 py-4 last:border-0"><div><p className="text-sm font-semibold text-white">New TokenForge member</p><p className="mt-1 text-[11px] text-[#9294a4]">Credited {new Date(item.createdAt).toLocaleString()}</p></div><span className="rounded-full bg-[#befe6c]/10 px-2.5 py-1 font-mono text-xs font-bold text-[#d8ff9d]">+{formatCredit(item.rewardNanos)}</span></div>)}</div> : <div className="p-8 text-center"><Users className="mx-auto text-[#767889]" size={22} /><p className="mt-3 text-sm font-bold text-white">No referral rewards yet</p><p className="mt-1 text-xs text-[#9395a5]">Share your link with a developer who has not created a TokenForge account.</p></div>}</section>
+  </>;
 }

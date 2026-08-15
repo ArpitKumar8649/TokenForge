@@ -36,6 +36,7 @@ import {
   revokeAllTokenForgeSessions,
   getAnnouncementText,
   setAnnouncementText,
+  getReferralOverview,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -56,7 +57,10 @@ const localCredentials = z.object({
   email: z.string().trim().email("Enter a valid email address").max(320),
   password: z.string().min(PASSWORD_MIN_LENGTH, `Use at least ${PASSWORD_MIN_LENGTH} characters`).max(256),
 });
-const registrationInput = localCredentials.extend({ name: z.string().trim().min(1).max(120).optional() });
+const registrationInput = localCredentials.extend({
+  name: z.string().trim().min(1).max(120).optional(),
+  referralCode: z.string().trim().max(100).optional(),
+});
 const LOCAL_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const playgroundMessage = z.object({
   role: z.enum(["user", "assistant", "system"]),
@@ -153,6 +157,11 @@ export const appRouter = router({
   }),
   developer: router({
     apiKeys: protectedProcedure.query(async ({ ctx }) => listApiKeys(ctx.user.id)),
+    referrals: protectedProcedure.query(async ({ ctx }) => {
+      const referrals = await getReferralOverview(ctx.user.id);
+      if (!referrals) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Referral details are temporarily unavailable" });
+      return referrals;
+    }),
     createApiKey: protectedProcedure.input(z.object({ label: apiKeyLabel })).mutation(async ({ ctx, input }) => {
       try {
         return await createApiKey(ctx.user.id, input.label);

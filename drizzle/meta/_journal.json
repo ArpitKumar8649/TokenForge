@@ -57,6 +57,13 @@
       "when": 1786771742200,
       "tag": "0007_yummy_daimon_hellstrom",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "5",
+      "when": 1786789998057,
+      "tag": "0008_aromatic_the_hunter",
+      "breakpoints": true
     }
   ]
 }

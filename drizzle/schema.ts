@@ -38,6 +38,31 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
+/** One opaque shareable referral token per account. The user relationship and code are both unique. */
+export const referralCodes = mysqlTable(
+  "referral_codes",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    userId: int("userId").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+    code: varchar("code", { length: 24 }).notNull().unique(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [index("referral_codes_code_idx").on(table.code)],
+);
+
+/** A referred account can be rewarded once, preventing duplicate or self-referral credit grants. */
+export const referralAttributions = mysqlTable(
+  "referral_attributions",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    referrerUserId: int("referrerUserId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    referredUserId: int("referredUserId").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+    rewardNanos: bigint("rewardNanos", { mode: "number" }).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [index("referral_attributions_referrer_time_idx").on(table.referrerUserId, table.createdAt)],
+);
+
 /** First-party credentials. Passwords are stored only as salted scrypt derivations. */
 export const passwordCredentials = mysqlTable(
   "password_credentials",
@@ -177,7 +202,7 @@ export const creditLedger = mysqlTable(
   {
     id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
     userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
-    kind: mysqlEnum("kind", ["introductory_grant", "daily_checkin", "usage_debit", "manual_adjustment"]).notNull(),
+    kind: mysqlEnum("kind", ["introductory_grant", "daily_checkin", "usage_debit", "manual_adjustment", "referral_reward"]).notNull(),
     amountNanos: bigint("amountNanos", { mode: "number" }).notNull(),
     balanceAfterNanos: bigint("balanceAfterNanos", { mode: "number" }).notNull(),
     referenceId: varchar("referenceId", { length: 128 }),
@@ -304,3 +329,5 @@ export type AuditEvent = typeof auditEvents.$inferSelect;
 export type PasswordCredential = typeof passwordCredentials.$inferSelect;
 export type PlatformSetting = typeof platformSettings.$inferSelect;
 export type DeletedIdentityTombstone = typeof deletedIdentityTombstones.$inferSelect;
+export type ReferralCode = typeof referralCodes.$inferSelect;
+export type ReferralAttribution = typeof referralAttributions.$inferSelect;

@@ -20,7 +20,7 @@ describe("TokenForge authentication presentation", () => {
     expect(authPage).toContain("isEstablishedEmailAddress(email)");
     expect(authPage).toContain("register.mutateAsync");
     expect(authPage).toContain("login.mutateAsync");
-    expect(authPage).toContain('window.location.assign("/api/auth/github")');
+    expect(authPage).toContain("window.location.assign(`/api/auth/github${referralQuery}`)");
     expect(authPage).toContain('autoComplete={isSignup ? "new-password" : "current-password"}');
   });
 

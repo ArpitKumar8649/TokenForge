@@ -203,3 +203,8 @@
 - [x] Install the user-supplied TokenForge ghost artwork as the browser-tab favicon and validate its delivery across standard favicon formats.
 - [x] Redesign the TokenForge sign-in and sign-up pages around the supplied ghost artwork, replacing generic onboarding language with clear manual account and GitHub sign-in options.
 - [x] Preserve the existing secure email/password, accepted-email policy, GitHub OAuth, error, and accessibility behavior while validating the redesigned authentication surfaces on desktop and mobile.
+- [x] Add an accessible Discord icon and secure external invite link to the shared TokenForge public footer.
+- [x] Add a secure referral program with a unique invite link for each TokenForge account and clearly communicate that an eligible invitation grants $10 promotional credit to both the inviter and the new user.
+- [x] Attribute valid referral links through both email/password registration and GitHub OAuth registration, prevent self-referrals and duplicate rewards, and settle each $10 reward through the immutable credit ledger.
+- [x] Add a responsive Referrals workspace to the developer dashboard showing the member’s link, reward terms, successful referrals, and real-time credit outcome.
+- [x] Add database migration, server/client regression coverage, and responsive validation for referral attribution, credit-award idempotency, and the dashboard workflow.

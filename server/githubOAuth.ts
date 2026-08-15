@@ -6,12 +6,14 @@ import { getAuthSessionVersion, getEmailAllowlistConfig, resolveGitHubIdentity }
 import { isPermanentEmailAddress } from "./localAuth";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
+import { normalizeReferralCode } from "../shared/referrals";
 
 const GITHUB_AUTHORIZE_URL = "https://github.com/login/oauth/authorize";
 const GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token";
 const GITHUB_API_URL = "https://api.github.com";
 const GITHUB_STATE_COOKIE = "tf_github_oauth_state";
 const GITHUB_VERIFIER_COOKIE = "tf_github_oauth_verifier";
+const GITHUB_REFERRAL_COOKIE = "tf_github_oauth_ref";
 const LOCAL_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const TOKENFORGE_DEFAULT_PUBLIC_ORIGIN = "https://tokengate-cqt9ivzs.manus.space";
 
@@ -51,6 +53,7 @@ function clearOAuthCookies(req: Request, res: Response) {
   const options = oauthCookieOptions(req);
   res.clearCookie(GITHUB_STATE_COOKIE, options);
   res.clearCookie(GITHUB_VERIFIER_COOKIE, options);
+  res.clearCookie(GITHUB_REFERRAL_COOKIE, options);
 }
 
 function randomUrlToken() {
@@ -117,9 +120,12 @@ export function registerGitHubOAuthRoutes(app: Express) {
     }
     const state = randomUrlToken();
     const verifier = randomUrlToken();
+    const referralCode = normalizeReferralCode(getQueryParam(req, "ref"));
     const options = oauthCookieOptions(req);
     res.cookie(GITHUB_STATE_COOKIE, state, options);
     res.cookie(GITHUB_VERIFIER_COOKIE, verifier, options);
+    if (referralCode) res.cookie(GITHUB_REFERRAL_COOKIE, referralCode, options);
+    else res.clearCookie(GITHUB_REFERRAL_COOKIE, options);
     res.redirect(302, buildGitHubAuthorizationUrl({ clientId, redirectUri: callbackUrl(req), state, verifier }));
   });
 
@@ -129,6 +135,7 @@ export function registerGitHubOAuthRoutes(app: Express) {
     const cookies = parseCookieHeader(req.headers.cookie ?? "");
     const verifier = cookies[GITHUB_VERIFIER_COOKIE];
     const expectedState = cookies[GITHUB_STATE_COOKIE];
+    const referralCode = normalizeReferralCode(cookies[GITHUB_REFERRAL_COOKIE]);
     clearOAuthCookies(req, res);
     if (!code || !constantTimeEquals(state, expectedState) || !verifier) {
       res.redirect(302, "/signin?github=state-error");
@@ -142,7 +149,7 @@ export function registerGitHubOAuthRoutes(app: Express) {
         res.redirect(302, "/signin?github=email-not-allowed");
         return;
       }
-      const result = await resolveGitHubIdentity(identity);
+      const result = await resolveGitHubIdentity({ ...identity, referralCode });
       if (result.kind === "link_required") {
         res.redirect(302, "/signin?github=link-required");
         return;

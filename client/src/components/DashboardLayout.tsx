@@ -20,7 +20,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Boxes, ChartNoAxesCombined, FlaskConical, KeyRound, LayoutDashboard, LogOut, PanelLeft, Settings2, Shield, UserRound } from "lucide-react";
+import { Boxes, ChartNoAxesCombined, FlaskConical, Gift, KeyRound, LayoutDashboard, LogOut, PanelLeft, Settings2, Shield, UserRound } from "lucide-react";
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Link } from "wouter";
@@ -37,6 +37,7 @@ const menuItems = [
   { icon: FlaskConical, label: "Playground", path: "/dashboard/playground" },
   { icon: Boxes, label: "Models", path: "/dashboard/models" },
   { icon: KeyRound, label: "API keys", path: "/dashboard/keys" },
+  { icon: Gift, label: "Referrals", path: "/dashboard/referrals" },
   { icon: ChartNoAxesCombined, label: "Usage logs", path: "/dashboard/usage" },
   { icon: UserRound, label: "Profile", path: "/dashboard/profile" },
   { icon: Shield, label: "Admin", path: "/admin", adminOnly: true },
