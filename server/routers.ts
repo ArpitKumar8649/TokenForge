@@ -26,6 +26,7 @@ import {
   getModelAvailabilitySnapshot,
   getPublicModelTokenMetrics,
   getUsageLogs,
+  promoteUserToAdmin,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -34,6 +35,7 @@ import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_
 import { configuredEmailAllowlist, isPermanentEmailAddress, PASSWORD_MIN_LENGTH } from "./localAuth";
 import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, type TokenForgeModelId } from "./modelCatalogue";
 import { runPlaygroundCompletion, TokenForgePlaygroundError, tokenForgeRequestIpHash } from "./openaiGateway";
+import { verifyAdminPasscode } from "./adminPasscode";
 
 const apiKeyLabel = z
   .string()
@@ -54,6 +56,7 @@ const playgroundMessage = z.object({
 const tokenForgeModelId = z.string()
   .refine(isTokenForgeModelId, "The requested model is not in the active TokenForge catalogue.")
   .transform(model => model as TokenForgeModelId);
+const adminPasscodeInput = z.object({ passcode: z.string().min(4, "Enter the administrator passcode").max(128) });
 
 function playgroundTrpcError(error: TokenForgePlaygroundError) {
   const code = error.code === "model_not_found" ? "NOT_FOUND"
@@ -68,6 +71,10 @@ function playgroundTrpcError(error: TokenForgePlaygroundError) {
 async function startLocalSession(ctx: { req: any; res: any }, user: { openId: string; name: string | null }) {
   const token = await sdk.createSessionToken(user.openId, { expiresInMs: LOCAL_SESSION_MAX_AGE_MS, name: user.name ?? "TokenForge developer" });
   ctx.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(ctx.req), maxAge: LOCAL_SESSION_MAX_AGE_MS });
+}
+
+function adminUnlockThrottleIdentifier(userId: number) {
+  return `admin-unlock-${userId}@tokenforge.internal`;
 }
 
 export const appRouter = router({
@@ -207,6 +214,26 @@ export const appRouter = router({
       }),
   }),
   admin: router({
+    unlock: protectedProcedure.input(adminPasscodeInput).mutation(async ({ ctx, input }) => {
+      if (ctx.user.role === "admin") return { unlocked: true, alreadyAdmin: true } as const;
+      const identifier = adminUnlockThrottleIdentifier(ctx.user.id);
+      const throttle = await getPasswordLoginThrottle(identifier);
+      if (throttle.blocked) {
+        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: `Too many administrator passcode attempts. Try again in ${throttle.retryAfterSeconds} seconds.` });
+      }
+      if (!verifyAdminPasscode(input.passcode)) {
+        const failedAttempt = await recordFailedPasswordLogin(identifier);
+        if (failedAttempt.blocked) {
+          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: `Too many administrator passcode attempts. Try again in ${failedAttempt.retryAfterSeconds} seconds.` });
+        }
+        throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect administrator passcode" });
+      }
+      const promoted = await promoteUserToAdmin(ctx.user.id);
+      if (!promoted) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "TokenForge could not activate administrator access" });
+      await clearFailedPasswordLogin(identifier);
+      await writeAuditEvent({ actorUserId: ctx.user.id, targetUserId: ctx.user.id, action: "admin.passcode.unlocked", entityType: "account", entityId: String(ctx.user.id) });
+      return { unlocked: true, alreadyAdmin: false } as const;
+    }),
     overview: adminProcedure.query(() => getAdminOverview()),
     flags: adminProcedure.query(() => listOpenFlags()),
     emailAllowlist: adminProcedure.query(async () => {

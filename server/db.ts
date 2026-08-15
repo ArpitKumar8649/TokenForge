@@ -360,6 +360,13 @@ export async function setEmailAllowlistConfig(entries: readonly string[], update
   return saved;
 }
 
+export async function promoteUserToAdmin(userId: number) {
+  const db = await getDb();
+  if (!db) return false;
+  const result = await db.update(users).set({ role: "admin" }).where(eq(users.id, userId));
+  return result[0].affectedRows > 0;
+}
+
 export async function ensureAccountControl(userId: number) {
   const db = await getDb();
   if (!db) return null;

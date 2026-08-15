@@ -13,6 +13,7 @@ vi.mock("./db", () => ({
   getEmailAllowlistConfig: vi.fn(),
   getPublicModelTokenMetrics: vi.fn(),
   getPasswordLoginThrottle: vi.fn(),
+  promoteUserToAdmin: vi.fn(),
   getUsageLogs: vi.fn(),
   getQuotaStatus: vi.fn(),
   getUsageSummary: vi.fn(),
@@ -34,6 +35,10 @@ vi.mock("./_core/sdk", () => ({
   },
 }));
 
+vi.mock("./adminPasscode", () => ({
+  verifyAdminPasscode: vi.fn(),
+}));
+
 import {
   authenticatePasswordUser,
   claimDailyCheckin,
@@ -44,9 +49,11 @@ import {
   getPublicModelTokenMetrics,
   getEmailAllowlistConfig,
   listApiKeys,
+  promoteUserToAdmin,
   recordFailedPasswordLogin,
   setEmailAllowlistConfig,
 } from "./db";
+import { verifyAdminPasscode } from "./adminPasscode";
 import { appRouter } from "./routers";
 import { COOKIE_NAME } from "../shared/const";
 import { isPermanentEmailAddress, LOGIN_FAILURE_LIMIT, nextFailedLoginState, retryAfterSeconds, type LoginAttemptState } from "./localAuth";
@@ -82,6 +89,8 @@ beforeEach(() => {
   vi.mocked(recordFailedPasswordLogin).mockResolvedValue({ blocked: false, retryAfterSeconds: 0 });
   vi.mocked(clearFailedPasswordLogin).mockResolvedValue(undefined);
   vi.mocked(getEmailAllowlistConfig).mockResolvedValue(null);
+  vi.mocked(promoteUserToAdmin).mockResolvedValue(true);
+  vi.mocked(verifyAdminPasscode).mockReturnValue(false);
 });
 
 describe("first-party authentication procedures", () => {
@@ -172,6 +181,23 @@ describe("first-party authentication procedures", () => {
     await expect(adminCaller.admin.emailAllowlist()).resolves.toMatchObject({ entries: ["company.com"], source: "database" });
     await expect(adminCaller.admin.setEmailAllowlist({ entries: ["company.com"] })).resolves.toEqual(saved);
     await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.emailAllowlist()).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("promotes an authenticated owner only after a verified, non-throttled administrator passcode", async () => {
+    vi.mocked(verifyAdminPasscode).mockReturnValue(true);
+    const caller = appRouter.createCaller(makeContext(localUser).ctx);
+
+    await expect(caller.admin.unlock({ passcode: "8649" })).resolves.toEqual({ unlocked: true, alreadyAdmin: false });
+    expect(promoteUserToAdmin).toHaveBeenCalledWith(localUser.id);
+    expect(clearFailedPasswordLogin).toHaveBeenCalledWith(`admin-unlock-${localUser.id}@tokenforge.internal`);
+  });
+
+  it("rejects an incorrect administrator passcode and rate-accounts the attempt without promoting the account", async () => {
+    const caller = appRouter.createCaller(makeContext(localUser).ctx);
+
+    await expect(caller.admin.unlock({ passcode: "0000" })).rejects.toMatchObject({ code: "UNAUTHORIZED", message: "Incorrect administrator passcode" });
+    expect(recordFailedPasswordLogin).toHaveBeenCalledWith(`admin-unlock-${localUser.id}@tokenforge.internal`);
+    expect(promoteUserToAdmin).not.toHaveBeenCalled();
   });
 
   it("returns a generic unauthorized error for an incorrect password and records the failure", async () => {
