@@ -190,3 +190,4 @@
 - [x] Add regression coverage, responsive admin validation, and audit-safe observability contracts for provider capacity and credential health/failover telemetry.
 - [x] Diagnose and correct the GitHub OAuth redirect URI mismatch for TokenForge’s deployed domain while preserving PKCE and state protections.
 - [x] Add regression coverage and document the exact GitHub OAuth callback URL required for the current production domain.
+- [x] Align GitHub OAuth callback construction to TokenForge’s stable public domain rather than the internal deployment runtime hostname, then verify the published authorization redirect.

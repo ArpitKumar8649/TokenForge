@@ -13,6 +13,7 @@ const GITHUB_API_URL = "https://api.github.com";
 const GITHUB_STATE_COOKIE = "tf_github_oauth_state";
 const GITHUB_VERIFIER_COOKIE = "tf_github_oauth_verifier";
 const LOCAL_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const TOKENFORGE_DEFAULT_PUBLIC_ORIGIN = "https://tokengate-cqt9ivzs.manus.space";
 
 type GitHubEmail = { email: string; primary: boolean; verified: boolean };
 type GitHubProfile = { id: number; login: string; name: string | null; email: string | null };
@@ -22,8 +23,19 @@ function getQueryParam(req: Request, key: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-export function appOrigin(req: Pick<Request, "protocol" | "hostname">) {
-  return `${req.protocol}://${req.hostname}`;
+export function appOrigin(_req: Pick<Request, "protocol" | "hostname">) {
+  const configuredOrigin = process.env.TOKENFORGE_PUBLIC_ORIGIN?.trim();
+  if (!configuredOrigin) return TOKENFORGE_DEFAULT_PUBLIC_ORIGIN;
+
+  try {
+    const origin = new URL(configuredOrigin);
+    if (origin.protocol !== "https:" || origin.pathname !== "/" || origin.search || origin.hash) {
+      return TOKENFORGE_DEFAULT_PUBLIC_ORIGIN;
+    }
+    return origin.origin;
+  } catch {
+    return TOKENFORGE_DEFAULT_PUBLIC_ORIGIN;
+  }
 }
 
 function callbackUrl(req: Request) {

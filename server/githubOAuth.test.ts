@@ -18,8 +18,8 @@ describe("GitHub OAuth flow primitives", () => {
     expect(authorizationUrl).not.toContain("client_secret");
   });
 
-  it("uses Express's proxy-aware hostname for the deployed callback origin", () => {
-    expect(appOrigin({ protocol: "https", hostname: "tokengate-cqt9ivzs.manus.space" })).toBe(
+  it("uses TokenForge's stable public origin instead of the internal deployment hostname", () => {
+    expect(appOrigin({ protocol: "https", hostname: "oqxlgfryso-ilvd6ib5ma-uk.a.run.app" })).toBe(
       "https://tokengate-cqt9ivzs.manus.space",
     );
   });
