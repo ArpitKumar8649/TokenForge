@@ -887,6 +887,38 @@ export async function deleteAccountPermanently(userId: number) {
   });
 }
 
+export type AdminAuditRecord = {
+  id: number;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  createdAt: Date;
+};
+
+/** Returns only operational audit fields—never credentials, key material, email, names, or metadata. */
+export async function listAdminAuditEvents(limit = 40): Promise<AdminAuditRecord[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const boundedLimit = Math.min(500, Math.max(1, Math.trunc(limit)));
+  return db.select({
+    id: auditEvents.id,
+    action: auditEvents.action,
+    entityType: auditEvents.entityType,
+    entityId: auditEvents.entityId,
+    createdAt: auditEvents.createdAt,
+  }).from(auditEvents).orderBy(desc(auditEvents.createdAt), desc(auditEvents.id)).limit(boundedLimit);
+}
+
+/** Produces a bounded, identity-minimized audit export suitable for local CSV download. */
+export async function getAdminAuditExport() {
+  const events = await listAdminAuditEvents(500);
+  return {
+    generatedAt: new Date(),
+    columns: ["timestamp_utc", "action", "entity_type", "entity_id"],
+    rows: events.map(event => [event.createdAt.toISOString(), event.action, event.entityType, event.entityId ?? ""]),
+  };
+}
+
 export async function setModelEnabled(modelId: string, enabled: boolean) {
   const db = await getDb();
   if (!db) return false;

@@ -29,7 +29,9 @@ import {
   getUsageLogs,
   clearLegacyAdministratorRoles,
   deleteAccountPermanently,
+  getAdminAuditExport,
   getAuthSessionVersion,
+  listAdminAuditEvents,
   revokeAllTokenForgeSessions,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -66,6 +68,14 @@ const adminAccountDirectoryInput = z.object({
   pageSize: z.number().int().min(5).max(50).default(10),
   search: z.string().trim().max(120).default(""),
   status: z.enum(["all", "active", "suspended", "flagged"]).default("all"),
+});
+const permanentAccountDeleteInput = z.object({
+  userId: z.number().int().positive(),
+  confirmation: z.string().trim().max(64),
+}).superRefine((input, context) => {
+  if (input.confirmation !== `DELETE ACCOUNT ${input.userId}`) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["confirmation"], message: `Type DELETE ACCOUNT ${input.userId} to permanently delete this account` });
+  }
 });
 
 function playgroundTrpcError(error: TokenForgePlaygroundError) {
@@ -256,7 +266,9 @@ export const appRouter = router({
     }),
     overview: adminProcedure.query(() => getAdminOverview()),
     accounts: adminProcedure.input(adminAccountDirectoryInput).query(({ input }) => listAdminAccounts(input)),
-    deleteAccount: adminProcedure.input(z.object({ userId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    activity: adminProcedure.input(z.object({ limit: z.number().int().min(1).max(100).default(40) }).optional()).query(({ input }) => listAdminAuditEvents(input?.limit ?? 40)),
+    auditExport: adminProcedure.query(() => getAdminAuditExport()),
+    deleteAccount: adminProcedure.input(permanentAccountDeleteInput).mutation(async ({ ctx, input }) => {
       if (input.userId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "The active administrator account cannot be deleted from the control plane" });
       const deleted = await deleteAccountPermanently(input.userId);
       if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "This account no longer exists" });

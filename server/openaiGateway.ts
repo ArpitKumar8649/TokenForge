@@ -3,6 +3,7 @@ import { createHash, createHmac, randomUUID } from "node:crypto";
 import {
   findActiveApiKey,
   getQuotaStatus,
+  getModelAvailabilitySnapshot,
   getRecentRequestCounts,
   isModelAvailable,
   recordUsage,
@@ -78,7 +79,7 @@ export function tokenForgeRateHeaders(limit: number, remaining: number) {
 }
 
 export function tokenForgeErrorBody(status: number, message: string, code: string) {
-  return { error: { message, type: status === 429 ? "rate_limit_error" : "invalid_request_error", param: null, code } };
+  return { error: { message, type: status === 429 ? "rate_limit_error" : status >= 500 ? "server_error" : "invalid_request_error", param: null, code } };
 }
 
 function estimateInputTokens(messages: ChatMessage[]) {
@@ -412,9 +413,10 @@ export function registerPlaygroundGateway(app: Express) {
 }
 
 export function registerOpenAiGateway(app: Express) {
-  app.get("/v1/models", (_req, res) => {
+  app.get("/v1/models", async (_req, res) => {
     res.setHeader("x-request-id", `tf_req_${randomUUID().replaceAll("-", "")}`);
-    res.json({ object: "list", data: TOKENFORGE_CATALOGUE });
+    const availabilityByModel = new Map((await getModelAvailabilitySnapshot()).map(item => [item.modelId, item.available]));
+    res.json({ object: "list", data: TOKENFORGE_CATALOGUE.filter(model => availabilityByModel.get(model.id) === true) });
   });
 
   app.post("/v1/chat/completions", async (req: Request, res) => {
@@ -430,7 +432,7 @@ export function registerOpenAiGateway(app: Express) {
       return errorResponse(res, requestId, 404, "The requested model is not in the active TokenForge catalogue.", "model_not_found");
     }
     if (!(await isModelAvailable(input.model))) {
-      return errorResponse(res, requestId, 503, "The requested model is currently unavailable in the active TokenForge catalogue.", "model_unavailable");
+      return errorResponse(res, requestId, 503, "The requested model is temporarily unavailable. Retry shortly or choose another available TokenForge model.", "model_unavailable");
     }
     if (!Array.isArray(input.messages) || input.messages.length === 0) {
       return errorResponse(res, requestId, 400, "messages must be a non-empty array.", "invalid_messages");

@@ -32,6 +32,7 @@ describe("TokenForge credential and gateway safeguards", () => {
 
   it("formats quota and rate-limit responses with a compatible error object and headers", () => {
     expect(tokenForgeErrorBody(429, "Quota reached", "quota_exceeded")).toEqual({ error: { message: "Quota reached", type: "rate_limit_error", param: null, code: "quota_exceeded" } });
+    expect(tokenForgeErrorBody(503, "The requested model is temporarily unavailable.", "model_unavailable")).toEqual({ error: { message: "The requested model is temporarily unavailable.", type: "server_error", param: null, code: "model_unavailable" } });
     const headers = tokenForgeRateHeaders(100, -1);
     expect(headers["x-ratelimit-limit"]).toBe(100);
     expect(headers["x-ratelimit-remaining"]).toBe(0);

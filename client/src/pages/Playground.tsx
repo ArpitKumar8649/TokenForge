@@ -20,7 +20,7 @@ export default function Playground() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
   const wallet = trpc.developer.wallet.useQuery(undefined, { enabled: Boolean(user) });
-  const modelAvailability = trpc.developer.modelAvailability.useQuery(undefined, { enabled: Boolean(user), refetchInterval: 20_000 });
+  const modelAvailability = trpc.developer.modelAvailability.useQuery(undefined, { enabled: Boolean(user), refetchInterval: 5_000, refetchIntervalInBackground: true });
   const [model, setModel] = useState("glm-5.2");
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
@@ -119,6 +119,10 @@ export default function Playground() {
 
   const sendMessage = (content: string) => {
     if (complete.isPending || isStreaming) return;
+    if (modelAvailability.isSuccess && !isActiveModelAvailable) {
+      setError("The selected model is temporarily unavailable. Choose another available model or retry shortly.");
+      return;
+    }
     setError(null);
     const userMessage: Message = { role: "user", content };
     const requestMessages: Message[] = [
@@ -184,7 +188,7 @@ export default function Playground() {
                 </div>
               </div> : null}
             </div>
-            <p className="playground-model-route"><b><span className={isActiveModelAvailable ? "playground-live-dot" : "playground-live-dot playground-live-dot--offline"} />{isActiveModelAvailable ? "Live" : "Checking availability"}</b> · Kimi K3 is featured first · {TOKENFORGE_MODELS.length} verified text routes · {activeModel.capabilities.join(" · ")}</p>
+            <p className="playground-model-route"><b><span className={isActiveModelAvailable ? "playground-live-dot" : "playground-live-dot playground-live-dot--offline"} />{modelAvailability.isLoading ? "Checking availability" : isActiveModelAvailable ? "Live" : "Temporarily unavailable"}</b> · Kimi K3 is featured first · {TOKENFORGE_MODELS.length} verified text routes · {activeModel.capabilities.join(" · ")}</p>
           </section>
 
           <div className="playground-divider" />

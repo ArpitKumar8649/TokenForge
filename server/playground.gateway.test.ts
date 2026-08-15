@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./db", () => ({
   findActiveApiKey: vi.fn(),
   getQuotaStatus: vi.fn(),
+  getModelAvailabilitySnapshot: vi.fn(),
   getRecentRequestCounts: vi.fn(),
   isModelAvailable: vi.fn(),
   recordUsage: vi.fn(),
@@ -167,5 +168,25 @@ describe("TokenForge Playground gateway", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(settleReservedCredit).not.toHaveBeenCalled();
+  });
+
+  it("returns a temporary-unavailability result before reservation or provider execution when an administrator disables a model", async () => {
+    vi.mocked(isModelAvailable).mockResolvedValue(false);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(runPlaygroundCompletion({
+      userId: 42,
+      model: "glm-5.2",
+      messages: [{ role: "user", content: "Hello" }],
+      sourceIpHash: "hashed-source-ip",
+    })).rejects.toMatchObject<TokenForgePlaygroundError>({
+      code: "model_unavailable",
+      message: "The requested model is currently unavailable in the active TokenForge catalogue.",
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(reserveCredit).not.toHaveBeenCalled();
+    expect(recordUsage).not.toHaveBeenCalled();
   });
 });

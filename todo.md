@@ -165,3 +165,7 @@
 - [x] Revoke all existing TokenForge sessions when a valid administrator passcode is used, then issue only the new administrator session.
 - [x] Add a privacy-safe all-user total-token metric to the protected admin overview.
 - [x] Add a guarded permanent account-deletion action that removes the selected account and its associated TokenForge records while preventing future sign-in with that identity.
+- [x] Require a deliberate two-step typed confirmation before permanently deleting an account and its associated TokenForge records.
+- [x] Add a privacy-safe administrator activity timeline covering account moderation, access, and model/provider availability changes.
+- [x] Add downloadable privacy-safe administrator audit exports with no API-key material, credentials, or sensitive identity data.
+- [x] Propagate model and provider availability changes to developer dashboards in real time and reject disabled-model API/Playground requests with a consistent temporary-unavailability response.

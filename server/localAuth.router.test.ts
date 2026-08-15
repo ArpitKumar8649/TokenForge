@@ -328,8 +328,9 @@ describe("protected administrator account directory", () => {
 
   it("permanently deletes another account only from a passcode-issued administrator session", async () => {
     const admin = { ...localUser, isAdminSession: true };
-    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.deleteAccount({ userId: 55 })).resolves.toEqual({ success: true });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.deleteAccount({ userId: 55, confirmation: "DELETE ACCOUNT 55" })).resolves.toEqual({ success: true });
     expect(deleteAccountPermanently).toHaveBeenCalledWith(55);
-    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.deleteAccount({ userId: admin.id })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.deleteAccount({ userId: 55, confirmation: "not-55" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.deleteAccount({ userId: admin.id, confirmation: `DELETE ACCOUNT ${admin.id}` })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });
