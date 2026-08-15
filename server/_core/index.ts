@@ -8,7 +8,7 @@ import { registerGitHubOAuthRoutes } from "../githubOAuth";
 import { registerStorageProxy } from "./storageProxy";
 import { registerOpenAiGateway, registerPlaygroundGateway } from "../openaiGateway";
 import { appRouter } from "../routers";
-import { ensureCatalogue } from "../db";
+import { clearLegacyAdministratorRoles, ensureCatalogue } from "../db";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 
@@ -59,9 +59,9 @@ async function startServer() {
   }
 
   try {
-    await ensureCatalogue();
+    await Promise.all([ensureCatalogue(), clearLegacyAdministratorRoles()]);
   } catch (error) {
-    console.error("[TokenForge] Catalogue warmup failed; requests will retry initialization on demand", error);
+    console.error("[TokenForge] Startup access and catalogue warmup failed; requests will retry catalogue initialization on demand", error);
   }
 
   const preferredPort = parseInt(process.env.PORT || "3000");

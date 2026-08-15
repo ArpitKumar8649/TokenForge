@@ -5,10 +5,12 @@ import {
   accountControls,
   accountFlags,
   apiKeys,
+  auditEvents,
   creditAccounts,
   creditLedger,
   dailyCheckins,
   dailyUsage,
+  deletedIdentityTombstones,
   InsertUser,
   usageEvents,
   users,
@@ -31,6 +33,14 @@ export const DEFAULT_DAILY_TOKEN_LIMIT = 100_000;
 export const DEFAULT_MAX_CONCURRENT_REQUESTS = 2;
 const INTRODUCTORY_CREDIT_REFERENCE = "introductory-credit-v1";
 const EMAIL_ALLOWLIST_SETTING_KEY = "email_allowlist";
+const SESSION_VERSION_SETTING_KEY = "auth_session_version";
+
+export class DeletedAccountIdentityError extends Error {
+  constructor() {
+    super("This TokenForge account was permanently deleted");
+    this.name = "DeletedAccountIdentityError";
+  }
+}
 
 export type ApiKeyRecord = typeof apiKeys.$inferSelect;
 export type EmailAllowlistConfig = { entries: string[]; updatedAt: Date; updatedByUserId: number | null };
@@ -39,6 +49,43 @@ const CATALOGUE_DEFINITIONS = TOKENFORGE_MODEL_CATALOGUE;
 
 export function utcUsageDate(value = new Date()) {
   return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+}
+
+function hashDeletedIdentity(kind: string, identifier: string) {
+  const pepper = process.env.JWT_SECRET;
+  if (!pepper) throw new Error("JWT_SECRET is required for TokenForge account deletion safeguards");
+  return createHmac("sha256", pepper).update(`deleted:${kind}:${identifier}`).digest("hex");
+}
+
+export async function isDeletedIdentity(kind: "email" | "github" | "open_id", identifier: string) {
+  const db = await getDb();
+  if (!db) return false;
+  const normalized = kind === "email" ? normalizeEmail(identifier) : identifier.trim();
+  if (!normalized) return false;
+  const record = await db.select({ id: deletedIdentityTombstones.id }).from(deletedIdentityTombstones)
+    .where(and(eq(deletedIdentityTombstones.kind, kind), eq(deletedIdentityTombstones.identifierHash, hashDeletedIdentity(kind, normalized)))).limit(1);
+  return Boolean(record[0]);
+}
+
+export async function assertIdentityIsNotDeleted(kind: "email" | "github" | "open_id", identifier: string) {
+  if (await isDeletedIdentity(kind, identifier)) throw new DeletedAccountIdentityError();
+}
+
+export async function getAuthSessionVersion() {
+  const db = await getDb();
+  if (!db) return 0;
+  const record = (await db.select({ value: platformSettings.value }).from(platformSettings).where(eq(platformSettings.settingKey, SESSION_VERSION_SETTING_KEY)).limit(1))[0];
+  const value = Number.parseInt(record?.value ?? "0", 10);
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+/** Advances the global session version so every previously issued browser session becomes invalid. */
+export async function revokeAllTokenForgeSessions() {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  await db.insert(platformSettings).values({ settingKey: SESSION_VERSION_SETTING_KEY, value: "1" })
+    .onDuplicateKeyUpdate({ set: { value: sql`cast(${platformSettings.value} as unsigned) + 1`, updatedAt: new Date(), updatedByUserId: null } });
+  return getAuthSessionVersion();
 }
 
 function utcCalendarKey(value = new Date()) {
@@ -215,6 +262,9 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   const db = await getDb();
   if (!db) return;
 
+  await assertIdentityIsNotDeleted("open_id", user.openId);
+  if (user.email) await assertIdentityIsNotDeleted("email", user.email);
+
   const values: InsertUser = { openId: user.openId };
   const updateSet: Record<string, unknown> = {};
   (["name", "email", "loginMethod"] as const).forEach(field => {
@@ -228,9 +278,6 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   if (user.role !== undefined) {
     values.role = user.role;
     updateSet.role = user.role;
-  } else if (user.openId === ENV.ownerOpenId) {
-    values.role = "admin";
-    updateSet.role = "admin";
   }
   await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
 }
@@ -246,6 +293,7 @@ export async function createPasswordUser(input: { email: string; password: strin
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const email = normalizeEmail(input.email);
+  if (await isDeletedIdentity("email", email)) return null;
   const existing = await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1);
   if (existing[0]) return null;
 
@@ -373,6 +421,14 @@ export async function demoteUserToStandardRole(userId: number) {
   if (!db) return false;
   const result = await db.update(users).set({ role: "user" }).where(eq(users.id, userId));
   return result[0].affectedRows > 0;
+}
+
+/** Clears legacy persistent admin flags; access is now carried only by a passcode-issued session. */
+export async function clearLegacyAdministratorRoles() {
+  const db = await getDb();
+  if (!db) return false;
+  const result = await db.update(users).set({ role: "user" }).where(eq(users.role, "admin"));
+  return result[0].affectedRows >= 0;
 }
 
 export async function ensureAccountControl(userId: number) {
@@ -639,7 +695,6 @@ export type AdminAccountBase = {
   id: number;
   name: string | null;
   email: string | null;
-  role: "admin" | "user";
   createdAt: Date;
   lastSignedIn: Date;
   suspended: boolean | null;
@@ -660,7 +715,6 @@ export type AdminAccountDirectoryInput = {
   page?: number;
   pageSize?: number;
   search?: string;
-  role?: "all" | "admin" | "user";
   status?: "all" | "active" | "suspended" | "flagged";
 };
 
@@ -669,7 +723,6 @@ export function normalizeAdminAccountDirectoryInput(input: AdminAccountDirectory
     page: Math.max(1, Math.trunc(input.page ?? 1)),
     pageSize: Math.min(50, Math.max(5, Math.trunc(input.pageSize ?? 10))),
     search: input.search?.trim().slice(0, 120) ?? "",
-    role: input.role ?? "all",
     status: input.status ?? "all",
   };
 }
@@ -709,7 +762,6 @@ export async function listAdminAccounts(input: AdminAccountDirectoryInput = {}) 
       sql`cast(${users.id} as char) like ${pattern}`,
     ));
   }
-  if (query.role !== "all") filters.push(eq(users.role, query.role));
   if (query.status === "suspended") filters.push(eq(accountControls.isSuspended, true));
   if (query.status === "flagged") filters.push(eq(accountControls.isSuspicious, true));
   if (query.status === "active") {
@@ -724,7 +776,7 @@ export async function listAdminAccounts(input: AdminAccountDirectoryInput = {}) 
   const pageCount = Math.ceil(Number(total) / query.pageSize);
   const page = pageCount ? Math.min(query.page, pageCount) : 1;
   const accounts = await db
-    .select({ id: users.id, name: users.name, email: users.email, role: users.role, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos })
+    .select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos })
     .from(users)
     .leftJoin(accountControls, eq(users.id, accountControls.userId))
     .leftJoin(creditAccounts, eq(users.id, creditAccounts.userId))
@@ -747,6 +799,8 @@ export async function resolveGitHubIdentity(input: GitHubIdentityInput) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const provider = "github";
+  await assertIdentityIsNotDeleted("github", input.providerUserId);
+  await assertIdentityIsNotDeleted("email", input.email);
   const existingIdentity = (await db.select({ user: users }).from(oauthIdentities).innerJoin(users, eq(oauthIdentities.userId, users.id)).where(and(eq(oauthIdentities.provider, provider), eq(oauthIdentities.providerUserId, input.providerUserId))).limit(1))[0]?.user;
   if (existingIdentity) {
     const lastSignedIn = new Date();
@@ -801,15 +855,36 @@ export async function getModelAvailabilitySnapshot() {
 export async function getAdminOverview() {
   await ensureCatalogue();
   const db = await getDb();
-  if (!db) return { models: [], providers: [], accounts: [], usage: [] };
-  const [models, providers, accounts, usage, accountUsage] = await Promise.all([
+  if (!db) return { models: [], providers: [], accounts: [], usage: [], totals: { totalTokens: 0, totalRequests: 0 } };
+  const [models, providers, accounts, usage, accountUsage, totals] = await Promise.all([
     db.select().from(modelConfigs).orderBy(modelConfigs.displayName),
     db.select().from(providerConfigs).orderBy(providerConfigs.displayName),
-    db.select({ id: users.id, name: users.name, email: users.email, role: users.role, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos }).from(users).leftJoin(accountControls, eq(users.id, accountControls.userId)).leftJoin(creditAccounts, eq(users.id, creditAccounts.userId)).orderBy(desc(users.lastSignedIn)).limit(100),
+    db.select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos }).from(users).leftJoin(accountControls, eq(users.id, accountControls.userId)).leftJoin(creditAccounts, eq(users.id, creditAccounts.userId)).orderBy(desc(users.lastSignedIn)).limit(100),
     db.select({ day: dailyUsage.usageDate, requests: sql<number>`coalesce(sum(${dailyUsage.requestCount}), 0)`, tokens: sql<number>`coalesce(sum(${dailyUsage.totalTokens}), 0)` }).from(dailyUsage).where(gte(dailyUsage.usageDate, utcUsageDate(new Date(Date.now() - 13 * 86_400_000)))).groupBy(dailyUsage.usageDate).orderBy(dailyUsage.usageDate),
     db.select({ userId: usageEvents.userId, requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, lastActivityAt: sql<Date | null>`max(${usageEvents.createdAt})` }).from(usageEvents).groupBy(usageEvents.userId),
+    db.select({ totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, totalRequests: sql<number>`coalesce(count(${usageEvents.id}), 0)` }).from(usageEvents),
   ]);
-  return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })) };
+  return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })), totals: { totalTokens: Number(totals[0]?.totalTokens ?? 0), totalRequests: Number(totals[0]?.totalRequests ?? 0) } };
+}
+
+/** Deletes a user and every account-owned TokenForge record, retaining only non-reversible hashed identity tombstones. */
+export async function deleteAccountPermanently(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  return db.transaction(async tx => {
+    const user = (await tx.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+    if (!user) return false;
+    const identities = await tx.select({ provider: oauthIdentities.provider, providerUserId: oauthIdentities.providerUserId }).from(oauthIdentities).where(eq(oauthIdentities.userId, userId));
+    const tombstones = [
+      { kind: "open_id", identifierHash: hashDeletedIdentity("open_id", user.openId) },
+      ...(user.email ? [{ kind: "email", identifierHash: hashDeletedIdentity("email", normalizeEmail(user.email)) }] : []),
+      ...identities.map(identity => ({ kind: identity.provider, identifierHash: hashDeletedIdentity(identity.provider, identity.providerUserId) })),
+    ];
+    await tx.insert(deletedIdentityTombstones).values(tombstones).onDuplicateKeyUpdate({ set: { deletedAt: new Date() } });
+    await tx.delete(auditEvents).where(or(eq(auditEvents.actorUserId, userId), eq(auditEvents.targetUserId, userId)));
+    const deleted = await tx.delete(users).where(eq(users.id, userId));
+    return deleted[0].affectedRows > 0;
+  });
 }
 
 export async function setModelEnabled(modelId: string, enabled: boolean) {

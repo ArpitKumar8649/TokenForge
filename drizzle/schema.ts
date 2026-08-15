@@ -68,6 +68,20 @@ export const oauthIdentities = mysqlTable(
   ],
 );
 
+/** Hashed identity tombstones prevent a deliberately deleted account from being recreated by the same sign-in identity. */
+export const deletedIdentityTombstones = mysqlTable(
+  "deleted_identity_tombstones",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    kind: varchar("kind", { length: 32 }).notNull(),
+    identifierHash: varchar("identifierHash", { length: 128 }).notNull(),
+    deletedAt: timestamp("deletedAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("deleted_identity_kind_hash_unique_idx").on(table.kind, table.identifierHash),
+  ],
+);
+
 /** Hashed login identifiers with bounded counters for first-party sign-in throttling. */
 export const loginAttempts = mysqlTable(
   "login_attempts",
@@ -289,3 +303,4 @@ export type AccountFlag = typeof accountFlags.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type PasswordCredential = typeof passwordCredentials.$inferSelect;
 export type PlatformSetting = typeof platformSettings.$inferSelect;
+export type DeletedIdentityTombstone = typeof deletedIdentityTombstones.$inferSelect;

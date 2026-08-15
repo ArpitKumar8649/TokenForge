@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
 import type { User } from "../drizzle/schema";
+import type { AuthenticatedUser } from "./_core/sdk";
 
 vi.mock("./db", () => ({
   authenticatePasswordUser: vi.fn(),
@@ -13,8 +14,9 @@ vi.mock("./db", () => ({
   getEmailAllowlistConfig: vi.fn(),
   getPublicModelTokenMetrics: vi.fn(),
   getPasswordLoginThrottle: vi.fn(),
-  promoteUserToAdmin: vi.fn(),
-  demoteUserToStandardRole: vi.fn(),
+  clearLegacyAdministratorRoles: vi.fn(),
+  deleteAccountPermanently: vi.fn(),
+  getAuthSessionVersion: vi.fn(),
   getUsageLogs: vi.fn(),
   getQuotaStatus: vi.fn(),
   getUsageSummary: vi.fn(),
@@ -22,6 +24,7 @@ vi.mock("./db", () => ({
   listApiKeys: vi.fn(),
   listOpenFlags: vi.fn(),
   recordFailedPasswordLogin: vi.fn(),
+  revokeAllTokenForgeSessions: vi.fn(),
   revokeApiKey: vi.fn(),
   rotateApiKey: vi.fn(),
   setAccountControl: vi.fn(),
@@ -52,9 +55,11 @@ import {
   getEmailAllowlistConfig,
   listAdminAccounts,
   listApiKeys,
-  demoteUserToStandardRole,
-  promoteUserToAdmin,
+  clearLegacyAdministratorRoles,
+  deleteAccountPermanently,
+  getAuthSessionVersion,
   recordFailedPasswordLogin,
+  revokeAllTokenForgeSessions,
   setEmailAllowlistConfig,
 } from "./db";
 import { verifyAdminPasscode } from "./adminPasscode";
@@ -74,7 +79,7 @@ const localUser: User = {
   lastSignedIn: new Date("2026-08-14T00:00:00.000Z"),
 };
 
-function makeContext(user: User | null = null) {
+function makeContext(user: AuthenticatedUser | null = null) {
   const cookies: Array<{ name: string; value: string; options: Record<string, unknown> }> = [];
   const ctx: TrpcContext = {
     user,
@@ -93,8 +98,10 @@ beforeEach(() => {
   vi.mocked(recordFailedPasswordLogin).mockResolvedValue({ blocked: false, retryAfterSeconds: 0 });
   vi.mocked(clearFailedPasswordLogin).mockResolvedValue(undefined);
   vi.mocked(getEmailAllowlistConfig).mockResolvedValue(null);
-  vi.mocked(promoteUserToAdmin).mockResolvedValue(true);
-  vi.mocked(demoteUserToStandardRole).mockResolvedValue(true);
+  vi.mocked(clearLegacyAdministratorRoles).mockResolvedValue(true);
+  vi.mocked(deleteAccountPermanently).mockResolvedValue(true);
+  vi.mocked(getAuthSessionVersion).mockResolvedValue(3);
+  vi.mocked(revokeAllTokenForgeSessions).mockResolvedValue(4);
   vi.mocked(verifyAdminPasscode).mockReturnValue(false);
 });
 
@@ -178,7 +185,7 @@ describe("first-party authentication procedures", () => {
   });
 
   it("allows only administrators to view and update the persisted email allowlist", async () => {
-    const admin = { ...localUser, id: 1, role: "admin" as const };
+    const admin = { ...localUser, id: 1, isAdminSession: true };
     const saved = { entries: ["company.com"], updatedAt: new Date(), updatedByUserId: 1 };
     vi.mocked(getEmailAllowlistConfig).mockResolvedValue(saved);
     vi.mocked(setEmailAllowlistConfig).mockResolvedValue(saved);
@@ -188,29 +195,30 @@ describe("first-party authentication procedures", () => {
     await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.emailAllowlist()).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("promotes an authenticated owner only after a verified, non-throttled administrator passcode", async () => {
+  it("issues the only administrator session and revokes all prior sessions after a verified passcode", async () => {
     vi.mocked(verifyAdminPasscode).mockReturnValue(true);
     const caller = appRouter.createCaller(makeContext(localUser).ctx);
 
-    await expect(caller.admin.unlock({ passcode: "8649" })).resolves.toEqual({ unlocked: true, alreadyAdmin: false });
-    expect(promoteUserToAdmin).toHaveBeenCalledWith(localUser.id);
+    await expect(caller.admin.unlock({ passcode: "8649" })).resolves.toEqual({ unlocked: true, alreadyAdmin: false, sessionVersion: 4 });
+    expect(clearLegacyAdministratorRoles).toHaveBeenCalledOnce();
+    expect(revokeAllTokenForgeSessions).toHaveBeenCalledOnce();
     expect(clearFailedPasswordLogin).toHaveBeenCalledWith(`admin-unlock-${localUser.id}@tokenforge.internal`);
   });
 
-  it("rejects an incorrect administrator passcode and rate-accounts the attempt without promoting the account", async () => {
+  it("rejects an incorrect administrator passcode and rate-accounts the attempt without revoking sessions", async () => {
     const caller = appRouter.createCaller(makeContext(localUser).ctx);
 
     await expect(caller.admin.unlock({ passcode: "0000" })).rejects.toMatchObject({ code: "UNAUTHORIZED", message: "Incorrect administrator passcode" });
     expect(recordFailedPasswordLogin).toHaveBeenCalledWith(`admin-unlock-${localUser.id}@tokenforge.internal`);
-    expect(promoteUserToAdmin).not.toHaveBeenCalled();
+    expect(revokeAllTokenForgeSessions).not.toHaveBeenCalled();
   });
 
-  it("allows an administrator to revoke only their own elevated role and records the action", async () => {
-    const admin = { ...localUser, role: "admin" as const };
+  it("allows the passcode-issued administrator session to be downgraded in the current browser", async () => {
+    const admin = { ...localUser, isAdminSession: true };
     const caller = appRouter.createCaller(makeContext(admin).ctx);
 
     await expect(caller.admin.signOut()).resolves.toEqual({ success: true });
-    expect(demoteUserToStandardRole).toHaveBeenCalledWith(admin.id);
+    expect(getAuthSessionVersion).toHaveBeenCalled();
   });
 
   it("returns a generic unauthorized error for an incorrect password and records the failure", async () => {
@@ -311,10 +319,17 @@ describe("protected administrator account directory", () => {
   it("requires an administrator and forwards bounded account search filters to the server directory", async () => {
     const page = { items: [], total: 12, page: 2, pageSize: 10, pageCount: 2 };
     vi.mocked(listAdminAccounts).mockResolvedValue(page);
-    const admin = { ...localUser, role: "admin" as const };
+    const admin = { ...localUser, isAdminSession: true };
 
-    await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.accounts({ page: 2, pageSize: 10, search: "arpit", role: "user", status: "active" })).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.accounts({ page: 2, pageSize: 10, search: "arpit", role: "user", status: "active" })).resolves.toEqual(page);
-    expect(listAdminAccounts).toHaveBeenCalledWith({ page: 2, pageSize: 10, search: "arpit", role: "user", status: "active" });
+    await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.accounts({ page: 2, pageSize: 10, search: "arpit", status: "active" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.accounts({ page: 2, pageSize: 10, search: "arpit", status: "active" })).resolves.toEqual(page);
+    expect(listAdminAccounts).toHaveBeenCalledWith({ page: 2, pageSize: 10, search: "arpit", status: "active" });
+  });
+
+  it("permanently deletes another account only from a passcode-issued administrator session", async () => {
+    const admin = { ...localUser, isAdminSession: true };
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.deleteAccount({ userId: 55 })).resolves.toEqual({ success: true });
+    expect(deleteAccountPermanently).toHaveBeenCalledWith(55);
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.deleteAccount({ userId: admin.id })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });

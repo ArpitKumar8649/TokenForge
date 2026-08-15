@@ -161,3 +161,7 @@
 - [x] Add server-backed account search filters and pagination to the protected Accounts section so administrators can quickly locate specific users without exposing secrets.
 - [x] Refine provider and model availability controls into compact, clearly aligned, accessible switches with polished mobile spacing and interaction feedback.
 - [x] Add GitHub OAuth sign-in and sign-up with server-only credentials, CSRF/state protection, account-linking safeguards, and first-party authentication regression coverage.
+- [x] Make administrator access exclusively passcode-based rather than role- or email-based, with a clearly identified active administrator in the dashboard shell.
+- [x] Revoke all existing TokenForge sessions when a valid administrator passcode is used, then issue only the new administrator session.
+- [x] Add a privacy-safe all-user total-token metric to the protected admin overview.
+- [x] Add a guarded permanent account-deletion action that removes the selected account and its associated TokenForge records while preventing future sign-in with that identity.

@@ -182,7 +182,7 @@ function DashboardLayoutContent({
 
           <SidebarContent className="gap-0">
             <SidebarMenu className="px-2 py-1">
-              {menuItems.filter(item => !item.adminOnly || user?.role === "admin").map(item => {
+              {menuItems.filter(item => !item.adminOnly || user?.isAdminSession === true).map(item => {
                 const isActive = location === item.path || (item.path === "/dashboard/models" && location.startsWith("/dashboard/models/"));
                 return (
                   <SidebarMenuItem key={item.path}>
@@ -219,6 +219,7 @@ function DashboardLayoutContent({
                     <p className="text-xs text-muted-foreground truncate mt-1.5">
                       {user?.email || "-"}
                     </p>
+                    {user?.isAdminSession === true && <p className="mt-1 inline-flex rounded-md bg-[#c9ff73]/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[.12em] text-[#8abd34]">Admin</p>}
                   </div>
                 </button>
               </DropdownMenuTrigger>
@@ -256,6 +257,7 @@ function DashboardLayoutContent({
             <span className="dashboard-topbar__section">{activeMenuItem?.label ?? "Workspace"}</span>
           </div>
           <div className="dashboard-topbar__actions">
+            {user?.isAdminSession === true && <span className="rounded-md bg-[#c9ff73]/10 px-2 py-1 text-[9px] font-bold uppercase tracking-[.12em] text-[#9fd743]">Admin session</span>}
             <span className="dashboard-topbar__status"><i /> Gateway ready</span>
             <Link href="/docs">Documentation</Link>
           </div>

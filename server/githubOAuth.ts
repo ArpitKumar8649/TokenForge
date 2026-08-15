@@ -2,7 +2,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { parse as parseCookieHeader } from "cookie";
 import type { Express, Request, Response } from "express";
-import { getEmailAllowlistConfig, resolveGitHubIdentity } from "./db";
+import { getAuthSessionVersion, getEmailAllowlistConfig, resolveGitHubIdentity } from "./db";
 import { isPermanentEmailAddress } from "./localAuth";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -135,7 +135,8 @@ export function registerGitHubOAuthRoutes(app: Express) {
         res.redirect(302, "/signin?github=link-required");
         return;
       }
-      const sessionToken = await sdk.createSessionToken(result.user.openId, { expiresInMs: LOCAL_SESSION_MAX_AGE_MS, name: result.user.name ?? "TokenForge developer" });
+      const sessionVersion = await getAuthSessionVersion();
+      const sessionToken = await sdk.createSessionToken(result.user.openId, { expiresInMs: LOCAL_SESSION_MAX_AGE_MS, name: result.user.name ?? "TokenForge developer", sessionVersion });
       res.cookie(COOKIE_NAME, sessionToken, { ...getSessionCookieOptions(req), maxAge: LOCAL_SESSION_MAX_AGE_MS });
       res.redirect(302, "/dashboard");
     } catch (error) {

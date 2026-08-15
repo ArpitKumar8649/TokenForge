@@ -27,8 +27,10 @@ import {
   getModelAvailabilitySnapshot,
   getPublicModelTokenMetrics,
   getUsageLogs,
-  promoteUserToAdmin,
-  demoteUserToStandardRole,
+  clearLegacyAdministratorRoles,
+  deleteAccountPermanently,
+  getAuthSessionVersion,
+  revokeAllTokenForgeSessions,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -63,7 +65,6 @@ const adminAccountDirectoryInput = z.object({
   page: z.number().int().min(1).max(100_000).default(1),
   pageSize: z.number().int().min(5).max(50).default(10),
   search: z.string().trim().max(120).default(""),
-  role: z.enum(["all", "admin", "user"]).default("all"),
   status: z.enum(["all", "active", "suspended", "flagged"]).default("all"),
 });
 
@@ -78,7 +79,8 @@ function playgroundTrpcError(error: TokenForgePlaygroundError) {
 }
 
 async function startLocalSession(ctx: { req: any; res: any }, user: { openId: string; name: string | null }) {
-  const token = await sdk.createSessionToken(user.openId, { expiresInMs: LOCAL_SESSION_MAX_AGE_MS, name: user.name ?? "TokenForge developer" });
+  const sessionVersion = await getAuthSessionVersion();
+  const token = await sdk.createSessionToken(user.openId, { expiresInMs: LOCAL_SESSION_MAX_AGE_MS, name: user.name ?? "TokenForge developer", sessionVersion });
   ctx.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(ctx.req), maxAge: LOCAL_SESSION_MAX_AGE_MS });
 }
 
@@ -224,7 +226,7 @@ export const appRouter = router({
   }),
   admin: router({
     unlock: protectedProcedure.input(adminPasscodeInput).mutation(async ({ ctx, input }) => {
-      if (ctx.user.role === "admin") return { unlocked: true, alreadyAdmin: true } as const;
+      if (ctx.user.isAdminSession) return { unlocked: true, alreadyAdmin: true } as const;
       const identifier = adminUnlockThrottleIdentifier(ctx.user.id);
       const throttle = await getPasswordLoginThrottle(identifier);
       if (throttle.blocked) {
@@ -237,20 +239,30 @@ export const appRouter = router({
         }
         throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect administrator passcode" });
       }
-      const promoted = await promoteUserToAdmin(ctx.user.id);
-      if (!promoted) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "TokenForge could not activate administrator access" });
       await clearFailedPasswordLogin(identifier);
+      await clearLegacyAdministratorRoles();
+      const sessionVersion = await revokeAllTokenForgeSessions();
+      const token = await sdk.createSessionToken(ctx.user.openId, { expiresInMs: LOCAL_SESSION_MAX_AGE_MS, name: ctx.user.name ?? "TokenForge administrator", sessionVersion, isAdminSession: true });
+      ctx.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(ctx.req), maxAge: LOCAL_SESSION_MAX_AGE_MS });
       await writeAuditEvent({ actorUserId: ctx.user.id, targetUserId: ctx.user.id, action: "admin.passcode.unlocked", entityType: "account", entityId: String(ctx.user.id) });
-      return { unlocked: true, alreadyAdmin: false } as const;
+      return { unlocked: true, alreadyAdmin: false, sessionVersion } as const;
     }),
     signOut: adminProcedure.mutation(async ({ ctx }) => {
-      const demoted = await demoteUserToStandardRole(ctx.user.id);
-      if (!demoted) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "TokenForge could not revoke administrator access" });
+      const sessionVersion = await getAuthSessionVersion();
+      const token = await sdk.createSessionToken(ctx.user.openId, { expiresInMs: LOCAL_SESSION_MAX_AGE_MS, name: ctx.user.name ?? "TokenForge developer", sessionVersion });
+      ctx.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(ctx.req), maxAge: LOCAL_SESSION_MAX_AGE_MS });
       await writeAuditEvent({ actorUserId: ctx.user.id, targetUserId: ctx.user.id, action: "admin.self_revoked", entityType: "account", entityId: String(ctx.user.id) });
       return { success: true } as const;
     }),
     overview: adminProcedure.query(() => getAdminOverview()),
     accounts: adminProcedure.input(adminAccountDirectoryInput).query(({ input }) => listAdminAccounts(input)),
+    deleteAccount: adminProcedure.input(z.object({ userId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+      if (input.userId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "The active administrator account cannot be deleted from the control plane" });
+      const deleted = await deleteAccountPermanently(input.userId);
+      if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "This account no longer exists" });
+      await writeAuditEvent({ actorUserId: ctx.user.id, action: "account.permanently_deleted", entityType: "deleted_account", entityId: String(input.userId) });
+      return { success: true } as const;
+    }),
     flags: adminProcedure.query(() => listOpenFlags()),
     emailAllowlist: adminProcedure.query(async () => {
       const saved = await getEmailAllowlistConfig();
