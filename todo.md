@@ -214,3 +214,4 @@
 - [x] Replace the fallback-looking browser-tab icon with durable, browser-compatible versions of the exact supplied TokenForge ghost artwork and cache-bust the favicon metadata.
 - [x] Diagnose the reported production chat-completions curl failure, provide a syntactically correct request, and verify whether the gateway requires a remediation.
 - [x] Migrate TokenForge referrals to four-character alphanumeric affiliate codes using the `aff` sign-up parameter, including persistence, dashboard links, local registration, GitHub OAuth, validation, and regression coverage.
+- [x] Add a privacy-safe live bar chart to the administrator dashboard that groups account counts by normalized email provider and automatically includes providers used by new registrations.

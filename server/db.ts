@@ -53,6 +53,7 @@ export class DeletedAccountIdentityError extends Error {
 
 export type ApiKeyRecord = typeof apiKeys.$inferSelect;
 export type EmailAllowlistConfig = { entries: string[]; updatedAt: Date; updatedByUserId: number | null };
+export type AdminEmailProviderCount = { provider: string; accountCount: number };
 
 const CATALOGUE_DEFINITIONS = TOKENFORGE_MODEL_CATALOGUE;
 
@@ -885,6 +886,20 @@ export function composeAdminAccountOverview(accounts: AdminAccountBase[], usageR
   });
 }
 
+/** Shapes aggregate mailbox-provider rows for the admin dashboard without exposing individual email addresses. */
+export function normalizeAdminEmailProviderCounts(rows: Array<{ provider: string | null; accountCount: number | string }>): AdminEmailProviderCount[] {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const provider = row.provider?.trim().toLowerCase() ?? "";
+    const accountCount = Number(row.accountCount);
+    if (!provider || provider.includes("@") || !Number.isSafeInteger(accountCount) || accountCount <= 0) continue;
+    counts.set(provider, (counts.get(provider) ?? 0) + accountCount);
+  }
+  return Array.from(counts.entries())
+    .map(([provider, accountCount]) => ({ provider, accountCount }))
+    .sort((left, right) => right.accountCount - left.accountCount || left.provider.localeCompare(right.provider));
+}
+
 function escapeMysqlLike(value: string) {
   return value.replace(/[\\%_]/g, character => `\\${character}`);
 }
@@ -998,21 +1013,23 @@ export async function getModelAvailabilitySnapshot() {
 export async function getAdminOverview() {
   await ensureCatalogue();
   const db = await getDb();
-  if (!db) return { models: [], providers: [], accounts: [], usage: [], totals: { totalTokens: 0, totalRequests: 0 }, providerTelemetry: getProviderCredentialTelemetry({}) };
-  const [models, providers, accounts, usage, accountUsage, totals] = await Promise.all([
+  if (!db) return { models: [], providers: [], accounts: [], usage: [], emailProviders: [], totals: { totalTokens: 0, totalRequests: 0 }, providerTelemetry: getProviderCredentialTelemetry({}) };
+  const emailProvider = sql<string>`lower(substring_index(${users.email}, '@', -1))`;
+  const [models, providers, accounts, usage, accountUsage, totals, emailProviderRows] = await Promise.all([
     db.select().from(modelConfigs).orderBy(modelConfigs.displayName),
     db.select().from(providerConfigs).orderBy(providerConfigs.displayName),
     db.select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos }).from(users).leftJoin(accountControls, eq(users.id, accountControls.userId)).leftJoin(creditAccounts, eq(users.id, creditAccounts.userId)).orderBy(desc(users.lastSignedIn)).limit(100),
     db.select({ day: dailyUsage.usageDate, requests: sql<number>`coalesce(sum(${dailyUsage.requestCount}), 0)`, tokens: sql<number>`coalesce(sum(${dailyUsage.totalTokens}), 0)` }).from(dailyUsage).where(gte(dailyUsage.usageDate, utcUsageDate(new Date(Date.now() - 13 * 86_400_000)))).groupBy(dailyUsage.usageDate).orderBy(dailyUsage.usageDate),
     db.select({ userId: usageEvents.userId, requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, lastActivityAt: sql<Date | null>`max(${usageEvents.createdAt})` }).from(usageEvents).groupBy(usageEvents.userId),
     db.select({ totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, totalRequests: sql<number>`coalesce(count(${usageEvents.id}), 0)` }).from(usageEvents),
+    db.select({ provider: emailProvider, accountCount: sql<number>`count(${users.id})` }).from(users).where(sql`${users.email} is not null and ${users.email} like '%@%'`).groupBy(emailProvider).orderBy(desc(sql`count(${users.id})`), emailProvider),
   ]);
   const providerTelemetry = getProviderCredentialTelemetry({
     [FXQIDIAN_PROVIDER_SLUG]: getFxqidianCredentialPool().length,
     [CLUSTER_PROTOCOL_PROVIDER_SLUG]: getClusterProtocolCredentialPool().length,
     [TOKENHARBOR_PROVIDER_SLUG]: process.env.TOKENHARBOR_API_KEY?.trim() ? 1 : 0,
   });
-  return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })), totals: { totalTokens: Number(totals[0]?.totalTokens ?? 0), totalRequests: Number(totals[0]?.totalRequests ?? 0) }, providerTelemetry };
+  return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })), emailProviders: normalizeAdminEmailProviderCounts(emailProviderRows), totals: { totalTokens: Number(totals[0]?.totalTokens ?? 0), totalRequests: Number(totals[0]?.totalRequests ?? 0) }, providerTelemetry };
 }
 
 /** Deletes a user and every account-owned TokenForge record, retaining only non-reversible hashed identity tombstones. */

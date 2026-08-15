@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composeAdminAccountOverview } from "./db";
+import { composeAdminAccountOverview, normalizeAdminEmailProviderCounts } from "./db";
 
 describe("composeAdminAccountOverview", () => {
   it("attaches live credit and usage aggregates without returning API-key material", () => {
@@ -43,5 +43,32 @@ describe("composeAdminAccountOverview", () => {
     ], []);
 
     expect(accounts[0]).toMatchObject({ balanceNanos: 0, requestCount: 0, totalTokens: 0, lastActivityAt: null });
+  });
+});
+
+describe("normalizeAdminEmailProviderCounts", () => {
+  it("groups and sorts normalized provider-only counts without exposing mailbox identities", () => {
+    const distribution = normalizeAdminEmailProviderCounts([
+      { provider: "GMAIL.COM", accountCount: 2 },
+      { provider: "gmail.com", accountCount: "3" },
+      { provider: "outlook.com", accountCount: 4 },
+      { provider: "person@example.com", accountCount: 99 },
+      { provider: null, accountCount: 1 },
+    ]);
+
+    expect(distribution).toEqual([
+      { provider: "gmail.com", accountCount: 5 },
+      { provider: "outlook.com", accountCount: 4 },
+    ]);
+    expect(JSON.stringify(distribution)).not.toContain("person@example.com");
+  });
+
+  it("includes a newly observed mailbox provider as its own bar-ready aggregate", () => {
+    const distribution = normalizeAdminEmailProviderCounts([
+      { provider: "gmail.com", accountCount: 1 },
+      { provider: "proton.me", accountCount: 1 },
+    ]);
+
+    expect(distribution).toContainEqual({ provider: "proton.me", accountCount: 1 });
   });
 });
