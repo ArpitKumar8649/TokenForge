@@ -16,6 +16,7 @@ import Playground from "./Playground";
 import { CreditOverview, Profile, UsageLogs } from "./CreditWorkspace";
 import { DashboardModels } from "./DashboardModels";
 import { buildTokenForgeCurl, buildTokenForgeJavaScript, buildTokenForgePython, TOKENFORGE_API_BASE_URL } from "../../../shared/tokenforgeApi";
+import { clearOneTimeApiKey, getOneTimeApiKey, rememberOneTimeApiKey } from "../../../shared/oneTimeApiKey";
 
 type Section = "overview" | "keys" | "usage" | "playground" | "profile" | "models" | "model";
 type UsageData = {
@@ -100,6 +101,7 @@ function ApiKeyList() {
     const record = { ...value.record, lastUsedAt: null, revokedAt: null };
     utils.developer.apiKeys.setData(undefined, current => prependCreatedApiKey(current, record));
     setPlainTextKey(value.key);
+    rememberOneTimeApiKey(value.key);
   };
   const revoke = trpc.developer.revokeApiKey.useMutation({ onSuccess: (_, variables) => {
     utils.developer.apiKeys.setData(undefined, current => markApiKeyRevoked(current, variables.apiKeyId, new Date()));
@@ -109,10 +111,15 @@ function ApiKeyList() {
     const record = { ...value.record, lastUsedAt: null, revokedAt: null };
     utils.developer.apiKeys.setData(undefined, current => prependCreatedApiKey(markApiKeyRevoked(current, variables.apiKeyId, new Date()), record));
     setPlainTextKey(value.key);
+    rememberOneTimeApiKey(value.key);
     toast.success("Key rotated — copy the new secret now");
   }, onError: error => toast.error(error.message) });
   if (keys.isLoading) return <div className="grid min-h-48 place-items-center rounded-xl border border-white/10 bg-[#15161f]"><Loader2 className="animate-spin text-[#b89aff]" /></div>;
-  return <div className="space-y-3">{plainTextKey && <KeySecret value={plainTextKey} onDismiss={() => setPlainTextKey(null)} />}<CurlExample apiKey={plainTextKey ?? undefined} /><SdkQuickStart apiKey={plainTextKey ?? undefined} /><KeyCreateForm onSuccess={showNewKey} />{keys.data?.length ? <div className="overflow-hidden rounded-xl border border-white/10 bg-[#15161f]">{keys.data.map(key => <div key={key.id} className="flex flex-wrap items-center gap-3 border-b border-white/8 p-4 last:border-0"><div className="grid h-9 w-9 place-items-center rounded-lg bg-white/5 text-[#cbb7ff]"><KeyRound size={16} /></div><div className="min-w-40 flex-1"><p className="text-xs font-bold text-white">{key.label}</p><code className="mt-1 block font-mono text-[10px] text-[#9394a7]">{key.prefix}</code></div><div className="text-[10px] text-[#8e8fa1]">Created {new Date(key.createdAt).toLocaleDateString()}</div><Badge className={key.status === "active" ? "border-0 bg-[#7debbd]/10 text-[#8aefc0]" : "border-0 bg-red-400/10 text-red-300"}>{key.status}</Badge>{key.status === "active" && <div className="flex gap-1"><Button variant="ghost" size="sm" title="Rotate key" className="text-[#c7c5d2] hover:bg-white/8 hover:text-white" disabled={rotate.isPending} onClick={() => rotate.mutate({ apiKeyId: key.id, label: `${key.label.slice(0, 85)} · rotated` })}><RefreshCw size={14} /></Button><Button variant="ghost" size="sm" title="Revoke key" className="text-[#d69ca6] hover:bg-red-400/10 hover:text-red-200" disabled={revoke.isPending} onClick={() => revoke.mutate({ apiKeyId: key.id })}><Trash2 size={14} /></Button></div>}</div>)}</div> : <div className="rounded-xl border border-dashed border-white/12 p-8 text-center"><KeyRound className="mx-auto text-[#77788b]" size={22} /><p className="mt-3 text-sm font-bold text-white">No keys yet</p><p className="mt-1 text-xs text-[#9394a7]">Create a labeled key above to begin making requests.</p></div>}</div>;
+  const dismissPlainTextKey = () => {
+    clearOneTimeApiKey();
+    setPlainTextKey(null);
+  };
+  return <div className="space-y-3">{plainTextKey && <KeySecret value={plainTextKey} onDismiss={dismissPlainTextKey} />}<KeyCreateForm onSuccess={showNewKey} />{keys.data?.length ? <div className="overflow-hidden rounded-xl border border-white/10 bg-[#15161f]">{keys.data.map(key => <div key={key.id} className="flex flex-wrap items-center gap-3 border-b border-white/8 p-4 last:border-0"><div className="grid h-9 w-9 place-items-center rounded-lg bg-white/5 text-[#cbb7ff]"><KeyRound size={16} /></div><div className="min-w-40 flex-1"><p className="text-xs font-bold text-white">{key.label}</p><code className="mt-1 block font-mono text-[10px] text-[#9394a7]">{key.prefix}</code></div><div className="text-[10px] text-[#8e8fa1]">Created {new Date(key.createdAt).toLocaleDateString()}</div><Badge className={key.status === "active" ? "border-0 bg-[#7debbd]/10 text-[#8aefc0]" : "border-0 bg-red-400/10 text-red-300"}>{key.status}</Badge>{key.status === "active" && <div className="flex gap-1"><Button variant="ghost" size="sm" title="Rotate key" className="text-[#c7c5d2] hover:bg-white/8 hover:text-white" disabled={rotate.isPending} onClick={() => rotate.mutate({ apiKeyId: key.id, label: `${key.label.slice(0, 85)} · rotated` })}><RefreshCw size={14} /></Button><Button variant="ghost" size="sm" title="Revoke key" className="text-[#d69ca6] hover:bg-red-400/10 hover:text-red-200" disabled={revoke.isPending} onClick={() => revoke.mutate({ apiKeyId: key.id })}><Trash2 size={14} /></Button></div>}</div>)}</div> : <div className="rounded-xl border border-dashed border-white/12 p-8 text-center"><KeyRound className="mx-auto text-[#77788b]" size={22} /><p className="mt-3 text-sm font-bold text-white">No keys yet</p><p className="mt-1 text-xs text-[#9394a7]">Create a labeled key above to begin making requests.</p></div>}</div>;
 }
 
 function UsageChart({ daily }: { daily: { day: string; requests: number; tokens: number }[] }) {
@@ -126,6 +133,21 @@ function PageIntro({ eyebrow, title, subtitle, action }: { eyebrow: string; titl
   return <div className="dashboard-page-intro"><div><p>{eyebrow}</p><h1>{title}</h1><span>{subtitle}</span></div>{action}</div>;
 }
 
+function OverviewQuickStart() {
+  const [apiKey, setApiKey] = useState(() => getOneTimeApiKey());
+  const hideOneTimeKey = () => {
+    clearOneTimeApiKey();
+    setApiKey(null);
+    toast.success("One-time key hidden from quick-start examples");
+  };
+
+  return <section className="rounded-2xl border border-white/10 bg-[#12131a] p-4 sm:p-5" aria-labelledby="overview-quickstart-title">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#befe6c]">Build with TokenForge</p><h2 id="overview-quickstart-title" className="mt-1 text-lg font-bold text-white">Your integration quick-start</h2><p className="mt-1 max-w-2xl text-xs leading-5 text-[#a8a9b6]">Start with cURL or the OpenAI-compatible JavaScript and Python SDKs. Create and manage credentials separately in API Keys.</p></div><Link href="/dashboard/keys" className="dashboard-outline-action"><KeyRound size={14} /> Manage keys</Link></div>
+    {apiKey && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#befe6c]/25 bg-[#befe6c]/[.06] p-3"><p className="text-xs leading-5 text-[#d9efad]">A new plaintext key is available only in this open browser page. Copy what you need, then hide it.</p><Button variant="outline" size="sm" className="border-[#befe6c]/30 text-[#d9ff9d] hover:bg-[#befe6c]/10" onClick={hideOneTimeKey}>Hide key</Button></div>}
+    <div className="mt-4 grid gap-3 xl:grid-cols-2"><CurlExample apiKey={apiKey ?? undefined} /><SdkQuickStart apiKey={apiKey ?? undefined} /></div>
+  </section>;
+}
+
 function Overview({ user, loading, usage }: { user: ReturnType<typeof useAuth>["user"]; loading: boolean; usage: { data?: UsageData; isLoading: boolean } }) {
   const quota = usage.data?.quota;
   if (loading || usage.isLoading) return <div className="dashboard-loading-panel"><Loader2 className="animate-spin" /></div>;
@@ -136,6 +158,7 @@ function Overview({ user, loading, usage }: { user: ReturnType<typeof useAuth>["
       <div className="dashboard-allowance-card"><div className="dashboard-panel-kicker"><span><i /> GATEWAY STATUS</span><Badge className={quota?.suspended ? "border-0 bg-red-400/10 text-red-300" : "border-0 bg-[#befe6c]/10 text-[#cbff8b]"}>{quota?.suspended ? "Suspended" : "Active"}</Badge></div><h2>Requests, kept accountable.</h2><p>Usage is logged per call, billed only for reported tokens, and protected by rate and concurrency controls.</p><div className="usage-ring-grid"><UsageRing label="Concurrent slots" used={0} limit={quota?.maxConcurrentRequests ?? 2} /><UsageRing label="Recent requests" used={usage.data?.totalRequests ?? 0} limit={Math.max(1, usage.data?.totalRequests ?? 1)} tone="cyan" /></div></div>
       <div className="dashboard-posture-card"><div className="dashboard-panel-kicker"><span><Sparkles size={12} /> GATEWAY POSTURE</span></div><h2>Built to stay legible.</h2><p>Selected models, visible limits, and an accountable request surface.</p><div className="dashboard-posture-list"><span><ShieldCheck size={15} /> Keys protected as one-way hashes</span><span><Check size={15} /> {quota?.maxConcurrentRequests ?? 2} concurrent requests available</span>{quota?.suspicious && <span className="dashboard-warning"><AlertTriangle size={15} /> Account review is in progress</span>}</div><Link href="/dashboard/playground" className="dashboard-primary-link">Open Playground <ArrowRight size={15} /></Link></div>
     </section>
+    <OverviewQuickStart />
     <section className="dashboard-usage-panel"><div className="dashboard-section-head"><div><p>REQUEST TELEMETRY</p><h2>Transparent activity</h2><span>Inspect model, source, token counts, and promotional-credit charge for each request.</span></div><Link href="/dashboard/usage" className="dashboard-outline-action">Usage logs <ArrowRight size={14} /></Link></div><UsageChart daily={usage.data?.daily ?? []} /></section>
     <section className="dashboard-next-section"><div className="dashboard-section-head"><div><p>BUILD WITH INTENT</p><h2>Your next useful move</h2><span>Everything needed to go from a fresh account to a measured request.</span></div></div><div className="dashboard-next-grid"><Link href="/dashboard/keys" className="dashboard-next-card"><span><KeyRound size={17} /> 01</span><h3>Create a scoped key</h3><p>Label a credential for your project and see it exactly once.</p><b>Manage keys <ArrowRight size={14} /></b></Link><Link href="/dashboard/playground" className="dashboard-next-card"><span><Terminal size={17} /> 02</span><h3>Shape a first prompt</h3><p>Test GLM-5.2 or Grok 4.5 inside the protected Playground.</p><b>Open Playground <ArrowRight size={14} /></b></Link><Link href="/docs" className="dashboard-next-card"><span><Code2 size={17} /> 03</span><h3>Ship the connection</h3><p>Copy a familiar OpenAI-compatible request into your client.</p><b>Read the docs <ArrowRight size={14} /></b></Link></div></section>
     <section className="dashboard-reference-strip"><div><LockKeyhole size={18} /><span><b>Credential handling</b><small>Provider access stays server-side; plaintext user keys are shown once.</small></span></div><Link href="/legal/terms">Trust & policies <ArrowRight size={14} /></Link></section>

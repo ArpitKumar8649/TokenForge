@@ -198,3 +198,5 @@
 - [x] Add copyable JavaScript and Python SDK quick-start snippets to the dashboard API Keys workspace, preserving one-time API-key visibility safeguards.
 - [x] Add regression coverage and responsive validation for the dashboard SDK quick-start guidance.
 - [x] Prepare professional, ready-to-post Discord rules and launch announcement copy aligned with TokenForge’s API, community, security, and acceptable-use standards.
+- [x] Relocate the cURL and SDK quick-start guidance from the API Keys workspace to the main developer dashboard Overview, leaving API Keys dedicated to credential lifecycle actions.
+- [x] Validate the revised dashboard information hierarchy on mobile and retain secure placeholder and one-time-key behavior.
