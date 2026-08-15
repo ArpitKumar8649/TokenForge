@@ -367,6 +367,13 @@ export async function promoteUserToAdmin(userId: number) {
   return result[0].affectedRows > 0;
 }
 
+export async function demoteUserToStandardRole(userId: number) {
+  const db = await getDb();
+  if (!db) return false;
+  const result = await db.update(users).set({ role: "user" }).where(eq(users.id, userId));
+  return result[0].affectedRows > 0;
+}
+
 export async function ensureAccountControl(userId: number) {
   const db = await getDb();
   if (!db) return null;

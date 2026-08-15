@@ -27,6 +27,7 @@ import {
   getPublicModelTokenMetrics,
   getUsageLogs,
   promoteUserToAdmin,
+  demoteUserToStandardRole,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -233,6 +234,12 @@ export const appRouter = router({
       await clearFailedPasswordLogin(identifier);
       await writeAuditEvent({ actorUserId: ctx.user.id, targetUserId: ctx.user.id, action: "admin.passcode.unlocked", entityType: "account", entityId: String(ctx.user.id) });
       return { unlocked: true, alreadyAdmin: false } as const;
+    }),
+    signOut: adminProcedure.mutation(async ({ ctx }) => {
+      const demoted = await demoteUserToStandardRole(ctx.user.id);
+      if (!demoted) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "TokenForge could not revoke administrator access" });
+      await writeAuditEvent({ actorUserId: ctx.user.id, targetUserId: ctx.user.id, action: "admin.self_revoked", entityType: "account", entityId: String(ctx.user.id) });
+      return { success: true } as const;
     }),
     overview: adminProcedure.query(() => getAdminOverview()),
     flags: adminProcedure.query(() => listOpenFlags()),

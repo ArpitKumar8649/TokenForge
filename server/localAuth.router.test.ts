@@ -14,6 +14,7 @@ vi.mock("./db", () => ({
   getPublicModelTokenMetrics: vi.fn(),
   getPasswordLoginThrottle: vi.fn(),
   promoteUserToAdmin: vi.fn(),
+  demoteUserToStandardRole: vi.fn(),
   getUsageLogs: vi.fn(),
   getQuotaStatus: vi.fn(),
   getUsageSummary: vi.fn(),
@@ -49,6 +50,7 @@ import {
   getPublicModelTokenMetrics,
   getEmailAllowlistConfig,
   listApiKeys,
+  demoteUserToStandardRole,
   promoteUserToAdmin,
   recordFailedPasswordLogin,
   setEmailAllowlistConfig,
@@ -90,6 +92,7 @@ beforeEach(() => {
   vi.mocked(clearFailedPasswordLogin).mockResolvedValue(undefined);
   vi.mocked(getEmailAllowlistConfig).mockResolvedValue(null);
   vi.mocked(promoteUserToAdmin).mockResolvedValue(true);
+  vi.mocked(demoteUserToStandardRole).mockResolvedValue(true);
   vi.mocked(verifyAdminPasscode).mockReturnValue(false);
 });
 
@@ -198,6 +201,14 @@ describe("first-party authentication procedures", () => {
     await expect(caller.admin.unlock({ passcode: "0000" })).rejects.toMatchObject({ code: "UNAUTHORIZED", message: "Incorrect administrator passcode" });
     expect(recordFailedPasswordLogin).toHaveBeenCalledWith(`admin-unlock-${localUser.id}@tokenforge.internal`);
     expect(promoteUserToAdmin).not.toHaveBeenCalled();
+  });
+
+  it("allows an administrator to revoke only their own elevated role and records the action", async () => {
+    const admin = { ...localUser, role: "admin" as const };
+    const caller = appRouter.createCaller(makeContext(admin).ctx);
+
+    await expect(caller.admin.signOut()).resolves.toEqual({ success: true });
+    expect(demoteUserToStandardRole).toHaveBeenCalledWith(admin.id);
   });
 
   it("returns a generic unauthorized error for an incorrect password and records the failure", async () => {

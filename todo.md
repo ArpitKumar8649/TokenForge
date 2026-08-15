@@ -151,3 +151,5 @@
 - [x] Persist the admin-managed allowlist securely, apply it during registration and sign-in checks, and cover authorization and update behavior with tests.
 - [x] Add a server-enforced, rate-limited admin passcode unlock for authenticated owners attempting to access the control plane.
 - [x] Store the requested admin passcode as a server-only secret, provide a mobile-friendly unlock interface, and add authorization and failure-throttle regression coverage.
+- [x] Add a server-enforced “sign out of admin” action that lets the current administrator revoke their own elevated role and returns them to standard-user access.
+- [x] Add responsive confirmation UI, audit logging, and regression coverage for administrator self-revocation.
