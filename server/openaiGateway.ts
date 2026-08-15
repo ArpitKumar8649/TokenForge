@@ -12,6 +12,7 @@ import {
   touchApiKey,
 } from "./db";
 import { raiseOperationalAlert } from "./operationalAlerts";
+import { selectNextClusterProtocolCredential } from "./clusterProtocolCredentials";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
 import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, getTokenForgeProviderSlug, getTokenForgeUpstreamModelId, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, type TokenForgeModelId } from "./modelCatalogue";
 import { sdk } from "./_core/sdk";
@@ -128,7 +129,7 @@ async function forwardFxqidianRequest(input: ChatInput, signal: AbortSignal) {
 
 async function forwardClusterRequest(input: ChatInput, signal: AbortSignal) {
   const base = process.env.CLUSTER_PROTOCOL_BASE_URL?.replace(/\/$/, "");
-  const secret = process.env.CLUSTER_PROTOCOL_API_KEY;
+  const secret = selectNextClusterProtocolCredential();
   if (!base || !secret) throw new Error("TokenForge Cluster Protocol inference is not configured");
   const requestBody = input.stream
     ? { ...input, stream_options: { include_usage: true } }

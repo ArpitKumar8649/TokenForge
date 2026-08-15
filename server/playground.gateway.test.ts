@@ -16,7 +16,8 @@ vi.mock("./operationalAlerts", () => ({ raiseOperationalAlert: vi.fn() }));
 
 import { getQuotaStatus, getRecentRequestCounts, isModelAvailable, recordUsage, reserveCredit, settleReservedCredit } from "./db";
 import { raiseOperationalAlert } from "./operationalAlerts";
-import { runPlaygroundCompletion, TokenForgePlaygroundError } from "./openaiGateway";
+import { forwardProviderRequest, runPlaygroundCompletion, TokenForgePlaygroundError } from "./openaiGateway";
+import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 
 const availableQuota = {
   day: "2026-08-14",
@@ -37,6 +38,8 @@ beforeEach(() => {
   process.env.FXQIDIAN_API_KEY = "server-only-provider-secret";
   process.env.CLUSTER_PROTOCOL_BASE_URL = "https://cluster.example";
   process.env.CLUSTER_PROTOCOL_API_KEY = "server-only-cluster-secret";
+  process.env.CLUSTER_PROTOCOL_API_KEY_2 = "server-only-cluster-secret-2";
+  process.env.CLUSTER_PROTOCOL_API_KEY_3 = "server-only-cluster-secret-3";
   process.env.TOKENHARBOR_BASE_URL = "https://tokenharbor.example";
   process.env.TOKENHARBOR_API_KEY = "server-only-tokenharbor-secret";
   vi.mocked(isModelAvailable).mockResolvedValue(true);
@@ -48,6 +51,7 @@ beforeEach(() => {
     chargedNanos: finalChargeNanos,
     balanceNanos: 50_000_000_000 - finalChargeNanos,
   }));
+  resetClusterProtocolCredentialRotation();
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -126,6 +130,24 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.stringify(fetchMock.mock.calls[0][1].headers)).not.toContain("server-only-provider-secret");
     expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 495_000 }));
     expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "kimi-k3", status: "success", inputTokens: 10, outputTokens: 20, chargeNanos: 495_000 }));
+  });
+
+  it("rotates sequential Cluster Protocol gateway calls across every configured server-only credential", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ choices: [] }), { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+    const signal = new AbortController().signal;
+
+    await forwardProviderRequest("kimi-k3", { model: "kimi-k3", messages: [{ role: "user", content: "Rotate safely." }] }, signal);
+    await forwardProviderRequest("kimi-k3", { model: "kimi-k3", messages: [{ role: "user", content: "Rotate safely." }] }, signal);
+    await forwardProviderRequest("kimi-k3", { model: "kimi-k3", messages: [{ role: "user", content: "Rotate safely." }] }, signal);
+    await forwardProviderRequest("kimi-k3", { model: "kimi-k3", messages: [{ role: "user", content: "Rotate safely." }] }, signal);
+
+    expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
+      "Bearer server-only-cluster-secret",
+      "Bearer server-only-cluster-secret-2",
+      "Bearer server-only-cluster-secret-3",
+      "Bearer server-only-cluster-secret",
+    ]);
   });
 
   it("routes both DeepSeek aliases through TokenHarbor while translating only the upstream model identifier", async () => {
