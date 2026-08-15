@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, inArray, like, lte, notInArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac, randomBytes, randomInt } from "node:crypto";
 import {
   accountControls,
   accountFlags,
@@ -41,7 +41,8 @@ const INTRODUCTORY_CREDIT_REFERENCE = "introductory-credit-v1";
 const EMAIL_ALLOWLIST_SETTING_KEY = "email_allowlist";
 const ANNOUNCEMENT_TEXT_SETTING_KEY = "announcement_text";
 const SESSION_VERSION_SETTING_KEY = "auth_session_version";
-const REFERRAL_CODE_BYTES = 12;
+const AFFILIATE_CODE_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
+const AFFILIATE_CODE_LENGTH = 4;
 
 export class DeletedAccountIdentityError extends Error {
   constructor() {
@@ -127,17 +128,20 @@ export async function ensureCreditAccount(userId: number) {
 }
 
 function newReferralCode() {
-  return randomBytes(REFERRAL_CODE_BYTES).toString("hex").toUpperCase();
+  return Array.from(
+    { length: AFFILIATE_CODE_LENGTH },
+    () => AFFILIATE_CODE_ALPHABET[randomInt(AFFILIATE_CODE_ALPHABET.length)],
+  ).join("");
 }
 
-/** Creates an opaque invite code once per account; the code does not reveal account identity. */
+/** Creates a compact affiliate code once per account; the code does not reveal account identity. */
 export async function getOrCreateReferralCode(userId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const existing = (await db.select().from(referralCodes).where(eq(referralCodes.userId, userId)).limit(1))[0];
   if (existing) return existing;
 
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
     try {
       await db.insert(referralCodes).values({ userId, code: newReferralCode() });
       const created = (await db.select().from(referralCodes).where(eq(referralCodes.userId, userId)).limit(1))[0];

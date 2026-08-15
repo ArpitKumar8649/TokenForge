@@ -17,7 +17,7 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 
   if (!isUnauthorized) return;
 
-  if (window.location.pathname !== "/signin" && window.location.pathname !== "/signup") {
+  if (window.location.pathname !== "/signin" && window.location.pathname !== "/signup" && window.location.pathname !== "/sign-up") {
     window.location.assign(`/signin?returnTo=${encodeURIComponent(window.location.pathname)}`);
   }
 };

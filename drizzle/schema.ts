@@ -38,13 +38,13 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-/** One opaque shareable referral token per account. The user relationship and code are both unique. */
+/** One compact shareable affiliate code per account. The user relationship and code are both unique. */
 export const referralCodes = mysqlTable(
   "referral_codes",
   {
     id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
     userId: int("userId").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
-    code: varchar("code", { length: 24 }).notNull().unique(),
+    code: varchar("code", { length: 4 }).notNull().unique(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => [index("referral_codes_code_idx").on(table.code)],

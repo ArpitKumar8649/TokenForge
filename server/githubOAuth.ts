@@ -120,7 +120,7 @@ export function registerGitHubOAuthRoutes(app: Express) {
     }
     const state = randomUrlToken();
     const verifier = randomUrlToken();
-    const referralCode = normalizeReferralCode(getQueryParam(req, "ref"));
+    const referralCode = normalizeReferralCode(getQueryParam(req, "aff"));
     const options = oauthCookieOptions(req);
     res.cookie(GITHUB_STATE_COOKIE, state, options);
     res.cookie(GITHUB_VERIFIER_COOKIE, verifier, options);

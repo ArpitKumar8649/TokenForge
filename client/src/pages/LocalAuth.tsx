@@ -22,8 +22,8 @@ export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [emailPolicyError, setEmailPolicyError] = useState<string | null>(null);
   const isSignup = initialMode === "signup";
-  const referralCode = isSignup ? normalizeReferralCode(new URLSearchParams(search).get("ref")) : undefined;
-  const referralQuery = referralCode ? `?ref=${encodeURIComponent(referralCode)}` : "";
+  const referralCode = isSignup ? normalizeReferralCode(new URLSearchParams(search).get("aff")) : undefined;
+  const referralQuery = referralCode ? `?aff=${encodeURIComponent(referralCode)}` : "";
   const register = trpc.auth.register.useMutation();
   const login = trpc.auth.login.useMutation();
   const pending = register.isPending || login.isPending;
@@ -96,7 +96,7 @@ export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
             <Button type="submit" disabled={pending} className="local-auth-submit">{pending ? "Securing your session…" : isSignup ? "Create account with email" : "Sign in with email"}<ArrowRight size={16} /></Button>
           </form>
           <p className="mt-3 text-center text-[10px] leading-5 text-[#86879a]">GitHub is used only to verify your identity. TokenForge does not request repository access.</p>
-          <p className="local-auth-switch">{isSignup ? "Already have an account?" : "New to TokenForge?"} <Link href={isSignup ? "/signin" : `/signup${referralQuery}`}>{isSignup ? "Sign in" : "Create one"}</Link></p>
+          <p className="local-auth-switch">{isSignup ? "Already have an account?" : "New to TokenForge?"} <Link href={isSignup ? "/signin" : `/sign-up${referralQuery}`}>{isSignup ? "Sign in" : "Create one"}</Link></p>
           <Link href="/" className="local-auth-back">← Back to TokenForge</Link>
         </div>
       </section>

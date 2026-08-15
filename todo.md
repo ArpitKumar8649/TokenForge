@@ -212,3 +212,5 @@
 - [x] Add regression coverage for end-to-end referral-code capture and settlement, including the exact generated referral-code format and referral dashboard retrieval.
 - [x] Show an honest referral notice on valid referred sign-up links: the new account can receive the $10 referral credit, while Discord is presented as an optional community link rather than a verified reward condition.
 - [x] Replace the fallback-looking browser-tab icon with durable, browser-compatible versions of the exact supplied TokenForge ghost artwork and cache-bust the favicon metadata.
+- [x] Diagnose the reported production chat-completions curl failure, provide a syntactically correct request, and verify whether the gateway requires a remediation.
+- [x] Migrate TokenForge referrals to four-character alphanumeric affiliate codes using the `aff` sign-up parameter, including persistence, dashboard links, local registration, GitHub OAuth, validation, and regression coverage.
