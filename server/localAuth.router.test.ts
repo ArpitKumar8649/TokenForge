@@ -10,6 +10,7 @@ vi.mock("./db", () => ({
   createPasswordUser: vi.fn(),
   claimDailyCheckin: vi.fn(),
   getAdminOverview: vi.fn(),
+  getAdminAccountModelUsage: vi.fn(),
   getCreditProfile: vi.fn(),
   getEmailAllowlistConfig: vi.fn(),
   getPublicModelTokenMetrics: vi.fn(),
@@ -53,6 +54,7 @@ import {
   getPasswordLoginThrottle,
   getPublicModelTokenMetrics,
   getEmailAllowlistConfig,
+  getAdminAccountModelUsage,
   listAdminAccounts,
   listApiKeys,
   clearLegacyAdministratorRoles,
@@ -100,6 +102,7 @@ beforeEach(() => {
   vi.mocked(recordFailedPasswordLogin).mockResolvedValue({ blocked: false, retryAfterSeconds: 0 });
   vi.mocked(clearFailedPasswordLogin).mockResolvedValue(undefined);
   vi.mocked(getEmailAllowlistConfig).mockResolvedValue(null);
+  vi.mocked(getAdminAccountModelUsage).mockResolvedValue([]);
   vi.mocked(clearLegacyAdministratorRoles).mockResolvedValue(true);
   vi.mocked(deleteAccountPermanently).mockResolvedValue(true);
   vi.mocked(getAuthSessionVersion).mockResolvedValue(3);
@@ -335,6 +338,16 @@ describe("protected administrator account directory", () => {
     await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.accounts({ page: 2, pageSize: 10, search: "arpit", status: "active" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(appRouter.createCaller(makeContext(admin).ctx).admin.accounts({ page: 2, pageSize: 10, search: "arpit", status: "active" })).resolves.toEqual(page);
     expect(listAdminAccounts).toHaveBeenCalledWith({ page: 2, pageSize: 10, search: "arpit", status: "active" });
+  });
+
+  it("returns aggregate-only model bars for selected accounts exclusively to a passcode-issued administrator session", async () => {
+    const usage = [{ userId: 42, modelId: "kimi-k3", requestCount: 3, totalTokens: 12_345 }];
+    vi.mocked(getAdminAccountModelUsage).mockResolvedValue(usage);
+    const admin = { ...localUser, isAdminSession: true };
+
+    await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.accountModelUsage({ userIds: [42, 77] })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.accountModelUsage({ userIds: [42, 77] })).resolves.toEqual(usage);
+    expect(getAdminAccountModelUsage).toHaveBeenCalledWith([42, 77]);
   });
 
   it("permanently deletes another account only from a passcode-issued administrator session", async () => {

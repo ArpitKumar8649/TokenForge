@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ADMIN_EMAIL_PROVIDER_EXPRESSION, composeAdminAccountOverview, normalizeAdminEmailProviderCounts } from "./db";
+import { ADMIN_EMAIL_PROVIDER_EXPRESSION, composeAdminAccountOverview, normalizeAdminAccountModelUsage, normalizeAdminEmailProviderCounts } from "./db";
 
 describe("composeAdminAccountOverview", () => {
   it("attaches live credit and usage aggregates without returning API-key material", () => {
@@ -75,5 +75,32 @@ describe("normalizeAdminEmailProviderCounts", () => {
     ]);
 
     expect(distribution).toContainEqual({ provider: "proton.me", accountCount: 1 });
+  });
+});
+
+describe("normalizeAdminAccountModelUsage", () => {
+  it("returns only bar-ready aggregate rows with no prompts, API keys, or private message content", () => {
+    const usage = normalizeAdminAccountModelUsage([
+      { userId: 41, modelId: "kimi-k3", requestCount: 4, totalTokens: 12_340 },
+      { userId: 41, modelId: "qwen3.7-max", requestCount: 1, totalTokens: 800 },
+      { userId: 41, modelId: "unused-model", requestCount: 0, totalTokens: 0 },
+    ]);
+
+    expect(usage).toEqual([
+      { userId: 41, modelId: "kimi-k3", requestCount: 4, totalTokens: 12_340 },
+      { userId: 41, modelId: "qwen3.7-max", requestCount: 1, totalTokens: 800 },
+    ]);
+    expect(JSON.stringify(usage)).not.toContain("prompt");
+    expect(JSON.stringify(usage)).not.toContain("keyHash");
+  });
+
+  it("orders each account's model bars by request count and then processed tokens", () => {
+    const usage = normalizeAdminAccountModelUsage([
+      { userId: 8, modelId: "model-b", requestCount: 2, totalTokens: 50 },
+      { userId: 8, modelId: "model-a", requestCount: 2, totalTokens: 75 },
+      { userId: 8, modelId: "model-c", requestCount: 4, totalTokens: 2 },
+    ]);
+
+    expect(usage.map(row => row.modelId)).toEqual(["model-c", "model-a", "model-b"]);
   });
 });

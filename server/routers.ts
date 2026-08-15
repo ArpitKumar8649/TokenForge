@@ -4,6 +4,7 @@ import { z } from "zod";
 import { ESTABLISHED_EMAIL_DOMAIN_GUIDANCE } from "../shared/emailPolicy";
 import {
   createApiKey,
+  getAdminAccountModelUsage,
   getAdminOverview,
   listAdminAccounts,
   getEmailAllowlistConfig,
@@ -280,6 +281,7 @@ export const appRouter = router({
     }),
     overview: adminProcedure.query(() => getAdminOverview()),
     accounts: adminProcedure.input(adminAccountDirectoryInput).query(({ input }) => listAdminAccounts(input)),
+    accountModelUsage: adminProcedure.input(z.object({ userIds: z.array(z.number().int().positive()).min(1).max(10) })).query(({ input }) => getAdminAccountModelUsage(input.userIds)),
     activity: adminProcedure.input(z.object({ limit: z.number().int().min(1).max(100).default(40) }).optional()).query(({ input }) => listAdminAuditEvents(input?.limit ?? 40)),
     auditExport: adminProcedure.query(() => getAdminAuditExport()),
     deleteAccount: adminProcedure.input(permanentAccountDeleteInput).mutation(async ({ ctx, input }) => {

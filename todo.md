@@ -217,3 +217,4 @@
 - [x] Add a privacy-safe live bar chart to the administrator dashboard that groups account counts by normalized email provider and automatically includes providers used by new registrations.
 - [x] Repair the administrator email-provider aggregate query so the protected admin overview loads on the deployed database, while retaining privacy-safe domain-only counts and regression coverage.
 - [x] Implement a secure Cluster Protocol–only Anthropic Messages bridge for Claude Code based on the supplied proxy’s translation behavior, while leaving `proxy.js` unchanged and preserving TokenForge authentication, quotas, billing, model controls, streaming, and provider-secret isolation.
+- [x] Document every active Cluster Protocol model supported by `POST /v1/messages` and add a privacy-safe administrator per-account chart that lists only models actually used by that account with request counts and processed-token totals.

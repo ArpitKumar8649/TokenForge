@@ -951,6 +951,40 @@ export async function listAdminAccounts(input: AdminAccountDirectoryInput = {}) 
   return { items: composeAdminAccountOverview(accounts, usageRows), total: Number(total), page, pageSize: query.pageSize, pageCount };
 }
 
+export type AdminAccountModelUsageRow = {
+  userId: number;
+  modelId: string;
+  requestCount: number;
+  totalTokens: number;
+};
+
+/** Normalizes aggregate-only activity rows without returning prompts, API keys, or message content. */
+export function normalizeAdminAccountModelUsage(rows: AdminAccountModelUsageRow[]) {
+  return rows
+    .filter(row => Number.isInteger(row.userId) && row.userId > 0 && Boolean(row.modelId) && Number(row.requestCount) > 0)
+    .map(row => ({ userId: row.userId, modelId: row.modelId, requestCount: Math.max(0, Number(row.requestCount) || 0), totalTokens: Math.max(0, Number(row.totalTokens) || 0) }))
+    .sort((left, right) => left.userId - right.userId || right.requestCount - left.requestCount || right.totalTokens - left.totalTokens || left.modelId.localeCompare(right.modelId));
+}
+
+/** Returns successful, aggregate model activity only for the bounded visible administrator account page. */
+export async function getAdminAccountModelUsage(userIds: number[]) {
+  const normalizedUserIds = Array.from(new Set(userIds.filter(userId => Number.isInteger(userId) && userId > 0))).slice(0, 10);
+  if (!normalizedUserIds.length) return [];
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db
+    .select({
+      userId: usageEvents.userId,
+      modelId: usageEvents.modelId,
+      requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`,
+      totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`,
+    })
+    .from(usageEvents)
+    .where(and(inArray(usageEvents.userId, normalizedUserIds), eq(usageEvents.status, "success")))
+    .groupBy(usageEvents.userId, usageEvents.modelId);
+  return normalizeAdminAccountModelUsage(rows);
+}
+
 export type GitHubIdentityInput = { providerUserId: string; email: string; name: string | null; referralCode?: string };
 
 /** Resolves GitHub by immutable provider subject. An existing matching email is never auto-linked. */
