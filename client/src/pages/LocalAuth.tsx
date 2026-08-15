@@ -4,15 +4,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { ESTABLISHED_EMAIL_DOMAIN_GUIDANCE, isEstablishedEmailAddress } from "@shared/emailPolicy";
+import { normalizeReferralCode } from "@shared/referrals";
 import { ArrowRight, CheckCircle2, Eye, EyeOff, Github, KeyRound, ShieldCheck } from "lucide-react";
 import { FormEvent, useState } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import "../auth-refresh.css";
 
 type LocalAuthProps = { mode: "signin" | "signup" };
 
 export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
   const [location, navigate] = useLocation();
+  const search = useSearch();
   const utils = trpc.useUtils();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -20,7 +22,7 @@ export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [emailPolicyError, setEmailPolicyError] = useState<string | null>(null);
   const isSignup = initialMode === "signup";
-  const referralCode = isSignup ? new URLSearchParams(location.split("?")[1] ?? "").get("ref")?.trim().toUpperCase() : undefined;
+  const referralCode = isSignup ? normalizeReferralCode(new URLSearchParams(search).get("ref")) : undefined;
   const referralQuery = referralCode ? `?ref=${encodeURIComponent(referralCode)}` : "";
   const register = trpc.auth.register.useMutation();
   const login = trpc.auth.login.useMutation();
@@ -78,6 +80,11 @@ export default function LocalAuth({ mode: initialMode }: LocalAuthProps) {
             <h2>{isSignup ? "Create your account." : "Sign in to your workspace."}</h2>
             <span>{isSignup ? "Use your email and password, or continue securely with GitHub." : "Use your email and password, or continue securely with GitHub."}</span>
           </div>
+          {isSignup && referralCode && <aside className="local-auth-referral-notice" aria-label="Referral invitation">
+            <strong>You were invited to TokenForge.</strong>
+            <p>Create your account and we will validate this invitation. Eligible new members receive a <b>$10 referral credit</b>.</p>
+            <a href="https://discord.gg/pnsWamDbe" target="_blank" rel="noopener noreferrer">Join the TokenForge Discord community <span aria-hidden="true">↗</span></a>
+          </aside>}
           <Button type="button" variant="outline" className="local-auth-github" onClick={() => window.location.assign(`/api/auth/github${referralQuery}`)}><Github size={17} /> Continue with GitHub</Button>
           {githubError && <p className="local-auth-error mt-3" role="alert">{githubError}</p>}
           <div className="local-auth-divider" aria-hidden="true"><span /><p>or continue with email</p><span /></div>

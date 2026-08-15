@@ -208,3 +208,6 @@
 - [x] Attribute valid referral links through both email/password registration and GitHub OAuth registration, prevent self-referrals and duplicate rewards, and settle each $10 reward through the immutable credit ledger.
 - [x] Add a responsive Referrals workspace to the developer dashboard showing the member’s link, reward terms, successful referrals, and real-time credit outcome.
 - [x] Add database migration, server/client regression coverage, and responsive validation for referral attribution, credit-award idempotency, and the dashboard workflow.
+- [x] Repair the referral path so valid new referred registrations create attribution records, award $10 credits to both eligible accounts, and become visible in the inviter’s Referrals dashboard.
+- [x] Add regression coverage for end-to-end referral-code capture and settlement, including the exact generated referral-code format and referral dashboard retrieval.
+- [x] Show an honest referral notice on valid referred sign-up links: the new account can receive the $10 referral credit, while Discord is presented as an optional community link rather than a verified reward condition.

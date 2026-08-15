@@ -12,6 +12,7 @@ import {
 const dbSource = readFileSync(path.resolve(import.meta.dirname, "./db.ts"), "utf8");
 const routerSource = readFileSync(path.resolve(import.meta.dirname, "./routers.ts"), "utf8");
 const oauthSource = readFileSync(path.resolve(import.meta.dirname, "./githubOAuth.ts"), "utf8");
+const clientSource = readFileSync(path.resolve(import.meta.dirname, "../client/src/pages/LocalAuth.tsx"), "utf8");
 
 describe("TokenForge referrals", () => {
   it("uses the canonical hosted signup URL and an equal $10 reward for each eligible account", () => {
@@ -38,5 +39,13 @@ describe("TokenForge referrals", () => {
     expect(routerSource).toContain("getReferralOverview(ctx.user.id)");
     expect(oauthSource).toContain("normalizeReferralCode(cookies[GITHUB_REFERRAL_COOKIE])");
     expect(oauthSource).toContain("resolveGitHubIdentity({ ...identity, referralCode })");
+  });
+
+  it("captures referral search parameters separately from pathname routing and preserves them for both signup methods", () => {
+    expect(clientSource).toContain("import { Link, useLocation, useSearch } from \"wouter\"");
+    expect(clientSource).toContain("const search = useSearch()");
+    expect(clientSource).toContain("normalizeReferralCode(new URLSearchParams(search).get(\"ref\"))");
+    expect(clientSource).toContain("register.mutateAsync({ email, password, name: name || undefined, referralCode })");
+    expect(clientSource).toContain("window.location.assign(`/api/auth/github${referralQuery}`)");
   });
 });
