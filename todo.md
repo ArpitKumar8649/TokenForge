@@ -200,3 +200,4 @@
 - [x] Prepare professional, ready-to-post Discord rules and launch announcement copy aligned with TokenForge’s API, community, security, and acceptable-use standards.
 - [x] Relocate the cURL and SDK quick-start guidance from the API Keys workspace to the main developer dashboard Overview, leaving API Keys dedicated to credential lifecycle actions.
 - [x] Validate the revised dashboard information hierarchy on mobile and retain secure placeholder and one-time-key behavior.
+- [x] Install the user-supplied TokenForge ghost artwork as the browser-tab favicon and validate its delivery across standard favicon formats.
