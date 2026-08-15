@@ -12,8 +12,9 @@ import {
   touchApiKey,
 } from "./db";
 import { raiseOperationalAlert } from "./operationalAlerts";
-import { selectNextClusterProtocolCredential } from "./clusterProtocolCredentials";
-import { selectNextFxqidianCredential } from "./fxqidianCredentials";
+import { selectNextClusterProtocolCredentialWithSlot } from "./clusterProtocolCredentials";
+import { selectNextFxqidianCredentialWithSlot } from "./fxqidianCredentials";
+import { isCredentialSlotEligible, recordCredentialFailover, recordCredentialFailure, recordCredentialSuccess, type CredentialTelemetryProvider } from "./providerCredentialTelemetry";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
 import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, getTokenForgeProviderSlug, getTokenForgeUpstreamModelId, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, type TokenForgeModelId } from "./modelCatalogue";
 import { sdk } from "./_core/sdk";
@@ -116,31 +117,70 @@ function releaseRequestSlot(userId: number) {
   else activeRequests.set(userId, next);
 }
 
+type CredentialSelection = { credential: string; slot: number; poolSize: number };
+
+function retryableProviderStatus(status: number) {
+  return status === 401 || status === 403 || status === 408 || status === 429 || status >= 500;
+}
+
+async function forwardWithCredentialFailover(providerSlug: CredentialTelemetryProvider, input: ChatInput, signal: AbortSignal, selectCredential: () => CredentialSelection | null, request: (credential: string) => Promise<globalThis.Response>) {
+  const first = selectCredential();
+  if (!first) throw new Error("TokenForge inference is not configured");
+  let candidate = first;
+  let lastResponse: globalThis.Response | null = null;
+  for (let attempt = 0; attempt < candidate.poolSize; attempt += 1) {
+    if (!isCredentialSlotEligible(providerSlug, candidate.slot) && attempt < candidate.poolSize - 1) {
+      const next = selectCredential();
+      if (next) {
+        candidate = next;
+        continue;
+      }
+    }
+    try {
+      const response = await request(candidate.credential);
+      lastResponse = response;
+      if (response.ok || !retryableProviderStatus(response.status)) {
+        recordCredentialSuccess(providerSlug, candidate.slot);
+        return response;
+      }
+      recordCredentialFailure(providerSlug, candidate.slot);
+    } catch (error) {
+      recordCredentialFailure(providerSlug, candidate.slot);
+      if (signal.aborted || attempt === candidate.poolSize - 1) throw error;
+    }
+    if (attempt < candidate.poolSize - 1) {
+      recordCredentialFailover(providerSlug);
+      const next = selectCredential();
+      if (next) candidate = next;
+    }
+  }
+  if (lastResponse) return lastResponse;
+  throw new Error("The selected provider is temporarily unavailable");
+}
+
 async function forwardFxqidianRequest(input: ChatInput, signal: AbortSignal) {
   const base = process.env.FXQIDIAN_BASE_URL?.replace(/\/$/, "");
-  const secret = selectNextFxqidianCredential();
-  if (!base || !secret) throw new Error("TokenForge inference is not configured");
-  return fetch(`${base}/v1/chat/completions`, {
+  if (!base) throw new Error("TokenForge inference is not configured");
+  return forwardWithCredentialFailover(FXQIDIAN_PROVIDER_SLUG, input, signal, () => selectNextFxqidianCredentialWithSlot(), secret => fetch(`${base}/v1/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
     body: JSON.stringify(input),
     signal,
-  });
+  }));
 }
 
 async function forwardClusterRequest(input: ChatInput, signal: AbortSignal) {
   const base = process.env.CLUSTER_PROTOCOL_BASE_URL?.replace(/\/$/, "");
-  const secret = selectNextClusterProtocolCredential();
-  if (!base || !secret) throw new Error("TokenForge Cluster Protocol inference is not configured");
+  if (!base) throw new Error("TokenForge Cluster Protocol inference is not configured");
   const requestBody = input.stream
     ? { ...input, stream_options: { include_usage: true } }
     : input;
-  return fetch(`${base}/v1/chat/completions`, {
+  return forwardWithCredentialFailover(CLUSTER_PROTOCOL_PROVIDER_SLUG, input, signal, () => selectNextClusterProtocolCredentialWithSlot(), secret => fetch(`${base}/v1/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
     body: JSON.stringify(requestBody),
     signal,
-  });
+  }));
 }
 
 async function forwardTokenHarborRequest(input: ChatInput, signal: AbortSignal) {
@@ -149,12 +189,20 @@ async function forwardTokenHarborRequest(input: ChatInput, signal: AbortSignal) 
   if (!base || !secret) throw new Error("TokenForge TokenHarbor inference is not configured");
   const upstreamModel = typeof input.model === "string" ? getTokenForgeUpstreamModelId(input.model) : undefined;
   const requestBody = upstreamModel ? { ...input, model: upstreamModel } : input;
-  return fetch(`${base}/v1/chat/completions`, {
+  try {
+    const response = await fetch(`${base}/v1/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
     body: JSON.stringify(requestBody),
     signal,
-  });
+    });
+    if (response.ok || !retryableProviderStatus(response.status)) recordCredentialSuccess(TOKENHARBOR_PROVIDER_SLUG, 0);
+    else recordCredentialFailure(TOKENHARBOR_PROVIDER_SLUG, 0);
+    return response;
+  } catch (error) {
+    recordCredentialFailure(TOKENHARBOR_PROVIDER_SLUG, 0);
+    throw error;
+  }
 }
 
 export async function forwardProviderRequest(model: TokenForgeModelId, input: ChatInput, signal: AbortSignal) {

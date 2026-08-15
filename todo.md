@@ -185,3 +185,6 @@
 - [x] Replace the remaining blue/purple public model-card surface with a neutral graphite treatment while preserving clear provider and rate hierarchy.
 - [x] Add the supplied FXQidian credential as a server-only secret and alternate eligible FXQidian inference calls fairly across the credential pool.
 - [x] Add deterministic rotation coverage and validate the neutral responsive model-card presentation.
+- [x] Add privacy-safe per-provider capacity indicators to the administrator workspace, grounded in live recent gateway outcomes and configured credential-pool availability.
+- [x] Add server-side credential health telemetry and safe failover behavior that records only anonymous pool-slot state, never secret values or key fragments.
+- [x] Add regression coverage, responsive admin validation, and audit-safe observability contracts for provider capacity and credential health/failover telemetry.

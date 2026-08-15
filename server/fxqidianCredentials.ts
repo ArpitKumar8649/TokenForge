@@ -5,6 +5,8 @@ type CredentialEnvironment = {
 
 let nextFxqidianCredentialIndex = 0;
 
+export type FxqidianCredentialSelection = { credential: string; slot: number; poolSize: number };
+
 function runtimeCredentialEnvironment(): CredentialEnvironment {
   return {
     FXQIDIAN_API_KEY: process.env["FXQIDIAN_API_KEY"],
@@ -18,11 +20,16 @@ export function getFxqidianCredentialPool(environment: CredentialEnvironment = r
 }
 
 export function selectNextFxqidianCredential(environment: CredentialEnvironment = runtimeCredentialEnvironment()) {
+  return selectNextFxqidianCredentialWithSlot(environment)?.credential ?? null;
+}
+
+export function selectNextFxqidianCredentialWithSlot(environment: CredentialEnvironment = runtimeCredentialEnvironment()): FxqidianCredentialSelection | null {
   const credentialPool = getFxqidianCredentialPool(environment);
   if (credentialPool.length === 0) return null;
-  const selectedCredential = credentialPool[nextFxqidianCredentialIndex % credentialPool.length];
+  const slot = nextFxqidianCredentialIndex % credentialPool.length;
+  const selectedCredential = credentialPool[slot];
   nextFxqidianCredentialIndex = (nextFxqidianCredentialIndex + 1) % credentialPool.length;
-  return selectedCredential;
+  return { credential: selectedCredential, slot, poolSize: credentialPool.length };
 }
 
 export function resetFxqidianCredentialRotation() {

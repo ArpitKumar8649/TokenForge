@@ -25,6 +25,9 @@ import { ENV } from "./_core/env";
 import { hashPassword, normalizeEmail, nextFailedLoginState, normalizeEmailAllowlistEntries, retryAfterSeconds, verifyPassword } from "./localAuth";
 import { DAILY_CHECKIN_CREDIT_NANOS, INTRODUCTORY_CREDIT_NANOS } from "./creditPricing";
 import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, TOKENFORGE_MODEL_IDS, type TokenForgeModelId } from "./modelCatalogue";
+import { getClusterProtocolCredentialPool } from "./clusterProtocolCredentials";
+import { getFxqidianCredentialPool } from "./fxqidianCredentials";
+import { getProviderCredentialTelemetry } from "./providerCredentialTelemetry";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -878,7 +881,7 @@ export async function getModelAvailabilitySnapshot() {
 export async function getAdminOverview() {
   await ensureCatalogue();
   const db = await getDb();
-  if (!db) return { models: [], providers: [], accounts: [], usage: [], totals: { totalTokens: 0, totalRequests: 0 } };
+  if (!db) return { models: [], providers: [], accounts: [], usage: [], totals: { totalTokens: 0, totalRequests: 0 }, providerTelemetry: getProviderCredentialTelemetry({}) };
   const [models, providers, accounts, usage, accountUsage, totals] = await Promise.all([
     db.select().from(modelConfigs).orderBy(modelConfigs.displayName),
     db.select().from(providerConfigs).orderBy(providerConfigs.displayName),
@@ -887,7 +890,12 @@ export async function getAdminOverview() {
     db.select({ userId: usageEvents.userId, requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, lastActivityAt: sql<Date | null>`max(${usageEvents.createdAt})` }).from(usageEvents).groupBy(usageEvents.userId),
     db.select({ totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, totalRequests: sql<number>`coalesce(count(${usageEvents.id}), 0)` }).from(usageEvents),
   ]);
-  return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })), totals: { totalTokens: Number(totals[0]?.totalTokens ?? 0), totalRequests: Number(totals[0]?.totalRequests ?? 0) } };
+  const providerTelemetry = getProviderCredentialTelemetry({
+    [FXQIDIAN_PROVIDER_SLUG]: getFxqidianCredentialPool().length,
+    [CLUSTER_PROTOCOL_PROVIDER_SLUG]: getClusterProtocolCredentialPool().length,
+    [TOKENHARBOR_PROVIDER_SLUG]: process.env.TOKENHARBOR_API_KEY?.trim() ? 1 : 0,
+  });
+  return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })), totals: { totalTokens: Number(totals[0]?.totalTokens ?? 0), totalRequests: Number(totals[0]?.totalRequests ?? 0) }, providerTelemetry };
 }
 
 /** Deletes a user and every account-owned TokenForge record, retaining only non-reversible hashed identity tombstones. */

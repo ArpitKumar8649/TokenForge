@@ -19,6 +19,8 @@ import { raiseOperationalAlert } from "./operationalAlerts";
 import { forwardProviderRequest, runPlaygroundCompletion, TokenForgePlaygroundError } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
+import { getProviderCredentialTelemetry, resetProviderCredentialTelemetry } from "./providerCredentialTelemetry";
+import { FXQIDIAN_PROVIDER_SLUG } from "./modelCatalogue";
 
 const availableQuota = {
   day: "2026-08-14",
@@ -55,6 +57,7 @@ beforeEach(() => {
   }));
   resetClusterProtocolCredentialRotation();
   resetFxqidianCredentialRotation();
+  resetProviderCredentialTelemetry();
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -125,6 +128,24 @@ describe("TokenForge Playground gateway", () => {
       "Bearer server-only-provider-secret-2",
       "Bearer server-only-provider-secret",
     ]);
+  });
+
+  it("fails over to the next FXQidian pool slot after a retryable provider response without exposing credentials in telemetry", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "temporarily saturated" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await forwardProviderRequest("glm-5.2", { model: "glm-5.2", messages: [{ role: "user", content: "Fail over safely." }] }, new AbortController().signal);
+
+    expect(response.status).toBe(200);
+    expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
+      "Bearer server-only-provider-secret",
+      "Bearer server-only-provider-secret-2",
+    ]);
+    const telemetry = getProviderCredentialTelemetry({ [FXQIDIAN_PROVIDER_SLUG]: 2 }).find(item => item.providerSlug === FXQIDIAN_PROVIDER_SLUG)!;
+    expect(telemetry).toMatchObject({ healthySlots: 1, coolingDownSlots: 1, failoverCount: 1 });
+    expect(JSON.stringify(telemetry)).not.toContain("server-only-provider-secret");
   });
 
   it("routes a verified Cluster Protocol model through its server-only credential and preserves metering", async () => {

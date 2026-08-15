@@ -6,6 +6,8 @@ type CredentialEnvironment = {
 
 let nextClusterProtocolCredentialIndex = 0;
 
+export type ClusterProtocolCredentialSelection = { credential: string; slot: number; poolSize: number };
+
 function runtimeCredentialEnvironment(): CredentialEnvironment {
   return {
     CLUSTER_PROTOCOL_API_KEY: process.env["CLUSTER_PROTOCOL_API_KEY"],
@@ -23,11 +25,16 @@ export function getClusterProtocolCredentialPool(environment: CredentialEnvironm
 }
 
 export function selectNextClusterProtocolCredential(environment: CredentialEnvironment = runtimeCredentialEnvironment()) {
+  return selectNextClusterProtocolCredentialWithSlot(environment)?.credential ?? null;
+}
+
+export function selectNextClusterProtocolCredentialWithSlot(environment: CredentialEnvironment = runtimeCredentialEnvironment()): ClusterProtocolCredentialSelection | null {
   const credentialPool = getClusterProtocolCredentialPool(environment);
   if (credentialPool.length === 0) return null;
-  const selectedCredential = credentialPool[nextClusterProtocolCredentialIndex % credentialPool.length];
+  const slot = nextClusterProtocolCredentialIndex % credentialPool.length;
+  const selectedCredential = credentialPool[slot];
   nextClusterProtocolCredentialIndex = (nextClusterProtocolCredentialIndex + 1) % credentialPool.length;
-  return selectedCredential;
+  return { credential: selectedCredential, slot, poolSize: credentialPool.length };
 }
 
 export function resetClusterProtocolCredentialRotation() {
