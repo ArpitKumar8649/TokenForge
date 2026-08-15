@@ -188,3 +188,5 @@
 - [x] Add privacy-safe per-provider capacity indicators to the administrator workspace, grounded in live recent gateway outcomes and configured credential-pool availability.
 - [x] Add server-side credential health telemetry and safe failover behavior that records only anonymous pool-slot state, never secret values or key fragments.
 - [x] Add regression coverage, responsive admin validation, and audit-safe observability contracts for provider capacity and credential health/failover telemetry.
+- [x] Diagnose and correct the GitHub OAuth redirect URI mismatch for TokenForge’s deployed domain while preserving PKCE and state protections.
+- [x] Add regression coverage and document the exact GitHub OAuth callback URL required for the current production domain.

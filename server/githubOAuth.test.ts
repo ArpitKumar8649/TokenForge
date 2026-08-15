@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildGitHubAuthorizationUrl, selectVerifiedGitHubEmail } from "./githubOAuth";
+import { appOrigin, buildGitHubAuthorizationUrl, selectVerifiedGitHubEmail } from "./githubOAuth";
 
 describe("GitHub OAuth flow primitives", () => {
   it("creates a PKCE authorization request without exposing a client secret", () => {
@@ -16,6 +16,12 @@ describe("GitHub OAuth flow primitives", () => {
     expect(url.searchParams.get("state")).toBe("csrf-state");
     expect(url.searchParams.get("code_challenge_method")).toBe("S256");
     expect(authorizationUrl).not.toContain("client_secret");
+  });
+
+  it("uses Express's proxy-aware hostname for the deployed callback origin", () => {
+    expect(appOrigin({ protocol: "https", hostname: "tokengate-cqt9ivzs.manus.space" })).toBe(
+      "https://tokengate-cqt9ivzs.manus.space",
+    );
   });
 
   it("prefers GitHub's verified primary address and never accepts an unverified address", () => {

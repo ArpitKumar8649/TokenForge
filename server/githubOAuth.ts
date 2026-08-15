@@ -22,8 +22,8 @@ function getQueryParam(req: Request, key: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-function appOrigin(req: Request) {
-  return `${req.protocol}://${req.get("host")}`;
+export function appOrigin(req: Pick<Request, "protocol" | "hostname">) {
+  return `${req.protocol}://${req.hostname}`;
 }
 
 function callbackUrl(req: Request) {
