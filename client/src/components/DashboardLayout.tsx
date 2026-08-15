@@ -24,6 +24,7 @@ import { Boxes, ChartNoAxesCombined, FlaskConical, KeyRound, LayoutDashboard, Lo
 import { CSSProperties, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Link } from "wouter";
+import { TOKENFORGE_POST_LOGOUT_PATH } from "../../../shared/authNavigation";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { FirstTimeOnboarding } from "./FirstTimeOnboarding";
 import { AnnouncementBanner } from "./AnnouncementBanner";
@@ -120,6 +121,11 @@ function DashboardLayoutContent({
   const sidebarRef = useRef<HTMLDivElement>(null);
   const activeMenuItem = menuItems.find(item => item.path === location);
   const isMobile = useIsMobile();
+
+  const handleSignOut = async () => {
+    await logout();
+    setLocation(TOKENFORGE_POST_LOGOUT_PATH);
+  };
 
   useEffect(() => {
     if (isCollapsed) {
@@ -228,7 +234,7 @@ function DashboardLayoutContent({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuItem
-                  onClick={logout}
+                  onClick={() => void handleSignOut()}
                   className="cursor-pointer text-destructive focus:text-destructive"
                 >
                   <LogOut className="mr-2 h-4 w-4" />

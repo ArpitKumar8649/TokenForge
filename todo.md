@@ -179,3 +179,6 @@
 - [x] Cascade a disabled provider state to every routed model and propagate the resulting unavailability consistently across admin controls, developer surfaces, Playground, and API requests.
 - [x] Replace permissive email-domain handling with a documented allowlist of established international mailbox providers, rejecting unlisted addresses before account creation with clear accepted-domain guidance.
 - [x] Add regression coverage and responsive validation for provider-wide availability updates and the restrictive email-registration experience.
+- [x] Redirect completed TokenForge sign-outs to the public landing page instead of leaving the user in an authenticated-route context.
+- [x] Redesign the public model catalogue cards for cleaner tablet and mobile presentation, removing the unwanted GLM-5.2 and Grok 4.5 background-image treatments.
+- [x] Add regression coverage and visual validation for sign-out navigation plus the redesigned catalogue at mobile and tablet widths.

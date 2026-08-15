@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
 import { COOKIE_NAME } from "../shared/const";
+import { TOKENFORGE_POST_LOGOUT_PATH } from "../shared/authNavigation";
 import type { TrpcContext } from "./_core/context";
 
 type CookieCall = {
@@ -42,6 +43,10 @@ function createAuthContext(): { ctx: TrpcContext; clearedCookies: CookieCall[] }
 }
 
 describe("auth.logout", () => {
+  it("uses the public landing page as the client post-logout destination", () => {
+    expect(TOKENFORGE_POST_LOGOUT_PATH).toBe("/");
+  });
+
   it("clears the session cookie and reports success", async () => {
     const { ctx, clearedCookies } = createAuthContext();
     const caller = appRouter.createCaller(ctx);
