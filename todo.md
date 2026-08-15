@@ -153,3 +153,8 @@
 - [x] Store the requested admin passcode as a server-only secret, provide a mobile-friendly unlock interface, and add authorization and failure-throttle regression coverage.
 - [x] Add a server-enforced “sign out of admin” action that lets the current administrator revoke their own elevated role and returns them to standard-user access.
 - [x] Add responsive confirmation UI, audit logging, and regression coverage for administrator self-revocation.
+- [x] Redesign the protected admin workspace to match the main dashboard’s visual system, navigation hierarchy, spacing, and responsive behavior.
+- [x] Add a protected Accounts section showing live account identity, role, current credit balance, token usage, request volume, and recent activity without exposing secrets.
+- [x] Replace the oversized unlabelled mobile model toggle list with compact, labelled, searchable model availability controls and clear enabled-state feedback.
+- [x] Add admin-data authorization and live-overview regression coverage, then validate the redesigned workspace at desktop and mobile widths.
+- [x] Prune removed model configurations from persisted admin controls so unavailable routes such as `glm-5` do not reappear in the redesigned availability list.

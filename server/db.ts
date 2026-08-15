@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, notInArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createHmac, randomBytes } from "node:crypto";
 import {
@@ -610,6 +610,7 @@ export async function ensureCatalogue() {
       set: { displayName: model.displayName, description: model.description, capabilities: [...model.capabilities], providerSlug: model.providerSlug },
     });
   }
+  await db.delete(modelConfigs).where(notInArray(modelConfigs.modelId, [...TOKENFORGE_MODEL_IDS]));
 }
 
 export async function isModelAvailable(modelId: string) {
@@ -622,6 +623,43 @@ export async function isModelAvailable(modelId: string) {
 
 export function normalizeModelAvailability(rows: Array<{ modelId: string; enabled: boolean; providerEnabled: boolean | null }>) {
   return rows.map(row => ({ modelId: row.modelId, available: Boolean(row.enabled && row.providerEnabled) }));
+}
+
+export type AdminAccountBase = {
+  id: number;
+  name: string | null;
+  email: string | null;
+  role: "admin" | "user";
+  createdAt: Date;
+  lastSignedIn: Date;
+  suspended: boolean | null;
+  suspicious: boolean | null;
+  requestLimit: number | null;
+  tokenLimit: number | null;
+  balanceNanos: number | null;
+};
+
+export type AdminAccountUsage = {
+  userId: number;
+  requestCount: number | null;
+  totalTokens: number | null;
+  lastActivityAt: Date | string | null;
+};
+
+/** Combines separately aggregated sensitive account data without returning any API-key material. */
+export function composeAdminAccountOverview(accounts: AdminAccountBase[], usageRows: AdminAccountUsage[]) {
+  const usageByUser = new Map(usageRows.map(row => [row.userId, row]));
+  return accounts.map(account => {
+    const usage = usageByUser.get(account.id);
+    const lastActivity = usage?.lastActivityAt ? new Date(usage.lastActivityAt) : null;
+    return {
+      ...account,
+      balanceNanos: Number(account.balanceNanos ?? 0),
+      requestCount: Number(usage?.requestCount ?? 0),
+      totalTokens: Number(usage?.totalTokens ?? 0),
+      lastActivityAt: lastActivity && !Number.isNaN(lastActivity.getTime()) ? lastActivity : null,
+    };
+  });
 }
 
 export async function getModelAvailabilitySnapshot() {
@@ -643,13 +681,14 @@ export async function getAdminOverview() {
   await ensureCatalogue();
   const db = await getDb();
   if (!db) return { models: [], providers: [], accounts: [], usage: [] };
-  const [models, providers, accounts, usage] = await Promise.all([
+  const [models, providers, accounts, usage, accountUsage] = await Promise.all([
     db.select().from(modelConfigs).orderBy(modelConfigs.displayName),
     db.select().from(providerConfigs).orderBy(providerConfigs.displayName),
-    db.select({ id: users.id, name: users.name, email: users.email, role: users.role, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit }).from(users).leftJoin(accountControls, eq(users.id, accountControls.userId)).orderBy(desc(users.lastSignedIn)).limit(100),
+    db.select({ id: users.id, name: users.name, email: users.email, role: users.role, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos }).from(users).leftJoin(accountControls, eq(users.id, accountControls.userId)).leftJoin(creditAccounts, eq(users.id, creditAccounts.userId)).orderBy(desc(users.lastSignedIn)).limit(100),
     db.select({ day: dailyUsage.usageDate, requests: sql<number>`coalesce(sum(${dailyUsage.requestCount}), 0)`, tokens: sql<number>`coalesce(sum(${dailyUsage.totalTokens}), 0)` }).from(dailyUsage).where(gte(dailyUsage.usageDate, utcUsageDate(new Date(Date.now() - 13 * 86_400_000)))).groupBy(dailyUsage.usageDate).orderBy(dailyUsage.usageDate),
+    db.select({ userId: usageEvents.userId, requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, lastActivityAt: sql<Date | null>`max(${usageEvents.createdAt})` }).from(usageEvents).groupBy(usageEvents.userId),
   ]);
-  return { models, providers, accounts, usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })) };
+  return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })) };
 }
 
 export async function setModelEnabled(modelId: string, enabled: boolean) {
