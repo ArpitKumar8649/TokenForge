@@ -192,3 +192,6 @@
 - [x] Add regression coverage and document the exact GitHub OAuth callback URL required for the current production domain.
 - [x] Align GitHub OAuth callback construction to TokenForge’s stable public domain rather than the internal deployment runtime hostname, then verify the published authorization redirect.
 - [x] Diagnose the TLS failure at `api.tokenforge.dev`, validate the deployed TokenForge API endpoint, and provide the required custom-domain or client-endpoint remediation.
+- [x] Standardize the hosted TokenForge API base URL across documentation, API guidance, and developer-facing product surfaces.
+- [x] Add a copyable dashboard cURL example that uses a newly created key in the current session and otherwise shows a safe placeholder format.
+- [x] Add regression coverage and responsive validation for base-URL consistency and dashboard cURL guidance.

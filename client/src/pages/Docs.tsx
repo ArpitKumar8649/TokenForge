@@ -5,18 +5,9 @@ import { TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
 import { Copy, KeyRound, Terminal, Wifi } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { buildTokenForgeCurl, TOKENFORGE_API_BASE_URL } from "../../../shared/tokenforgeApi";
 
-const example = `curl https://api.tokenforge.dev/v1/chat/completions \\
-  -H "Authorization: Bearer tf_live_your_key" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "model": "glm-5.2",
-    "messages": [{
-      "role": "user",
-      "content": "Explain vector search in three lines."
-    }],
-    "stream": true
-  }'`;
+const example = buildTokenForgeCurl();
 
 const errorRows = [
   ["invalid_api_key", "401", "The supplied TokenForge key is missing, invalid, or revoked."],
@@ -51,7 +42,7 @@ export default function Docs() {
           <h1>Designed to disappear<br />into your existing stack.</h1>
           <p className="docs-lead">TokenForge uses familiar OpenAI-compatible request shapes, precise error responses, and transparent quota headers so you spend less time adapting infrastructure.</p>
 
-          <section id="overview" className="docs-section"><h2>Overview</h2><p>The public API is versioned under <code>/v1</code>. Every response includes a <code>x-request-id</code> header so a request can be traced without retaining your prompt content in product analytics.</p></section>
+          <section id="overview" className="docs-section"><h2>Overview</h2><p>The public API is versioned under <code>/v1</code>. Use <code>{TOKENFORGE_API_BASE_URL}</code> as the hosted base URL. Every response includes a <code>x-request-id</code> header so a request can be traced without retaining your prompt content in product analytics.</p></section>
           <section id="authentication" className="docs-section"><h2><KeyRound size={19} /> Authentication</h2><p>Create a TokenForge key from your dashboard and send it through the standard bearer header. The full secret appears once at creation. After that, only a non-reversible hash is retained.</p><pre><code>Authorization: Bearer tf_live_your_key</code></pre></section>
           <section id="completions" className="docs-section"><h2><Terminal size={19} /> Chat completions</h2><p><code>POST /v1/chat/completions</code> accepts messages and returns the familiar chat-completion response envelope. Set <code>stream: true</code> to receive server-sent events.</p><div className="code-panel"><div className="code-panel__bar"><span>cURL</span><button onClick={copyExample}>{copied ? "Copied" : "Copy"} <Copy size={14} /></button></div><pre><code>{example}</code></pre></div></section>
           <section id="models" className="docs-section"><h2>Models & credit rates</h2><p>Use <code>GET /v1/models</code> to discover models currently enabled for the gateway. TokenForge currently exposes {TOKENFORGE_MODELS.length} verified text-chat routes. Model pages show the final TokenForge credit rate: the source-linked upstream input/output rate multiplied by <strong>1.5</strong> for the TokenForge platform charge. Image, audio, embedding, transcription, and modality-specific routes remain excluded.</p><div className="docs-model-badges">{TOKENFORGE_MODELS.map(model => <Badge key={model.id} variant="secondary">{model.id}</Badge>)}</div><p>Credits are reserved from the maximum requested output allowance before execution, then settled from provider-reported input and output tokens only after a successful request. Failed or cancelled requests release their reservation and receive no usage debit. See the <a href="/models">model catalogue</a> for final credit rates, source-linked upstream rates, and provider details.</p></section>

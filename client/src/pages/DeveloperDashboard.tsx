@@ -15,6 +15,7 @@ import "../dashboard.css";
 import Playground from "./Playground";
 import { CreditOverview, Profile, UsageLogs } from "./CreditWorkspace";
 import { DashboardModels } from "./DashboardModels";
+import { buildTokenForgeCurl, TOKENFORGE_API_BASE_URL } from "../../../shared/tokenforgeApi";
 
 type Section = "overview" | "keys" | "usage" | "playground" | "profile" | "models" | "model";
 type UsageData = {
@@ -39,7 +40,24 @@ function KeySecret({ value, onDismiss }: { value: string; onDismiss: () => void 
 type NewApiKeyResult = {
   key: string;
   record: { id: number; label: string; prefix: string; status: "active" | "revoked"; createdAt: Date };
-};
+}
+
+function CurlExample({ apiKey }: { apiKey?: string }) {
+  const [copied, setCopied] = useState(false);
+  const command = buildTokenForgeCurl(apiKey);
+  const copy = async () => {
+    await navigator.clipboard.writeText(command);
+    setCopied(true);
+    toast.success(apiKey ? "cURL command with your new key copied" : "cURL template copied to clipboard");
+    window.setTimeout(() => setCopied(false), 1500);
+  };
+
+  return <section className="rounded-xl border border-white/10 bg-[#111218] p-4" aria-labelledby="curl-example-title">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#befe6c]">Hosted endpoint</p><h3 id="curl-example-title" className="mt-1 text-sm font-bold text-white">Make your first request</h3><p className="mt-1 text-xs leading-5 text-[#9fa0af]">{apiKey ? "This one-time command contains the new plaintext key shown above. Save it securely before dismissing." : "Create or rotate a key to populate this command automatically. Until then, it uses a safe placeholder."}</p></div><Button variant="outline" size="sm" className="border-white/15 text-[#e4e4ea] hover:bg-white/10" onClick={copy}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy cURL"}</Button></div>
+    <p className="mt-3 break-all rounded-lg border border-white/8 bg-black/20 px-3 py-2 font-mono text-[10px] text-[#bfc0ca]">{TOKENFORGE_API_BASE_URL}</p>
+    <pre className="mt-3 overflow-x-auto rounded-lg border border-white/8 bg-[#08090d] p-3"><code className="font-mono text-[11px] leading-5 text-[#dfe0e7]">{command}</code></pre>
+  </section>;
+}
 
 function KeyCreateForm({ onSuccess }: { onSuccess: (value: NewApiKeyResult) => void }) {
   const [label, setLabel] = useState("");
@@ -68,7 +86,7 @@ function ApiKeyList() {
     toast.success("Key rotated — copy the new secret now");
   }, onError: error => toast.error(error.message) });
   if (keys.isLoading) return <div className="grid min-h-48 place-items-center rounded-xl border border-white/10 bg-[#15161f]"><Loader2 className="animate-spin text-[#b89aff]" /></div>;
-  return <div className="space-y-3">{plainTextKey && <KeySecret value={plainTextKey} onDismiss={() => setPlainTextKey(null)} />}<KeyCreateForm onSuccess={showNewKey} />{keys.data?.length ? <div className="overflow-hidden rounded-xl border border-white/10 bg-[#15161f]">{keys.data.map(key => <div key={key.id} className="flex flex-wrap items-center gap-3 border-b border-white/8 p-4 last:border-0"><div className="grid h-9 w-9 place-items-center rounded-lg bg-white/5 text-[#cbb7ff]"><KeyRound size={16} /></div><div className="min-w-40 flex-1"><p className="text-xs font-bold text-white">{key.label}</p><code className="mt-1 block font-mono text-[10px] text-[#9394a7]">{key.prefix}</code></div><div className="text-[10px] text-[#8e8fa1]">Created {new Date(key.createdAt).toLocaleDateString()}</div><Badge className={key.status === "active" ? "border-0 bg-[#7debbd]/10 text-[#8aefc0]" : "border-0 bg-red-400/10 text-red-300"}>{key.status}</Badge>{key.status === "active" && <div className="flex gap-1"><Button variant="ghost" size="sm" title="Rotate key" className="text-[#c7c5d2] hover:bg-white/8 hover:text-white" disabled={rotate.isPending} onClick={() => rotate.mutate({ apiKeyId: key.id, label: `${key.label.slice(0, 85)} · rotated` })}><RefreshCw size={14} /></Button><Button variant="ghost" size="sm" title="Revoke key" className="text-[#d69ca6] hover:bg-red-400/10 hover:text-red-200" disabled={revoke.isPending} onClick={() => revoke.mutate({ apiKeyId: key.id })}><Trash2 size={14} /></Button></div>}</div>)}</div> : <div className="rounded-xl border border-dashed border-white/12 p-8 text-center"><KeyRound className="mx-auto text-[#77788b]" size={22} /><p className="mt-3 text-sm font-bold text-white">No keys yet</p><p className="mt-1 text-xs text-[#9394a7]">Create a labeled key above to begin making requests.</p></div>}</div>;
+  return <div className="space-y-3">{plainTextKey && <KeySecret value={plainTextKey} onDismiss={() => setPlainTextKey(null)} />}<CurlExample apiKey={plainTextKey ?? undefined} /><KeyCreateForm onSuccess={showNewKey} />{keys.data?.length ? <div className="overflow-hidden rounded-xl border border-white/10 bg-[#15161f]">{keys.data.map(key => <div key={key.id} className="flex flex-wrap items-center gap-3 border-b border-white/8 p-4 last:border-0"><div className="grid h-9 w-9 place-items-center rounded-lg bg-white/5 text-[#cbb7ff]"><KeyRound size={16} /></div><div className="min-w-40 flex-1"><p className="text-xs font-bold text-white">{key.label}</p><code className="mt-1 block font-mono text-[10px] text-[#9394a7]">{key.prefix}</code></div><div className="text-[10px] text-[#8e8fa1]">Created {new Date(key.createdAt).toLocaleDateString()}</div><Badge className={key.status === "active" ? "border-0 bg-[#7debbd]/10 text-[#8aefc0]" : "border-0 bg-red-400/10 text-red-300"}>{key.status}</Badge>{key.status === "active" && <div className="flex gap-1"><Button variant="ghost" size="sm" title="Rotate key" className="text-[#c7c5d2] hover:bg-white/8 hover:text-white" disabled={rotate.isPending} onClick={() => rotate.mutate({ apiKeyId: key.id, label: `${key.label.slice(0, 85)} · rotated` })}><RefreshCw size={14} /></Button><Button variant="ghost" size="sm" title="Revoke key" className="text-[#d69ca6] hover:bg-red-400/10 hover:text-red-200" disabled={revoke.isPending} onClick={() => revoke.mutate({ apiKeyId: key.id })}><Trash2 size={14} /></Button></div>}</div>)}</div> : <div className="rounded-xl border border-dashed border-white/12 p-8 text-center"><KeyRound className="mx-auto text-[#77788b]" size={22} /><p className="mt-3 text-sm font-bold text-white">No keys yet</p><p className="mt-1 text-xs text-[#9394a7]">Create a labeled key above to begin making requests.</p></div>}</div>;
 }
 
 function UsageChart({ daily }: { daily: { day: string; requests: number; tokens: number }[] }) {
