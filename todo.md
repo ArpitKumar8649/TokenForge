@@ -191,3 +191,4 @@
 - [x] Diagnose and correct the GitHub OAuth redirect URI mismatch for TokenForge’s deployed domain while preserving PKCE and state protections.
 - [x] Add regression coverage and document the exact GitHub OAuth callback URL required for the current production domain.
 - [x] Align GitHub OAuth callback construction to TokenForge’s stable public domain rather than the internal deployment runtime hostname, then verify the published authorization redirect.
+- [x] Diagnose the TLS failure at `api.tokenforge.dev`, validate the deployed TokenForge API endpoint, and provide the required custom-domain or client-endpoint remediation.
