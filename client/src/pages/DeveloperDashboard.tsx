@@ -54,10 +54,10 @@ function CurlExample({ apiKey }: { apiKey?: string }) {
     window.setTimeout(() => setCopied(false), 1500);
   };
 
-  return <section className="rounded-xl border border-white/10 bg-[#111218] p-4" aria-labelledby="curl-example-title">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#befe6c]">Hosted endpoint</p><h3 id="curl-example-title" className="mt-1 text-sm font-bold text-white">Make your first request</h3><p className="mt-1 text-xs leading-5 text-[#9fa0af]">{apiKey ? "This one-time command contains the new plaintext key shown above. Save it securely before dismissing." : "Create or rotate a key to populate this command automatically. Until then, it uses a safe placeholder."}</p></div><Button variant="outline" size="sm" className="border-white/15 text-[#e4e4ea] hover:bg-white/10" onClick={copy}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy cURL"}</Button></div>
+  return <section className="min-w-0 overflow-hidden rounded-xl border border-white/10 bg-[#111218] p-4" aria-labelledby="curl-example-title">
+    <div className="flex min-w-0 flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#befe6c]">Hosted endpoint</p><h3 id="curl-example-title" className="mt-1 text-sm font-bold text-white">Make your first request</h3><p className="mt-1 text-xs leading-5 text-[#9fa0af]">{apiKey ? "This one-time command contains the new plaintext key shown above. Save it securely before dismissing." : "Create or rotate a key to populate this command automatically. Until then, it uses a safe placeholder."}</p></div><Button variant="outline" size="sm" className="shrink-0 border-white/15 text-[#e4e4ea] hover:bg-white/10" onClick={copy}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy cURL"}</Button></div>
     <p className="mt-3 break-all rounded-lg border border-white/8 bg-black/20 px-3 py-2 font-mono text-[10px] text-[#bfc0ca]">{TOKENFORGE_API_BASE_URL}</p>
-    <pre className="mt-3 overflow-x-auto rounded-lg border border-white/8 bg-[#08090d] p-3"><code className="font-mono text-[11px] leading-5 text-[#dfe0e7]">{command}</code></pre>
+    <pre className="mt-3 w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded-lg border border-white/8 bg-[#08090d] p-3"><code className="block min-w-max font-mono text-[11px] leading-5 text-[#dfe0e7]">{command}</code></pre>
   </section>;
 }
 
@@ -76,14 +76,14 @@ function SdkQuickStart({ apiKey }: { apiKey?: string }) {
     window.setTimeout(() => setCopied(false), 1500);
   };
 
-  return <section className="rounded-xl border border-white/10 bg-[#111218] p-4" aria-labelledby="sdk-quickstart-title">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#befe6c]">OpenAI-compatible SDKs</p><h3 id="sdk-quickstart-title" className="mt-1 text-sm font-bold text-white">Start from your language</h3><p className="mt-1 max-w-xl text-xs leading-5 text-[#9fa0af]">Use the standard OpenAI SDK with TokenForge’s hosted base URL. {apiKey ? "The selected snippet includes the new plaintext key shown above." : "Create or rotate a key to populate a selected snippet automatically."}</p></div><Button variant="outline" size="sm" className="border-white/15 text-[#e4e4ea] hover:bg-white/10" onClick={copy}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy code"}</Button></div>
+  return <section className="min-w-0 overflow-hidden rounded-xl border border-white/10 bg-[#111218] p-4" aria-labelledby="sdk-quickstart-title">
+    <div className="flex min-w-0 flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-[#befe6c]">OpenAI-compatible SDKs</p><h3 id="sdk-quickstart-title" className="mt-1 text-sm font-bold text-white">Start from your language</h3><p className="mt-1 max-w-xl text-xs leading-5 text-[#9fa0af]">Use the standard OpenAI SDK with TokenForge’s hosted base URL. {apiKey ? "The selected snippet includes the new plaintext key shown above." : "Create or rotate a key to populate a selected snippet automatically."}</p></div><Button variant="outline" size="sm" className="shrink-0 border-white/15 text-[#e4e4ea] hover:bg-white/10" onClick={copy}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? "Copied" : "Copy code"}</Button></div>
     <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="SDK language">
       <button type="button" role="tab" aria-selected={isJavaScript} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${isJavaScript ? "border-[#befe6c]/40 bg-[#befe6c]/10 text-[#d9ff9d]" : "border-white/10 bg-black/15 text-[#a9aab7] hover:bg-white/5 hover:text-white"}`} onClick={() => setLanguage("javascript")}>JavaScript</button>
       <button type="button" role="tab" aria-selected={!isJavaScript} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${!isJavaScript ? "border-[#befe6c]/40 bg-[#befe6c]/10 text-[#d9ff9d]" : "border-white/10 bg-black/15 text-[#a9aab7] hover:bg-white/5 hover:text-white"}`} onClick={() => setLanguage("python")}>Python</button>
     </div>
-    <div className="mt-3 flex items-center gap-2 text-[11px] text-[#a7a8b5]"><span className="font-semibold text-[#d6d6df]">Install:</span><code className="rounded border border-white/10 bg-black/20 px-2 py-1 font-mono text-[#dfe0e7]">{installCommand}</code></div>
-    <pre className="mt-3 overflow-x-auto rounded-lg border border-white/8 bg-[#08090d] p-3"><code className="font-mono text-[11px] leading-5 text-[#dfe0e7]">{code}</code></pre>
+    <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[#a7a8b5]"><span className="font-semibold text-[#d6d6df]">Install:</span><code className="max-w-full overflow-x-auto rounded border border-white/10 bg-black/20 px-2 py-1 font-mono text-[#dfe0e7]">{installCommand}</code></div>
+    <pre className="mt-3 w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded-lg border border-white/8 bg-[#08090d] p-3"><code className="block min-w-max font-mono text-[11px] leading-5 text-[#dfe0e7]">{code}</code></pre>
   </section>;
 }
 

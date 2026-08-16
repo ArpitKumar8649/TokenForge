@@ -1,6 +1,5 @@
 import { PublicNav } from "@/components/PublicNav";
 import { TokenForgeGlyph } from "@/components/TokenForgeGlyph";
-import { ProviderMark } from "@/components/ProviderMark";
 import { Badge } from "@/components/ui/badge";
 import { formatTokenForgeCreditRatePerMillion, TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
 import { Braces, ExternalLink, Gauge, MessageCircle } from "lucide-react";
@@ -28,10 +27,7 @@ export default function Models() {
           {TOKENFORGE_MODELS.map((model) => (
             <article key={model.id} className={`model-detail-card model-detail-card--${model.tone}`}>
               <header className="model-detail-card__header">
-                <span className={`model-provider-glyph model-provider-glyph--${model.tone}`}>
-                  <ProviderMark provider={model.provider} fallback={model.providerMark} size={18} />
-                </span>
-                <span className="model-provider-name">{model.provider}</span>
+                <span className="model-provider-name">Text model</span>
                 <Badge variant="secondary">Available</Badge>
               </header>
 

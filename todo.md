@@ -237,3 +237,5 @@
 - [x] Add Playground-only internal guidance that makes responses useful, detailed, and clearly structured for both simple and complex prompts without changing external API-call behavior.
 - [x] Probe the configured Claude Opus 5 upstream for native Anthropic Messages compatibility and extend TokenForge’s `/v1/messages` support only if the upstream contract validates safely.
 - [x] Remove all user-facing provider-route, provider-brand, and upstream-routing labels such as “TokenHarbor flash route” and “shared flash route” from TokenForge model and Playground surfaces while preserving neutral model information.
+- [x] Remove unreliable model-image and provider-mark treatments from the catalogue and Playground model selection, replacing them with a clear responsive text-only model identity treatment.
+- [x] Make the Overview cURL and Python quick-start panels fully mobile-responsive, with safe wrapping and horizontal code scrolling rather than viewport overflow.

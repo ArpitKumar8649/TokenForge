@@ -3,7 +3,6 @@ import { AIChatBox, type Message } from "@/components/AIChatBox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ProviderMark } from "@/components/ProviderMark";
 import { TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
 import { trpc } from "@/lib/trpc";
 import { ChevronDown, CircleDollarSign, Cpu, Radio, RotateCcw, Search, ShieldCheck, SlidersHorizontal, Sparkles, Thermometer, WandSparkles, X } from "lucide-react";
@@ -174,8 +173,7 @@ export default function Playground() {
           <section className="playground-model-selection">
             <div className="playground-panel-title"><Cpu size={15} /><span>Selected model</span></div>
             <div className="playground-model-picker">
-              <span className={`playground-model-orb playground-model-orb--${activeModel.tone}`}><ProviderMark provider={activeModel.provider} fallback={activeModel.providerMark} size={20} /></span>
-              <div className="playground-model-picker__selected"><span>{activeModel.provider} · {activeModel.eyebrow}</span><strong>{activeModel.name}</strong></div>
+              <div className="playground-model-picker__selected"><span>Text model</span><strong>{activeModel.name}</strong></div>
               <button type="button" className="playground-model-picker__toggle" onClick={() => { setIsModelMenuOpen(value => !value); setModelSearch(""); }} disabled={complete.isPending || isStreaming} aria-expanded={isModelMenuOpen} aria-haspopup="listbox" aria-label="Choose a model"><ChevronDown size={15} /></button>
               {isModelMenuOpen ? <div className="playground-model-menu" role="dialog" aria-label="Find a text model">
                 <div className="playground-model-menu__head"><span>Choose a text model</span><b>{TOKENFORGE_MODELS.length} routes</b></div>
@@ -183,7 +181,7 @@ export default function Playground() {
                 <div className="playground-model-menu__options" role="listbox" aria-label="Available text models">
                   {visibleModelOptions.length ? visibleModelOptions.map((candidate, index) => {
                     const isAvailable = availabilityByModelId.get(candidate.id) ?? false;
-                    return <button type="button" role="option" aria-selected={candidate.id === model} key={candidate.id} className={`playground-model-menu__option${candidate.id === model ? " playground-model-menu__option--active" : ""}`} onClick={() => { if (!isAvailable) return; setModel(candidate.id); setIsModelMenuOpen(false); setModelSearch(""); }} disabled={!isAvailable}><span className={`playground-model-orb playground-model-orb--${candidate.tone}`}><ProviderMark provider={candidate.provider} fallback={candidate.providerMark} size={18} /></span><span><b>{candidate.name}</b><small>{candidate.provider} · {candidate.eyebrow}</small></span><i className={isAvailable ? "playground-model-status playground-model-status--online" : "playground-model-status"}><em />{modelAvailability.isLoading ? "Checking" : isAvailable ? "Live" : "Unavailable"}</i>{index < 2 && !normalizedSearch ? <strong>Featured</strong> : null}</button>;
+                    return <button type="button" role="option" aria-selected={candidate.id === model} key={candidate.id} className={`playground-model-menu__option${candidate.id === model ? " playground-model-menu__option--active" : ""}`} onClick={() => { if (!isAvailable) return; setModel(candidate.id); setIsModelMenuOpen(false); setModelSearch(""); }} disabled={!isAvailable}><span className="sr-only" aria-hidden="true" /><span><b>{candidate.name}</b><small>{candidate.eyebrow}</small></span><i className={isAvailable ? "playground-model-status playground-model-status--online" : "playground-model-status"}><em />{modelAvailability.isLoading ? "Checking" : isAvailable ? "Live" : "Unavailable"}</i>{index < 2 && !normalizedSearch ? <strong>Featured</strong> : null}</button>;
                   }) : <div className="playground-model-menu__empty"><Search size={16} /><b>No model found</b><span>Try a provider name or model ID.</span></div>}
                 </div>
               </div> : null}
