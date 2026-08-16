@@ -21,8 +21,9 @@ import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 import { invalidateOrcaRouterCredentialPool, resetOrcaRouterSlotRequestCounts } from "./orcaRouterCredentials";
+import { resetTokenRouterCredentialRotation } from "./tokenRouterCredentials";
 import { getProviderCredentialTelemetry, resetProviderCredentialTelemetry } from "./providerCredentialTelemetry";
-import { FXQIDIAN_PROVIDER_SLUG } from "./modelCatalogue";
+import { FXQIDIAN_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG } from "./modelCatalogue";
 
 const availableQuota = {
   day: "2026-08-14",
@@ -53,6 +54,8 @@ beforeEach(() => {
   process.env.CLAUDE_OPUS5_MODEL = "upstream-claude-opus-5";
   process.env.TOKENROUTER_BASE_URL = "https://tokenrouter.example";
   process.env.TOKENROUTER_API_KEY = "server-only-tokenrouter-secret";
+  process.env.TOKENROUTER_API_KEY_2 = "server-only-tokenrouter-secret-2";
+  process.env.TOKENROUTER_API_KEY_3 = "server-only-tokenrouter-secret-3";
   process.env.TOKENROUTER_MODEL = "qwen/qwen3.8-max-free";
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
@@ -68,6 +71,7 @@ beforeEach(() => {
   resetFxqidianCredentialRotation();
   invalidateOrcaRouterCredentialPool();
   resetOrcaRouterSlotRequestCounts();
+  resetTokenRouterCredentialRotation();
   resetProviderCredentialTelemetry();
 });
 
@@ -305,6 +309,30 @@ describe("TokenForge Playground gateway", () => {
     expect(forwardedPayload.messages[0].content).toContain("useful, detailed, and clearly structured");
     expect(forwardedPayload.messages[1]).toEqual({ role: "user", content: "Explain safe model routing." });
     expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-tokenrouter-secret");
+  });
+
+  it("fails over Qwen 3.8 Max to the next TokenRouter credential after a retryable provider response", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Temporary capacity" } }), { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await forwardProviderRequest("qwen3.8-max", {
+      model: "qwen3.8-max",
+      messages: [{ role: "user", content: "Retry safely." }],
+    }, new AbortController().signal);
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://tokenrouter.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret" }),
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "https://tokenrouter.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret-2" }),
+    }));
+    expect(getProviderCredentialTelemetry({ [TOKENROUTER_PROVIDER_SLUG]: 3 }).find(provider => provider.providerSlug === TOKENROUTER_PROVIDER_SLUG)).toMatchObject({
+      poolSize: 3,
+      failoverCount: 1,
+    });
   });
 
   it("consolidates Qwen 3.8 Max Playground and user instructions into exactly one system message", () => {

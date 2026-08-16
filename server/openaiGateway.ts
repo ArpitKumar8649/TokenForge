@@ -15,6 +15,7 @@ import { raiseOperationalAlert } from "./operationalAlerts";
 import { selectNextClusterProtocolCredentialWithSlot } from "./clusterProtocolCredentials";
 import { selectNextFxqidianCredentialWithSlot } from "./fxqidianCredentials";
 import { selectNextOrcaRouterCredentialWithSlot } from "./orcaRouterCredentials";
+import { selectNextTokenRouterCredentialWithSlot } from "./tokenRouterCredentials";
 import { isCredentialSlotEligible, recordCredentialFailover, recordCredentialFailure, recordCredentialSuccess, type CredentialTelemetryProvider } from "./providerCredentialTelemetry";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, getTokenForgeProviderSlug, getTokenForgeUpstreamModelId, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, type TokenForgeModelId } from "./modelCatalogue";
@@ -270,24 +271,17 @@ async function forwardClaudeOpus5Request(input: ChatInput, signal: AbortSignal) 
 
 async function forwardTokenRouterRequest(input: ChatInput, signal: AbortSignal) {
   const base = process.env.TOKENROUTER_BASE_URL?.replace(/\/$/, "");
-  const secret = process.env.TOKENROUTER_API_KEY;
   const configuredModel = process.env.TOKENROUTER_MODEL?.trim();
-  if (!base || !secret || !configuredModel) throw new Error("TokenForge TokenRouter inference is not configured");
+  if (!base || !configuredModel) throw new Error("TokenForge TokenRouter inference is not configured");
   const requestBody = { ...input, model: input.model === "qwen3.8-max" ? configuredModel : getTokenForgeUpstreamModelId(String(input.model)) };
-  try {
-    const response = await fetch(`${base}/v1/chat/completions`, {
+  return forwardWithCredentialFailover(TOKENROUTER_PROVIDER_SLUG, input, signal, selectNextTokenRouterCredentialWithSlot, credential =>
+    fetch(`${base}/v1/chat/completions`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
+      headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
       body: JSON.stringify(requestBody),
       signal,
-    });
-    if (response.ok || !retryableProviderStatus(response.status)) recordCredentialSuccess(TOKENROUTER_PROVIDER_SLUG, 0);
-    else recordCredentialFailure(TOKENROUTER_PROVIDER_SLUG, 0);
-    return response;
-  } catch (error) {
-    recordCredentialFailure(TOKENROUTER_PROVIDER_SLUG, 0);
-    throw error;
-  }
+    }),
+  );
 }
 
 export async function forwardProviderRequest(model: TokenForgeModelId, input: TokenForgeChatInput, signal: AbortSignal) {

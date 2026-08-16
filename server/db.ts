@@ -30,6 +30,7 @@ import { DAILY_CHECKIN_CREDIT_NANOS, INTRODUCTORY_CREDIT_NANOS, NANODOLLARS_PER_
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, TOKENFORGE_MODEL_IDS, type TokenForgeModelId } from "./modelCatalogue";
 import { getClusterProtocolCredentialPool } from "./clusterProtocolCredentials";
 import { getFxqidianCredentialPool } from "./fxqidianCredentials";
+import { getTokenRouterCredentialPool } from "./tokenRouterCredentials";
 import { getProviderCredentialTelemetry } from "./providerCredentialTelemetry";
 import { encryptOrcaRouterCredential } from "./orcaRouterCredentialVault";
 import { TOKENFORGE_REFERRAL_REWARD_NANOS, normalizeReferralCode } from "../shared/referrals";
@@ -1259,7 +1260,7 @@ export async function getAdminOverview() {
     [CLUSTER_PROTOCOL_PROVIDER_SLUG]: getClusterProtocolCredentialPool().length,
     [TOKENHARBOR_PROVIDER_SLUG]: process.env.TOKENHARBOR_API_KEY?.trim() ? 1 : 0,
     [CLAUDE_OPUS5_PROVIDER_SLUG]: process.env.CLAUDE_OPUS5_API_KEY?.trim() ? 1 : 0,
-    [TOKENROUTER_PROVIDER_SLUG]: process.env.TOKENROUTER_API_KEY?.trim() ? 1 : 0,
+    [TOKENROUTER_PROVIDER_SLUG]: getTokenRouterCredentialPool().length,
   });
   return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })), emailProviders: normalizeAdminEmailProviderCounts(emailProviderRows), allAccountModelUsage: normalizeAdminGlobalModelUsage(allAccountModelUsageRows), totals: { totalTokens: Number(totals[0]?.totalTokens ?? 0), totalRequests: Number(totals[0]?.totalRequests ?? 0) }, providerTelemetry };
 }
