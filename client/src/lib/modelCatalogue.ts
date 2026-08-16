@@ -52,6 +52,13 @@ export const TOKENFORGE_MODELS: CatalogueModel[] = [
   model("qwen3.7-max", "Qwen3.7 Max", "Alibaba Cloud", "Q", "lime", 2.5, 7.5, "Qwen flagship", "Alibaba Cloud’s Qwen flagship for advanced reasoning and coding tasks.", ["Reasoning", "Long context", "Streaming", "Coding"], "Alibaba Cloud Model Studio pricing", "https://www.alibabacloud.com/help/en/model-studio/model-pricing"),
 ];
 
+export const PLAYGROUND_FEATURED_MODEL_IDS = ["claude-opus-5", "kimi-k3", "qwen3.7-max"] as const;
+
+export function prioritizePlaygroundModels<T extends { id: string }>(models: readonly T[]) {
+  const featured = PLAYGROUND_FEATURED_MODEL_IDS.flatMap(id => models.filter(model => model.id === id));
+  return [...featured, ...models.filter(model => !PLAYGROUND_FEATURED_MODEL_IDS.includes(model.id as (typeof PLAYGROUND_FEATURED_MODEL_IDS)[number]))];
+}
+
 export const formatUsdPerMillion = (value: number) => `$${value.toFixed(2)}`;
 export const TOKENFORGE_PLATFORM_CHARGE_MULTIPLIER = 1.5;
 export const tokenForgeCreditRatePerMillion = (upstreamRate: number) => upstreamRate * TOKENFORGE_PLATFORM_CHARGE_MULTIPLIER;

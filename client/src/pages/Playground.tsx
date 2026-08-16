@@ -3,7 +3,7 @@ import { AIChatBox, type Message } from "@/components/AIChatBox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
+import { PLAYGROUND_FEATURED_MODEL_IDS, prioritizePlaygroundModels, TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
 import { trpc } from "@/lib/trpc";
 import { ChevronDown, CircleDollarSign, Cpu, Radio, RotateCcw, Search, ShieldCheck, SlidersHorizontal, Sparkles, Thermometer, WandSparkles, X } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -138,11 +138,7 @@ export default function Playground() {
   };
 
   const activeModel = TOKENFORGE_MODELS.find(candidate => candidate.id === model) ?? TOKENFORGE_MODELS[0];
-  const modelOptions = useMemo(() => {
-    const featuredIds = ["kimi-k3", "qwen3.7-max"];
-    const featured = featuredIds.flatMap(id => TOKENFORGE_MODELS.filter(candidate => candidate.id === id));
-    return [...featured, ...TOKENFORGE_MODELS.filter(candidate => !featuredIds.includes(candidate.id))];
-  }, []);
+  const modelOptions = useMemo(() => prioritizePlaygroundModels(TOKENFORGE_MODELS), []);
   const availabilityByModelId = useMemo(() => new Map(modelAvailability.data?.map(item => [item.modelId, item.available]) ?? []), [modelAvailability.data]);
   const normalizedSearch = modelSearch.trim().toLowerCase();
   const visibleModelOptions = useMemo(() => modelOptions.filter(candidate => {
@@ -181,12 +177,12 @@ export default function Playground() {
                 <div className="playground-model-menu__options" role="listbox" aria-label="Available text models">
                   {visibleModelOptions.length ? visibleModelOptions.map((candidate, index) => {
                     const isAvailable = availabilityByModelId.get(candidate.id) ?? false;
-                    return <button type="button" role="option" aria-selected={candidate.id === model} key={candidate.id} className={`playground-model-menu__option${candidate.id === model ? " playground-model-menu__option--active" : ""}`} onClick={() => { if (!isAvailable) return; setModel(candidate.id); setIsModelMenuOpen(false); setModelSearch(""); }} disabled={!isAvailable}><span className="sr-only" aria-hidden="true" /><span><b>{candidate.name}</b><small>{candidate.eyebrow}</small></span><i className={isAvailable ? "playground-model-status playground-model-status--online" : "playground-model-status"}><em />{modelAvailability.isLoading ? "Checking" : isAvailable ? "Live" : "Unavailable"}</i>{index < 2 && !normalizedSearch ? <strong>Featured</strong> : null}</button>;
+                    return <button type="button" role="option" aria-selected={candidate.id === model} key={candidate.id} className={`playground-model-menu__option${candidate.id === model ? " playground-model-menu__option--active" : ""}`} onClick={() => { if (!isAvailable) return; setModel(candidate.id); setIsModelMenuOpen(false); setModelSearch(""); }} disabled={!isAvailable}><span className="sr-only" aria-hidden="true" /><span><b>{candidate.name}</b><small>{candidate.eyebrow}</small></span><i className={isAvailable ? "playground-model-status playground-model-status--online" : "playground-model-status"}><em />{modelAvailability.isLoading ? "Checking" : isAvailable ? "Live" : "Unavailable"}</i>{PLAYGROUND_FEATURED_MODEL_IDS.includes(candidate.id as (typeof PLAYGROUND_FEATURED_MODEL_IDS)[number]) && !normalizedSearch ? <strong>Featured</strong> : null}</button>;
                   }) : <div className="playground-model-menu__empty"><Search size={16} /><b>No model found</b><span>Try a provider name or model ID.</span></div>}
                 </div>
               </div> : null}
             </div>
-            <p className="playground-model-route"><b><span className={isActiveModelAvailable ? "playground-live-dot" : "playground-live-dot playground-live-dot--offline"} />{modelAvailability.isLoading ? "Checking availability" : isActiveModelAvailable ? "Live" : "Temporarily unavailable"}</b> · Kimi K3 is featured first · {TOKENFORGE_MODELS.length} verified text routes · {activeModel.capabilities.join(" · ")}</p>
+            <p className="playground-model-route"><b><span className={isActiveModelAvailable ? "playground-live-dot" : "playground-live-dot playground-live-dot--offline"} />{modelAvailability.isLoading ? "Checking availability" : isActiveModelAvailable ? "Live" : "Temporarily unavailable"}</b> · Claude Opus 5 is pinned first · {TOKENFORGE_MODELS.length} verified text routes · {activeModel.capabilities.join(" · ")}</p>
           </section>
 
           <div className="playground-divider" />
