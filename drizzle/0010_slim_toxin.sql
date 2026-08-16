@@ -1,0 +1,1 @@
+ALTER TABLE `account_controls` ADD `discordVerifiedAt` timestamp;

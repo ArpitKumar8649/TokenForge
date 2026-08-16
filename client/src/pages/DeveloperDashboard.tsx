@@ -168,7 +168,8 @@ function Overview({ user, loading, usage }: { user: ReturnType<typeof useAuth>["
 
 export default function DeveloperDashboard({ section = "overview", modelId }: { section?: Section; modelId?: string }) {
   const { user, loading } = useAuth();
-  const usage = trpc.developer.usage.useQuery(undefined, { enabled: Boolean(user) });
+  const workspaceVerified = Boolean(user?.isAdminSession || user?.discordVerifiedAt);
+  const usage = trpc.developer.usage.useQuery(undefined, { enabled: Boolean(user) && workspaceVerified });
   const content = section === "playground" ? <Playground /> : section === "models" ? <DashboardModels /> : section === "model" ? <DashboardModels modelId={modelId} /> : section === "keys" ? <><PageIntro eyebrow="Credentials" title="API keys" subtitle="Create, rotate, or revoke credentials without ever re-exposing a saved secret." /><ApiKeyList /></> : section === "usage" ? <><PageIntro eyebrow="Observability" title="Usage logs" subtitle="A transparent record of request source, model, tokens, and credit cost." /><UsageLogs /></> : section === "profile" ? <><PageIntro eyebrow="Account & rewards" title="Profile" subtitle="Manage your TokenForge identity and claim your daily build credit." /><Profile /></> : section === "referrals" ? <ReferralWorkspace /> : <Overview user={user} loading={loading} usage={usage} />;
   return <DashboardLayout><div className="dashboard-page-surface"><div className="dashboard-page-content">{content}</div></div></DashboardLayout>;
 }

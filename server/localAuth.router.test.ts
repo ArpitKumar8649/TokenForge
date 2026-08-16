@@ -262,20 +262,35 @@ describe("first-party authentication procedures", () => {
     expect(recordFailedPasswordLogin).toHaveBeenCalledTimes(LOGIN_FAILURE_LIMIT);
   });
 
-  it("allows a signed-in local user into protected developer procedures while rejecting anonymous access", async () => {
+  it("requires Discord verification for developer data while preserving the administrator recovery bypass", async () => {
     vi.mocked(listApiKeys).mockResolvedValue([]);
-    const authenticated = makeContext(localUser);
+    const unverified = makeContext(localUser);
+    const verified = makeContext({ ...localUser, discordVerifiedAt: new Date("2026-08-16T00:00:00.000Z") });
+    const administrator = makeContext({ ...localUser, isAdminSession: true });
     const anonymous = makeContext();
 
-    await expect(appRouter.createCaller(authenticated.ctx).developer.apiKeys()).resolves.toEqual([]);
+    await expect(appRouter.createCaller(unverified.ctx).developer.apiKeys()).rejects.toMatchObject({ code: "FORBIDDEN", message: expect.stringContaining("Discord membership verification") });
+    await expect(appRouter.createCaller(verified.ctx).developer.apiKeys()).resolves.toEqual([]);
+    await expect(appRouter.createCaller(administrator.ctx).developer.apiKeys()).resolves.toEqual([]);
     await expect(appRouter.createCaller(anonymous.ctx).developer.apiKeys()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("returns a Discord verification state without disclosing any Discord account identity", async () => {
+    const unverified = await appRouter.createCaller(makeContext(localUser).ctx).developer.discordVerificationStatus();
+    const verified = await appRouter.createCaller(makeContext({ ...localUser, discordVerifiedAt: new Date("2026-08-16T00:00:00.000Z") }).ctx).developer.discordVerificationStatus();
+    const administrator = await appRouter.createCaller(makeContext({ ...localUser, isAdminSession: true }).ctx).developer.discordVerificationStatus();
+
+    expect(unverified).toEqual({ verified: false, administratorBypass: false, discordInviteUrl: "https://discord.gg/pnsWamDbe" });
+    expect(verified).toEqual({ verified: true, administratorBypass: false, discordInviteUrl: "https://discord.gg/pnsWamDbe" });
+    expect(administrator).toEqual({ verified: true, administratorBypass: true, discordInviteUrl: "https://discord.gg/pnsWamDbe" });
+    expect(Object.keys(verified)).not.toContain("discordUserId");
   });
 
   it("returns an idempotent daily check-in result without granting the reward twice", async () => {
     vi.mocked(claimDailyCheckin)
       .mockResolvedValueOnce({ claimed: true, rewardNanos: 5_000_000_000 })
       .mockResolvedValueOnce({ claimed: false, rewardNanos: 0 });
-    const { ctx } = makeContext(localUser);
+    const { ctx } = makeContext({ ...localUser, discordVerifiedAt: new Date("2026-08-16T00:00:00.000Z") });
     const caller = appRouter.createCaller(ctx);
 
     await expect(caller.developer.checkIn()).resolves.toEqual({ claimed: true, rewardNanos: 5_000_000_000 });
@@ -302,7 +317,7 @@ describe("first-party authentication procedures", () => {
       apiKeyLabel: null,
     };
     vi.mocked(getUsageLogs).mockResolvedValue([log]);
-    const { ctx } = makeContext(localUser);
+    const { ctx } = makeContext({ ...localUser, discordVerifiedAt: new Date("2026-08-16T00:00:00.000Z") });
 
     await expect(appRouter.createCaller(ctx).developer.usageLogs({
       modelId: "glm-5.2",

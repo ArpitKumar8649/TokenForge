@@ -152,6 +152,8 @@ export const accountControls = mysqlTable(
     isSuspended: boolean("isSuspended").default(false).notNull(),
     isSuspicious: boolean("isSuspicious").default(false).notNull(),
     suspensionReason: varchar("suspensionReason", { length: 512 }),
+    /** Timestamp only: Discord identity and OAuth tokens are intentionally not retained. */
+    discordVerifiedAt: timestamp("discordVerifiedAt"),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => [index("account_controls_safety_idx").on(table.isSuspended, table.isSuspicious)],

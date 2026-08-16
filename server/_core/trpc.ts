@@ -27,6 +27,27 @@ const requireUser = t.middleware(async opts => {
 
 export const protectedProcedure = t.procedure.use(requireUser);
 
+/**
+ * Developer workspace data is unavailable until the signed-in account has
+ * completed the server-side Discord guild check. Administrator sessions are
+ * intentionally exempt so the owner retains recovery access.
+ */
+export const verifiedDeveloperProcedure = t.procedure.use(
+  t.middleware(async opts => {
+    const { ctx, next } = opts;
+    if (!ctx.user) {
+      throw new TRPCError({ code: "UNAUTHORIZED", message: UNAUTHED_ERR_MSG });
+    }
+    if (!ctx.user.isAdminSession && !ctx.user.discordVerifiedAt) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Discord membership verification is required before accessing the developer workspace.",
+      });
+    }
+    return next({ ctx: { ...ctx, user: ctx.user } });
+  }),
+);
+
 export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;

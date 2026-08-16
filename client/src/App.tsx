@@ -14,6 +14,7 @@ import Legal from "./pages/Legal";
 import Models from "./pages/Models";
 import Pricing from "./pages/Pricing";
 import LocalAuth from "./pages/LocalAuth";
+import DiscordVerify from "./pages/DiscordVerify";
 import { RouteLoader } from "./components/RouteLoader";
 import "./tokenforge-refresh.css";
 
@@ -29,6 +30,7 @@ function Router() {
       <Route path={"/signin"}>{() => <LocalAuth mode="signin" />}</Route>
       <Route path={"/signup"}>{() => <LocalAuth mode="signup" />}</Route>
       <Route path={"/sign-up"}>{() => <LocalAuth mode="signup" />}</Route>
+      <Route path={"/verify-discord"}>{() => <DiscordVerify />}</Route>
       <Route path={"/dashboard"}>{() => <DeveloperDashboard section="overview" />}</Route>
       <Route path={"/dashboard/playground"}>{() => <DeveloperDashboard section="playground" />}</Route>
       <Route path={"/dashboard/models"}>{() => <DeveloperDashboard section="models" />}</Route>

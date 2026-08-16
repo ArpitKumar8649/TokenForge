@@ -336,6 +336,8 @@ const CRON_OPEN_ID_PREFIX = "cron_";
 
 /** Result of `sdk.authenticateRequest`. Cron callbacks set `isCron=true` and `taskUid`; see `/home/ubuntu/skills/webdev-periodic-updates/SKILL.md`. */
 export type AuthenticatedUser = User & {
+  /** Persisted account-control state after a server-side Discord guild check. */
+  discordVerifiedAt?: Date | null;
   taskUid?: string;
   isCron?: boolean;
   isAdminSession?: boolean;

@@ -71,6 +71,13 @@
       "when": 1786796242952,
       "tag": "0009_cool_menace",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1786848562601,
+      "tag": "0010_slim_toxin",
+      "breakpoints": true
     }
   ]
 }

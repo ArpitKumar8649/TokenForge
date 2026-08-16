@@ -5,6 +5,7 @@ import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { registerGitHubOAuthRoutes } from "../githubOAuth";
+import { registerDiscordOAuthRoutes } from "../discordOAuth";
 import { registerStorageProxy } from "./storageProxy";
 import { registerOpenAiGateway, registerPlaygroundGateway } from "../openaiGateway";
 import { registerAnthropicMessagesGateway } from "../anthropicGateway";
@@ -42,6 +43,7 @@ async function startServer() {
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   registerGitHubOAuthRoutes(app);
+  registerDiscordOAuthRoutes(app);
   registerOpenAiGateway(app);
   registerAnthropicMessagesGateway(app);
   registerPlaygroundGateway(app);

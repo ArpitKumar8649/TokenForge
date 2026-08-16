@@ -29,6 +29,7 @@ import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { FirstTimeOnboarding } from "./FirstTimeOnboarding";
 import { AnnouncementBanner } from "./AnnouncementBanner";
 import { TokenForgeGlyph } from "./TokenForgeGlyph";
+import DiscordVerify from "@/pages/DiscordVerify";
 import "./dashboard-shell.css";
 import { Button } from "./ui/button";
 
@@ -87,6 +88,10 @@ export default function DashboardLayout({
         </div>
       </div>
     );
+  }
+
+  if (!user.isAdminSession && !user.discordVerifiedAt) {
+    return <DiscordVerify embedded />;
   }
 
   return (

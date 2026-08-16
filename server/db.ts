@@ -54,6 +54,7 @@ export class DeletedAccountIdentityError extends Error {
 export type ApiKeyRecord = typeof apiKeys.$inferSelect;
 export type EmailAllowlistConfig = { entries: string[]; updatedAt: Date; updatedByUserId: number | null };
 export type AdminEmailProviderCount = { provider: string; accountCount: number };
+export type UserWithDiscordVerification = typeof users.$inferSelect & { discordVerifiedAt: Date | null };
 
 const CATALOGUE_DEFINITIONS = TOKENFORGE_MODEL_CATALOGUE;
 /** Standalone `users` aggregate expression; deliberately unqualified for deployed MySQL compatibility. */
@@ -407,7 +408,23 @@ export async function upsertUser(user: InsertUser): Promise<void> {
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
   if (!db) return undefined;
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+  const result = await db
+    .select({
+      id: users.id,
+      openId: users.openId,
+      name: users.name,
+      email: users.email,
+      loginMethod: users.loginMethod,
+      role: users.role,
+      createdAt: users.createdAt,
+      updatedAt: users.updatedAt,
+      lastSignedIn: users.lastSignedIn,
+      discordVerifiedAt: accountControls.discordVerifiedAt,
+    })
+    .from(users)
+    .leftJoin(accountControls, eq(users.id, accountControls.userId))
+    .where(eq(users.openId, openId))
+    .limit(1);
   return result[0];
 }
 
@@ -590,6 +607,39 @@ export async function ensureAccountControl(userId: number) {
     .onDuplicateKeyUpdate({ set: { userId } });
   const rows = await db.select().from(accountControls).where(eq(accountControls.userId, userId)).limit(1);
   return rows[0] ?? null;
+}
+
+/**
+ * Records the successful guild-membership check without retaining a Discord
+ * user ID, OAuth access token, refresh token, or profile data.
+ */
+export async function markDiscordVerified(userId: number) {
+  const db = await getDb();
+  const controls = await ensureAccountControl(userId);
+  if (!db || !controls) throw new Error("TokenForge account controls are unavailable");
+
+  const verifiedAt = new Date();
+  await db.update(accountControls)
+    .set({ discordVerifiedAt: verifiedAt })
+    .where(eq(accountControls.userId, userId));
+  await writeAuditEvent({
+    actorUserId: userId,
+    targetUserId: userId,
+    action: "discord.membership_verified",
+    entityType: "account",
+    entityId: String(userId),
+  });
+  return verifiedAt;
+}
+
+export async function isDiscordVerified(userId: number) {
+  const db = await getDb();
+  if (!db) return false;
+  const record = (await db.select({ discordVerifiedAt: accountControls.discordVerifiedAt })
+    .from(accountControls)
+    .where(eq(accountControls.userId, userId))
+    .limit(1))[0];
+  return Boolean(record?.discordVerifiedAt);
 }
 
 export async function createApiKey(userId: number, label: string) {

@@ -42,7 +42,7 @@ import {
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
-import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, protectedProcedure, publicProcedure, router, verifiedDeveloperProcedure } from "./_core/trpc";
 import { configuredEmailAllowlist, isPermanentEmailAddress, PASSWORD_MIN_LENGTH } from "./localAuth";
 import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, type TokenForgeModelId } from "./modelCatalogue";
 import { runPlaygroundCompletion, TokenForgePlaygroundError, tokenForgeRequestIpHash } from "./openaiGateway";
@@ -157,13 +157,18 @@ export const appRouter = router({
     }),
   }),
   developer: router({
-    apiKeys: protectedProcedure.query(async ({ ctx }) => listApiKeys(ctx.user.id)),
-    referrals: protectedProcedure.query(async ({ ctx }) => {
+    discordVerificationStatus: protectedProcedure.query(({ ctx }) => ({
+      verified: ctx.user.isAdminSession === true || Boolean(ctx.user.discordVerifiedAt),
+      administratorBypass: ctx.user.isAdminSession === true,
+      discordInviteUrl: "https://discord.gg/pnsWamDbe",
+    })),
+    apiKeys: verifiedDeveloperProcedure.query(async ({ ctx }) => listApiKeys(ctx.user.id)),
+    referrals: verifiedDeveloperProcedure.query(async ({ ctx }) => {
       const referrals = await getReferralOverview(ctx.user.id);
       if (!referrals) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Referral details are temporarily unavailable" });
       return referrals;
     }),
-    createApiKey: protectedProcedure.input(z.object({ label: apiKeyLabel })).mutation(async ({ ctx, input }) => {
+    createApiKey: verifiedDeveloperProcedure.input(z.object({ label: apiKeyLabel })).mutation(async ({ ctx, input }) => {
       try {
         return await createApiKey(ctx.user.id, input.label);
       } catch (error) {
@@ -173,26 +178,26 @@ export const appRouter = router({
         });
       }
     }),
-    revokeApiKey: protectedProcedure.input(z.object({ apiKeyId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
+    revokeApiKey: verifiedDeveloperProcedure.input(z.object({ apiKeyId: z.number().int().positive() })).mutation(async ({ ctx, input }) => {
       const revoked = await revokeApiKey(ctx.user.id, input.apiKeyId);
       if (!revoked) throw new TRPCError({ code: "NOT_FOUND", message: "This active API key was not found" });
       return { success: true } as const;
     }),
-    rotateApiKey: protectedProcedure
+    rotateApiKey: verifiedDeveloperProcedure
       .input(z.object({ apiKeyId: z.number().int().positive(), label: apiKeyLabel }))
       .mutation(async ({ ctx, input }) => {
         const result = await rotateApiKey(ctx.user.id, input.apiKeyId, input.label);
         if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "This active API key was not found" });
         return result;
       }),
-    quota: protectedProcedure.query(async ({ ctx }) => {
+    quota: verifiedDeveloperProcedure.query(async ({ ctx }) => {
       const quota = await getQuotaStatus(ctx.user.id);
       if (!quota) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Quota status is temporarily unavailable" });
       return quota;
     }),
-    modelAvailability: protectedProcedure.query(() => getModelAvailabilitySnapshot()),
-    usage: protectedProcedure.query(async ({ ctx }) => getUsageSummary(ctx.user.id)),
-    usageLogs: protectedProcedure
+    modelAvailability: verifiedDeveloperProcedure.query(() => getModelAvailabilitySnapshot()),
+    usage: verifiedDeveloperProcedure.query(async ({ ctx }) => getUsageSummary(ctx.user.id)),
+    usageLogs: verifiedDeveloperProcedure
       .input(z.object({
         modelId: tokenForgeModelId.optional(),
         source: z.enum(["api", "playground"]).optional(),
@@ -208,12 +213,12 @@ export const appRouter = router({
         to: input?.to ? new Date(input.to) : undefined,
         limit: input?.limit,
       })),
-    wallet: protectedProcedure.query(async ({ ctx }) => {
+    wallet: verifiedDeveloperProcedure.query(async ({ ctx }) => {
       const wallet = await getCreditProfile(ctx.user.id);
       if (!wallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Credit balance is temporarily unavailable" });
       return wallet;
     }),
-    profile: protectedProcedure.query(({ ctx }) => ({
+    profile: verifiedDeveloperProcedure.query(({ ctx }) => ({
       id: ctx.user.id,
       name: ctx.user.name,
       email: ctx.user.email,
@@ -222,11 +227,11 @@ export const appRouter = router({
       lastSignedIn: ctx.user.lastSignedIn,
       loginMethod: ctx.user.loginMethod,
     })),
-    checkIn: protectedProcedure.mutation(async ({ ctx }) => {
+    checkIn: verifiedDeveloperProcedure.mutation(async ({ ctx }) => {
       const result = await claimDailyCheckin(ctx.user.id);
       return result;
     }),
-    playground: protectedProcedure
+    playground: verifiedDeveloperProcedure
       .input(z.object({
         model: tokenForgeModelId,
         messages: z.array(playgroundMessage).min(1).max(100),
