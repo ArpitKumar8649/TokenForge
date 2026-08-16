@@ -39,6 +39,7 @@ import {
   setAnnouncementText,
   getReferralOverview,
   resetDiscordVerification,
+  getOrCreateAdminSessionPrincipal,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -112,8 +113,8 @@ async function startLocalSession(ctx: { req: any; res: any }, user: { openId: st
   ctx.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(ctx.req), maxAge: LOCAL_SESSION_MAX_AGE_MS });
 }
 
-function adminUnlockThrottleIdentifier(userId: number) {
-  return `admin-unlock-${userId}@tokenforge.internal`;
+function adminUnlockThrottleIdentifier(req: Parameters<typeof tokenForgeRequestIpHash>[0]) {
+  return `admin-unlock-ip-${tokenForgeRequestIpHash(req)}@tokenforge.internal`;
 }
 
 export const appRouter = router({
@@ -264,9 +265,9 @@ export const appRouter = router({
       }),
   }),
   admin: router({
-    unlock: protectedProcedure.input(adminPasscodeInput).mutation(async ({ ctx, input }) => {
-      if (ctx.user.isAdminSession) return { unlocked: true, alreadyAdmin: true } as const;
-      const identifier = adminUnlockThrottleIdentifier(ctx.user.id);
+    unlock: publicProcedure.input(adminPasscodeInput).mutation(async ({ ctx, input }) => {
+      if (ctx.user?.isAdminSession) return { unlocked: true, alreadyAdmin: true } as const;
+      const identifier = adminUnlockThrottleIdentifier(ctx.req);
       const throttle = await getPasswordLoginThrottle(identifier);
       if (throttle.blocked) {
         throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: `Too many administrator passcode attempts. Try again in ${throttle.retryAfterSeconds} seconds.` });
@@ -279,17 +280,16 @@ export const appRouter = router({
         throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect administrator passcode" });
       }
       await clearFailedPasswordLogin(identifier);
+      const administrator = await getOrCreateAdminSessionPrincipal();
       await clearLegacyAdministratorRoles();
       const sessionVersion = await revokeAllTokenForgeSessions();
-      const token = await sdk.createSessionToken(ctx.user.openId, { expiresInMs: LOCAL_SESSION_MAX_AGE_MS, name: ctx.user.name ?? "TokenForge administrator", sessionVersion, isAdminSession: true });
+      const token = await sdk.createSessionToken(administrator.openId, { expiresInMs: LOCAL_SESSION_MAX_AGE_MS, name: administrator.name ?? "TokenForge administrator", sessionVersion, isAdminSession: true });
       ctx.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(ctx.req), maxAge: LOCAL_SESSION_MAX_AGE_MS });
-      await writeAuditEvent({ actorUserId: ctx.user.id, targetUserId: ctx.user.id, action: "admin.passcode.unlocked", entityType: "account", entityId: String(ctx.user.id) });
+      await writeAuditEvent({ actorUserId: administrator.id, targetUserId: administrator.id, action: "admin.passcode.unlocked", entityType: "administrator_session", entityId: String(administrator.id), metadata: { entry: "passcode_only" } });
       return { unlocked: true, alreadyAdmin: false, sessionVersion } as const;
     }),
     signOut: adminProcedure.mutation(async ({ ctx }) => {
-      const sessionVersion = await getAuthSessionVersion();
-      const token = await sdk.createSessionToken(ctx.user.openId, { expiresInMs: LOCAL_SESSION_MAX_AGE_MS, name: ctx.user.name ?? "TokenForge developer", sessionVersion });
-      ctx.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(ctx.req), maxAge: LOCAL_SESSION_MAX_AGE_MS });
+      ctx.res.clearCookie(COOKIE_NAME, getSessionCookieOptions(ctx.req));
       await writeAuditEvent({ actorUserId: ctx.user.id, targetUserId: ctx.user.id, action: "admin.self_revoked", entityType: "account", entityId: String(ctx.user.id) });
       return { success: true } as const;
     }),

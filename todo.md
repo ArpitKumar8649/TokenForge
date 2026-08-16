@@ -221,3 +221,5 @@
 - [x] Add a privacy-safe administrator all-account model-usage overview that aggregates successful requests and processed tokens by model across users, while retaining each account’s individual used-model breakdown.
 - [x] Require verified membership in the TokenForge Discord server before non-administrator dashboard access, using secure Discord OAuth, server-side guild verification, privacy-aware persistence, recovery safeguards, and clear user guidance.
 - [x] Add an administrator-only, audited account action that clears a user’s Discord verification timestamp and requires secure re-verification before the next dashboard access.
+- [x] Remove the redundant Discord invite action from the verification screen while retaining clear membership guidance and the secure connect-and-verify flow.
+- [x] Allow secure passcode-only entry to the administrator workspace without requiring a pre-existing TokenForge email-account session, while preserving rate limits, session revocation, audit records, and administrator-only server guards.

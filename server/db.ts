@@ -428,6 +428,27 @@ export async function getUserByOpenId(openId: string) {
   return result[0];
 }
 
+/**
+ * A reserved internal identity used only to anchor the passcode-scoped
+ * administrator session. It has no mailbox, password, API keys, credit
+ * account, or developer-workspace access.
+ */
+export const ADMIN_SESSION_PRINCIPAL_OPEN_ID = "tf_internal_admin_control_plane";
+
+export async function getOrCreateAdminSessionPrincipal() {
+  await upsertUser({
+    openId: ADMIN_SESSION_PRINCIPAL_OPEN_ID,
+    name: "TokenForge Administrator",
+    email: null,
+    loginMethod: "admin_passcode",
+    role: "user",
+    lastSignedIn: new Date(),
+  });
+  const principal = await getUserByOpenId(ADMIN_SESSION_PRINCIPAL_OPEN_ID);
+  if (!principal) throw new Error("Unable to establish the administrator session principal");
+  return principal;
+}
+
 export async function createPasswordUser(input: { email: string; password: string; name?: string; referralCode?: string }) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");

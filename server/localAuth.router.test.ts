@@ -28,6 +28,7 @@ vi.mock("./db", () => ({
   revokeAllTokenForgeSessions: vi.fn(),
   revokeApiKey: vi.fn(),
   resetDiscordVerification: vi.fn(),
+  getOrCreateAdminSessionPrincipal: vi.fn(),
   rotateApiKey: vi.fn(),
   setAccountControl: vi.fn(),
   setEmailAllowlistConfig: vi.fn(),
@@ -64,6 +65,7 @@ import {
   recordFailedPasswordLogin,
   revokeAllTokenForgeSessions,
   resetDiscordVerification,
+  getOrCreateAdminSessionPrincipal,
   setEmailAllowlistConfig,
   setProviderEnabled,
   writeAuditEvent,
@@ -89,7 +91,7 @@ function makeContext(user: AuthenticatedUser | null = null) {
   const cookies: Array<{ name: string; value: string; options: Record<string, unknown> }> = [];
   const ctx: TrpcContext = {
     user,
-    req: { protocol: "https", headers: {} } as TrpcContext["req"],
+    req: { protocol: "https", headers: {}, header: vi.fn().mockReturnValue(undefined), ip: "127.0.0.1" } as TrpcContext["req"],
     res: {
       cookie: (name: string, value: string, options: Record<string, unknown>) => cookies.push({ name, value, options }),
       clearCookie: vi.fn(),
@@ -110,6 +112,7 @@ beforeEach(() => {
   vi.mocked(getAuthSessionVersion).mockResolvedValue(3);
   vi.mocked(revokeAllTokenForgeSessions).mockResolvedValue(4);
   vi.mocked(resetDiscordVerification).mockResolvedValue({ reset: true });
+  vi.mocked(getOrCreateAdminSessionPrincipal).mockResolvedValue({ ...localUser, id: 7, openId: "tf_internal_admin_control_plane", name: "TokenForge Administrator", email: null, loginMethod: "admin_passcode" });
   vi.mocked(verifyAdminPasscode).mockReturnValue(false);
 });
 
@@ -212,30 +215,33 @@ describe("first-party authentication procedures", () => {
     await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.emailAllowlist()).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
-  it("issues the only administrator session and revokes all prior sessions after a verified passcode", async () => {
+  it("issues the only administrator session from a valid passcode without a developer-account session", async () => {
     vi.mocked(verifyAdminPasscode).mockReturnValue(true);
-    const caller = appRouter.createCaller(makeContext(localUser).ctx);
+    const caller = appRouter.createCaller(makeContext().ctx);
 
     await expect(caller.admin.unlock({ passcode: "8649" })).resolves.toEqual({ unlocked: true, alreadyAdmin: false, sessionVersion: 4 });
     expect(clearLegacyAdministratorRoles).toHaveBeenCalledOnce();
     expect(revokeAllTokenForgeSessions).toHaveBeenCalledOnce();
-    expect(clearFailedPasswordLogin).toHaveBeenCalledWith(`admin-unlock-${localUser.id}@tokenforge.internal`);
+    expect(getOrCreateAdminSessionPrincipal).toHaveBeenCalledOnce();
+    expect(clearFailedPasswordLogin).toHaveBeenCalledWith(expect.stringMatching(/^admin-unlock-ip-[a-f0-9]{64}@tokenforge\.internal$/));
+    expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 7, action: "admin.passcode.unlocked", entityType: "administrator_session", metadata: { entry: "passcode_only" } }));
   });
 
   it("rejects an incorrect administrator passcode and rate-accounts the attempt without revoking sessions", async () => {
-    const caller = appRouter.createCaller(makeContext(localUser).ctx);
+    const caller = appRouter.createCaller(makeContext().ctx);
 
     await expect(caller.admin.unlock({ passcode: "0000" })).rejects.toMatchObject({ code: "UNAUTHORIZED", message: "Incorrect administrator passcode" });
-    expect(recordFailedPasswordLogin).toHaveBeenCalledWith(`admin-unlock-${localUser.id}@tokenforge.internal`);
+    expect(recordFailedPasswordLogin).toHaveBeenCalledWith(expect.stringMatching(/^admin-unlock-ip-[a-f0-9]{64}@tokenforge\.internal$/));
     expect(revokeAllTokenForgeSessions).not.toHaveBeenCalled();
   });
 
   it("allows the passcode-issued administrator session to be downgraded in the current browser", async () => {
     const admin = { ...localUser, isAdminSession: true };
-    const caller = appRouter.createCaller(makeContext(admin).ctx);
+    const { ctx } = makeContext(admin);
+    const caller = appRouter.createCaller(ctx);
 
     await expect(caller.admin.signOut()).resolves.toEqual({ success: true });
-    expect(getAuthSessionVersion).toHaveBeenCalled();
+    expect(ctx.res.clearCookie).toHaveBeenCalledWith(COOKIE_NAME, expect.objectContaining({ httpOnly: true, path: "/" }));
   });
 
   it("returns a generic unauthorized error for an incorrect password and records the failure", async () => {
