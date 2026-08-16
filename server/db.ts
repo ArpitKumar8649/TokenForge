@@ -951,11 +951,13 @@ export async function ensureCatalogue() {
     const clusterBaseUrl = process.env.CLUSTER_PROTOCOL_BASE_URL ?? "https://api.clusterprotocol.ai";
     const tokenHarborBaseUrl = process.env.TOKENHARBOR_BASE_URL ?? "https://tokenharbor.ai";
     const claudeOpus5BaseUrl = process.env.CLAUDE_OPUS5_BASE_URL ?? "https://ai.kscsnkli.site";
+    const tokenRouterBaseUrl = process.env.TOKENROUTER_BASE_URL ?? "https://api.tokenrouter.com";
     await db.insert(providerConfigs).values([
       { slug: FXQIDIAN_PROVIDER_SLUG, displayName: "Selected hosted inference", baseUrl },
       { slug: CLUSTER_PROTOCOL_PROVIDER_SLUG, displayName: "Cluster Protocol", baseUrl: clusterBaseUrl },
       { slug: TOKENHARBOR_PROVIDER_SLUG, displayName: "TokenHarbor", baseUrl: tokenHarborBaseUrl },
       { slug: CLAUDE_OPUS5_PROVIDER_SLUG, displayName: "Claude Opus 5 custom upstream", baseUrl: claudeOpus5BaseUrl },
+      { slug: TOKENROUTER_PROVIDER_SLUG, displayName: "TokenRouter", baseUrl: tokenRouterBaseUrl },
     ]).onDuplicateKeyUpdate({ set: { baseUrl: sql`values(${providerConfigs.baseUrl})`, displayName: sql`values(${providerConfigs.displayName})` } });
     await db.insert(modelConfigs).values(CATALOGUE_DEFINITIONS.map(model => ({ modelId: model.id, displayName: model.displayName, description: model.description, capabilities: [...model.capabilities], providerSlug: model.providerSlug }))).onDuplicateKeyUpdate({
       set: { displayName: sql`values(${modelConfigs.displayName})`, description: sql`values(${modelConfigs.description})`, capabilities: sql`values(${modelConfigs.capabilities})`, providerSlug: sql`values(${modelConfigs.providerSlug})` },
