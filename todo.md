@@ -239,3 +239,7 @@
 - [x] Remove all user-facing provider-route, provider-brand, and upstream-routing labels such as “TokenHarbor flash route” and “shared flash route” from TokenForge model and Playground surfaces while preserving neutral model information.
 - [x] Remove unreliable model-image and provider-mark treatments from the catalogue and Playground model selection, replacing them with a clear responsive text-only model identity treatment.
 - [x] Make the Overview cURL and Python quick-start panels fully mobile-responsive, with safe wrapping and horizontal code scrolling rather than viewport overflow.
+- [x] Perform a read-only audit of the account count and Discord-verification count to assess whether any bypass evidence exists, without changing production data or settings.
+- [x] Reproduce and compare the Claude Opus 5 native Messages `max_tokens` validation error against TokenForge and the configured upstream, then report the cause without modifying production behavior.
+- [x] Inspect the exact Claude Opus 5 payload forwarded by TokenForge and compare native Messages versus OpenAI-compatible provider limits and validation behavior without changing production behavior.
+- [x] Replace the managed Claude Opus 5 provider configuration with the supplied OrcaRouter URL and server-only API key, verify native Messages and OpenAI-compatible behavior, then publish only after validation.
