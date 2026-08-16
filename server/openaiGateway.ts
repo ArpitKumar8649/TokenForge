@@ -65,6 +65,25 @@ export function playgroundResponseGuidance(): TokenForgeChatMessage {
   };
 }
 
+/**
+ * TokenRouter’s Qwen 3.8 Max free route rejects Playground-shaped turns that
+ * contain multiple system messages. Preserve every instruction while sending
+ * that route exactly one system turn, including an optional user instruction.
+ */
+export function playgroundMessagesForModel(model: TokenForgeModelId, messages: TokenForgeChatMessage[]) {
+  const requiredGuidance = [modelScopedGuidance(model), playgroundResponseGuidance()];
+  if (model !== "qwen3.8-max") return [...requiredGuidance, ...messages];
+
+  const suppliedSystemMessages = messages.filter(message => message.role === "system");
+  const conversationalMessages = messages.filter(message => message.role !== "system");
+  const systemContent = [...requiredGuidance, ...suppliedSystemMessages]
+    .map(message => typeof message.content === "string" ? message.content.trim() : "")
+    .filter(Boolean)
+    .join("\n\n");
+
+  return [{ role: "system", content: systemContent }, ...conversationalMessages];
+}
+
 type PlaygroundFailureCode = "model_not_found" | "model_unavailable" | "invalid_messages" | "account_suspended" | "quota_exceeded" | "insufficient_credits" | "rate_limited" | "provider_unavailable";
 
 export class TokenForgePlaygroundError extends Error {
@@ -352,7 +371,7 @@ export async function runPlaygroundCompletion(input: {
   try {
     const upstream = await forwardProviderRequest(input.model, {
       model: input.model,
-      messages: [modelScopedGuidance(input.model), playgroundResponseGuidance(), ...input.messages],
+      messages: playgroundMessagesForModel(input.model, input.messages),
       stream: false,
       ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
       ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
@@ -445,7 +464,7 @@ async function streamPlaygroundCompletion(input: {
   try {
     const upstream = await forwardProviderRequest(input.model, {
       model: input.model,
-      messages: [modelScopedGuidance(input.model), playgroundResponseGuidance(), ...input.messages],
+      messages: playgroundMessagesForModel(input.model, input.messages),
       stream: true,
       ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
       ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),

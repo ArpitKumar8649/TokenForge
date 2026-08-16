@@ -257,3 +257,5 @@
 - [x] Add an administrator-only privacy-safe bar chart showing per-slot request totals for the active fifteen-key OrcaRouter credential pool without exposing API key material.
 - [x] Validate and add the TokenRouter-backed Qwen 3.8 Max model across TokenForge, including supported OpenAI and Anthropic API routing, verified maximum reasoning control, and a responsive collapsible italic Playground thinking display.
 - [x] Fix Qwen 3.8 Max being marked unavailable in the Playground despite its configured TokenRouter route, and expose TokenRouter in the administrator provider toggle and telemetry controls.
+- [x] Diagnose the Qwen 3.8 Max Playground cache-only admission rejection: direct upstream probes, including the enforced xhigh reasoning setting, succeeded, confirming a transient upstream admission condition rather than a TokenForge routing defect.
+- [x] Reproduce the exact Qwen 3.8 Max Playground gateway request, compare it against a successful direct TokenRouter call, and correct the TokenForge-specific multiple-system-message request shape that caused the cache-only admission rejection.

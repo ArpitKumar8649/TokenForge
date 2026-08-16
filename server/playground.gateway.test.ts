@@ -17,7 +17,7 @@ vi.mock("./operationalAlerts", () => ({ raiseOperationalAlert: vi.fn() }));
 
 import { getQuotaStatus, getRecentRequestCounts, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordUsage, reserveCredit, settleReservedCredit } from "./db";
 import { raiseOperationalAlert } from "./operationalAlerts";
-import { forwardProviderRequest, modelScopedGuidance, playgroundResponseGuidance, runPlaygroundCompletion, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
+import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, runPlaygroundCompletion, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 import { invalidateOrcaRouterCredentialPool, resetOrcaRouterSlotRequestCounts } from "./orcaRouterCredentials";
@@ -299,7 +299,25 @@ describe("TokenForge Playground gateway", () => {
     }));
     const forwardedPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(forwardedPayload).toMatchObject({ model: "qwen/qwen3.8-max-free", reasoning_effort: "xhigh", stream: false });
+    expect(forwardedPayload.messages).toHaveLength(2);
+    expect(forwardedPayload.messages[0]).toMatchObject({ role: "system" });
+    expect(forwardedPayload.messages[0].content).toContain("selected TokenForge model: qwen3.8-max");
+    expect(forwardedPayload.messages[0].content).toContain("useful, detailed, and clearly structured");
+    expect(forwardedPayload.messages[1]).toEqual({ role: "user", content: "Explain safe model routing." });
     expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-tokenrouter-secret");
+  });
+
+  it("consolidates Qwen 3.8 Max Playground and user instructions into exactly one system message", () => {
+    const messages = playgroundMessagesForModel("qwen3.8-max", [
+      { role: "system", content: "Write in short paragraphs." },
+      { role: "user", content: "Explain the request path." },
+    ]);
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toMatchObject({ role: "system" });
+    expect(messages[0].content).toContain("selected TokenForge model: qwen3.8-max");
+    expect(messages[0].content).toContain("Write in short paragraphs.");
+    expect(messages[1]).toEqual({ role: "user", content: "Explain the request path." });
   });
 
   it("stops before provider execution when the promotional credit reservation is denied", async () => {
