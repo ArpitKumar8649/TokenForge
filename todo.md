@@ -249,3 +249,8 @@
 - [x] Diagnose and repair the reported production `claude-opus-5` `/v1/messages` provider failure using a privacy-safe Claude Code-style reproduction, without exposing the supplied API key.
 - [x] Pin Claude Opus 5 at the top of the authenticated Playground model selector while preserving model search and availability status.
 - [x] Add an administrator-only encrypted three-key OrcaRouter credential pool with validation, health-aware round-robin selection, automatic failover, masked management controls, and privacy-safe audit events.
+- [x] Run a non-destructive authenticated health check of the live Kimi K3 route and report the result without changing code or configuration.
+- [x] Run a non-destructive authenticated health check for the exact `claude-sonnet-4.6` model ID and report whether TokenForge currently recognizes and serves it.
+- [x] Verify the live Anthropic-compatible `/v1/messages` proxy eligibility and a representative Cluster Protocol model request without changing code or configuration.
+- [x] Inspect and report the active TokenForge gateway rate limits without changing code or configuration.
+- [x] Expand the administrator-managed OrcaRouter credential pool from three to fifteen encrypted replacement keys, preserving health-aware round-robin routing and atomic replacement behavior.

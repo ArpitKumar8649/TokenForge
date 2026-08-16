@@ -50,7 +50,7 @@ import { configuredEmailAllowlist, isPermanentEmailAddress, PASSWORD_MIN_LENGTH 
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, type TokenForgeModelId } from "./modelCatalogue";
 import { runPlaygroundCompletion, TokenForgePlaygroundError, tokenForgeRequestIpHash } from "./openaiGateway";
 import { verifyAdminPasscode } from "./adminPasscode";
-import { getOrcaRouterCredentialPoolStatus, invalidateOrcaRouterCredentialPool, validateOrcaRouterCredential } from "./orcaRouterCredentials";
+import { getOrcaRouterCredentialPoolStatus, invalidateOrcaRouterCredentialPool, ORCA_ROUTER_CREDENTIAL_POOL_SIZE, validateOrcaRouterCredential } from "./orcaRouterCredentials";
 
 const apiKeyLabel = z
   .string()
@@ -100,11 +100,7 @@ const discordVerificationResetInput = z.object({
 });
 const announcementInput = z.object({ text: z.string().max(500, "Announcements must be 500 characters or fewer") });
 const orcaRouterCredentialPoolInput = z.object({
-  credentials: z.tuple([
-    z.string().trim().min(20, "Enter a complete OrcaRouter credential").max(512),
-    z.string().trim().min(20, "Enter a complete OrcaRouter credential").max(512),
-    z.string().trim().min(20, "Enter a complete OrcaRouter credential").max(512),
-  ]),
+  credentials: z.array(z.string().trim().min(20, "Enter a complete OrcaRouter credential").max(512)).length(ORCA_ROUTER_CREDENTIAL_POOL_SIZE, `Provide exactly ${ORCA_ROUTER_CREDENTIAL_POOL_SIZE} OrcaRouter credentials`),
 });
 
 function playgroundTrpcError(error: TokenForgePlaygroundError) {

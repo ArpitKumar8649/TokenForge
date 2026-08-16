@@ -603,13 +603,14 @@ export async function loadOrcaRouterCredentialSlotCiphertexts() {
   }).from(orcaRouterCredentialSlots).orderBy(orcaRouterCredentialSlots.slot);
 }
 
-/** Replaces all three slots atomically after server-side validation has succeeded. */
-export async function replaceOrcaRouterCredentialPool(credentials: readonly [string, string, string], updatedByUserId: number) {
+/** Replaces the complete managed pool atomically after server-side validation has succeeded. */
+export async function replaceOrcaRouterCredentialPool(credentials: readonly string[], updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const encrypted = credentials.map((credential, slot) => ({ slot, ...encryptOrcaRouterCredential(credential) }));
   const validatedAt = new Date();
   await db.transaction(async tx => {
+    await tx.delete(orcaRouterCredentialSlots);
     for (const item of encrypted) {
       await tx.insert(orcaRouterCredentialSlots).values({
         slot: item.slot,
@@ -619,16 +620,6 @@ export async function replaceOrcaRouterCredentialPool(credentials: readonly [str
         keyFingerprint: item.keyFingerprint,
         lastValidatedAt: validatedAt,
         updatedByUserId,
-      }).onDuplicateKeyUpdate({
-        set: {
-          ciphertext: item.ciphertext,
-          iv: item.iv,
-          authTag: item.authTag,
-          keyFingerprint: item.keyFingerprint,
-          lastValidatedAt: validatedAt,
-          updatedByUserId,
-          updatedAt: validatedAt,
-        },
       });
     }
   });

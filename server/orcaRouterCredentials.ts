@@ -7,6 +7,8 @@ export type OrcaRouterCredentialPoolStatus = {
   slots: Array<{ slot: number; fingerprintSuffix: string; lastValidatedAt: Date; updatedAt: Date }>;
 };
 
+export const ORCA_ROUTER_CREDENTIAL_POOL_SIZE = 15;
+const LEGACY_ORCA_ROUTER_CREDENTIAL_POOL_SIZE = 3;
 let rotationIndex = 0;
 let cachedPool: { expiresAt: number; credentials: OrcaRouterCredentialSelection[] } | null = null;
 const POOL_CACHE_MS = 5_000;
@@ -19,7 +21,8 @@ function environmentFallback() {
 async function loadDatabasePool() {
   const rows = await loadOrcaRouterCredentialSlotCiphertexts();
   if (!rows.length) return { found: false as const, credentials: [] as OrcaRouterCredentialSelection[] };
-  if (rows.length !== 3 || rows.some((row, index) => row.slot !== index)) return { found: true as const, credentials: [] as OrcaRouterCredentialSelection[] };
+  const isSupportedPoolSize = rows.length === ORCA_ROUTER_CREDENTIAL_POOL_SIZE || rows.length === LEGACY_ORCA_ROUTER_CREDENTIAL_POOL_SIZE;
+  if (!isSupportedPoolSize || rows.some((row, index) => row.slot !== index)) return { found: true as const, credentials: [] as OrcaRouterCredentialSelection[] };
   try {
     const credentials = rows.map(row => ({ credential: decryptOrcaRouterCredential(row), slot: row.slot, poolSize: rows.length }));
     return { found: true as const, credentials };
@@ -51,7 +54,6 @@ export function invalidateOrcaRouterCredentialPool() {
 
 export async function getOrcaRouterCredentialPoolStatus(): Promise<OrcaRouterCredentialPoolStatus> {
   const slots = await listOrcaRouterCredentialSlotSummaries();
-  if (slots.length === 3) return { source: "database", slots: slots.map(({ slot, fingerprintSuffix, lastValidatedAt, updatedAt }) => ({ slot, fingerprintSuffix, lastValidatedAt, updatedAt })) };
   if (slots.length > 0) return { source: "database", slots: slots.map(({ slot, fingerprintSuffix, lastValidatedAt, updatedAt }) => ({ slot, fingerprintSuffix, lastValidatedAt, updatedAt })) };
   return process.env.CLAUDE_OPUS5_API_KEY?.trim()
     ? { source: "environment", slots: [{ slot: 0, fingerprintSuffix: "", lastValidatedAt: new Date(0), updatedAt: new Date(0) }] }
