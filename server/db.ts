@@ -642,6 +642,23 @@ export async function isDiscordVerified(userId: number) {
   return Boolean(record?.discordVerifiedAt);
 }
 
+/** Clears the privacy-minimizing verification timestamp so the member must re-complete the existing OAuth membership check. */
+export async function resetDiscordVerification(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+
+  const account = (await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1))[0];
+  if (!account) return null;
+
+  const controls = await ensureAccountControl(userId);
+  if (!controls) throw new Error("TokenForge account controls are unavailable");
+  const wasVerified = Boolean(controls.discordVerifiedAt);
+  await db.update(accountControls)
+    .set({ discordVerifiedAt: null })
+    .where(eq(accountControls.userId, userId));
+  return { reset: wasVerified };
+}
+
 export async function createApiKey(userId: number, label: string) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
@@ -897,6 +914,7 @@ export type AdminAccountBase = {
   requestLimit: number | null;
   tokenLimit: number | null;
   balanceNanos: number | null;
+  discordVerifiedAt: Date | null;
 };
 
 export type AdminAccountUsage = {
@@ -985,7 +1003,7 @@ export async function listAdminAccounts(input: AdminAccountDirectoryInput = {}) 
   const pageCount = Math.ceil(Number(total) / query.pageSize);
   const page = pageCount ? Math.min(query.page, pageCount) : 1;
   const accounts = await db
-    .select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos })
+    .select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos, discordVerifiedAt: accountControls.discordVerifiedAt })
     .from(users)
     .leftJoin(accountControls, eq(users.id, accountControls.userId))
     .leftJoin(creditAccounts, eq(users.id, creditAccounts.userId))
@@ -1126,7 +1144,7 @@ export async function getAdminOverview() {
   const [models, providers, accounts, usage, accountUsage, totals, emailProviderRows, allAccountModelUsageRows] = await Promise.all([
     db.select().from(modelConfigs).orderBy(modelConfigs.displayName),
     db.select().from(providerConfigs).orderBy(providerConfigs.displayName),
-    db.select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos }).from(users).leftJoin(accountControls, eq(users.id, accountControls.userId)).leftJoin(creditAccounts, eq(users.id, creditAccounts.userId)).orderBy(desc(users.lastSignedIn)).limit(100),
+    db.select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos, discordVerifiedAt: accountControls.discordVerifiedAt }).from(users).leftJoin(accountControls, eq(users.id, accountControls.userId)).leftJoin(creditAccounts, eq(users.id, creditAccounts.userId)).orderBy(desc(users.lastSignedIn)).limit(100),
     db.select({ day: dailyUsage.usageDate, requests: sql<number>`coalesce(sum(${dailyUsage.requestCount}), 0)`, tokens: sql<number>`coalesce(sum(${dailyUsage.totalTokens}), 0)` }).from(dailyUsage).where(gte(dailyUsage.usageDate, utcUsageDate(new Date(Date.now() - 13 * 86_400_000)))).groupBy(dailyUsage.usageDate).orderBy(dailyUsage.usageDate),
     db.select({ userId: usageEvents.userId, requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, lastActivityAt: sql<Date | null>`max(${usageEvents.createdAt})` }).from(usageEvents).groupBy(usageEvents.userId),
     db.select({ totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, totalRequests: sql<number>`coalesce(count(${usageEvents.id}), 0)` }).from(usageEvents),

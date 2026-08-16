@@ -27,6 +27,7 @@ vi.mock("./db", () => ({
   recordFailedPasswordLogin: vi.fn(),
   revokeAllTokenForgeSessions: vi.fn(),
   revokeApiKey: vi.fn(),
+  resetDiscordVerification: vi.fn(),
   rotateApiKey: vi.fn(),
   setAccountControl: vi.fn(),
   setEmailAllowlistConfig: vi.fn(),
@@ -62,6 +63,7 @@ import {
   getAuthSessionVersion,
   recordFailedPasswordLogin,
   revokeAllTokenForgeSessions,
+  resetDiscordVerification,
   setEmailAllowlistConfig,
   setProviderEnabled,
   writeAuditEvent,
@@ -107,6 +109,7 @@ beforeEach(() => {
   vi.mocked(deleteAccountPermanently).mockResolvedValue(true);
   vi.mocked(getAuthSessionVersion).mockResolvedValue(3);
   vi.mocked(revokeAllTokenForgeSessions).mockResolvedValue(4);
+  vi.mocked(resetDiscordVerification).mockResolvedValue({ reset: true });
   vi.mocked(verifyAdminPasscode).mockReturnValue(false);
 });
 
@@ -371,5 +374,17 @@ describe("protected administrator account directory", () => {
     expect(deleteAccountPermanently).toHaveBeenCalledWith(55);
     await expect(appRouter.createCaller(makeContext(admin).ctx).admin.deleteAccount({ userId: 55, confirmation: "not-55" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(appRouter.createCaller(makeContext(admin).ctx).admin.deleteAccount({ userId: admin.id, confirmation: `DELETE ACCOUNT ${admin.id}` })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("lets only a passcode-issued administrator deliberately reset another account's Discord verification and records the action", async () => {
+    const admin = { ...localUser, id: 1, isAdminSession: true };
+    const input = { userId: 55, confirmation: "RESET DISCORD VERIFICATION 55" };
+
+    await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.resetDiscordVerification(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.resetDiscordVerification({ ...input, confirmation: "reset" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.resetDiscordVerification(input)).resolves.toEqual({ success: true, reset: true });
+    expect(resetDiscordVerification).toHaveBeenCalledWith(55);
+    expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, targetUserId: 55, action: "account.discord_verification.reset", entityType: "account", entityId: "55", metadata: { verificationWasPresent: true } }));
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.resetDiscordVerification({ userId: admin.id, confirmation: `RESET DISCORD VERIFICATION ${admin.id}` })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });

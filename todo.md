@@ -220,3 +220,4 @@
 - [x] Document every active Cluster Protocol model supported by `POST /v1/messages` and add a privacy-safe administrator per-account chart that lists only models actually used by that account with request counts and processed-token totals.
 - [x] Add a privacy-safe administrator all-account model-usage overview that aggregates successful requests and processed tokens by model across users, while retaining each account’s individual used-model breakdown.
 - [x] Require verified membership in the TokenForge Discord server before non-administrator dashboard access, using secure Discord OAuth, server-side guild verification, privacy-aware persistence, recovery safeguards, and clear user guidance.
+- [x] Add an administrator-only, audited account action that clears a user’s Discord verification timestamp and requires secure re-verification before the next dashboard access.

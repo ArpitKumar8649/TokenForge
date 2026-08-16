@@ -38,6 +38,7 @@ import {
   getAnnouncementText,
   setAnnouncementText,
   getReferralOverview,
+  resetDiscordVerification,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -83,6 +84,14 @@ const permanentAccountDeleteInput = z.object({
 }).superRefine((input, context) => {
   if (input.confirmation !== `DELETE ACCOUNT ${input.userId}`) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["confirmation"], message: `Type DELETE ACCOUNT ${input.userId} to permanently delete this account` });
+  }
+});
+const discordVerificationResetInput = z.object({
+  userId: z.number().int().positive(),
+  confirmation: z.string().trim().max(80),
+}).superRefine((input, context) => {
+  if (input.confirmation !== `RESET DISCORD VERIFICATION ${input.userId}`) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["confirmation"], message: `Type RESET DISCORD VERIFICATION ${input.userId} to require membership verification again` });
   }
 });
 const announcementInput = z.object({ text: z.string().max(500, "Announcements must be 500 characters or fewer") });
@@ -295,6 +304,22 @@ export const appRouter = router({
       if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "This account no longer exists" });
       await writeAuditEvent({ actorUserId: ctx.user.id, action: "account.permanently_deleted", entityType: "deleted_account", entityId: String(input.userId) });
       return { success: true } as const;
+    }),
+    resetDiscordVerification: adminProcedure.input(discordVerificationResetInput).mutation(async ({ ctx, input }) => {
+      if (input.userId === ctx.user.id) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Administrator sessions bypass Discord verification and cannot be reset from the control plane" });
+      }
+      const result = await resetDiscordVerification(input.userId);
+      if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "This account no longer exists" });
+      await writeAuditEvent({
+        actorUserId: ctx.user.id,
+        targetUserId: input.userId,
+        action: "account.discord_verification.reset",
+        entityType: "account",
+        entityId: String(input.userId),
+        metadata: { verificationWasPresent: result.reset },
+      });
+      return { success: true, reset: result.reset } as const;
     }),
     flags: adminProcedure.query(() => listOpenFlags()),
     emailAllowlist: adminProcedure.query(async () => {
