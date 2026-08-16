@@ -17,6 +17,7 @@ import {
   loginAttempts,
   modelConfigs,
   oauthIdentities,
+  orcaRouterCredentialSlots,
   passwordCredentials,
   platformSettings,
   providerConfigs,
@@ -30,6 +31,7 @@ import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PR
 import { getClusterProtocolCredentialPool } from "./clusterProtocolCredentials";
 import { getFxqidianCredentialPool } from "./fxqidianCredentials";
 import { getProviderCredentialTelemetry } from "./providerCredentialTelemetry";
+import { encryptOrcaRouterCredential } from "./orcaRouterCredentialVault";
 import { TOKENFORGE_REFERRAL_REWARD_NANOS, normalizeReferralCode } from "../shared/referrals";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -53,6 +55,7 @@ export class DeletedAccountIdentityError extends Error {
 
 export type ApiKeyRecord = typeof apiKeys.$inferSelect;
 export type EmailAllowlistConfig = { entries: string[]; updatedAt: Date; updatedByUserId: number | null };
+export type OrcaRouterCredentialSlotSummary = { slot: number; fingerprintSuffix: string; lastValidatedAt: Date; updatedAt: Date; updatedByUserId: number | null };
 export type AdminEmailProviderCount = { provider: string; accountCount: number };
 export type UserWithDiscordVerification = typeof users.$inferSelect & { discordVerifiedAt: Date | null };
 
@@ -568,6 +571,68 @@ export async function setEmailAllowlistConfig(entries: readonly string[], update
   const saved = await getEmailAllowlistConfig();
   if (!saved) throw new Error("Email allowlist configuration did not persist");
   return saved;
+}
+
+export async function listOrcaRouterCredentialSlotSummaries(): Promise<OrcaRouterCredentialSlotSummary[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select({
+    slot: orcaRouterCredentialSlots.slot,
+    keyFingerprint: orcaRouterCredentialSlots.keyFingerprint,
+    lastValidatedAt: orcaRouterCredentialSlots.lastValidatedAt,
+    updatedAt: orcaRouterCredentialSlots.updatedAt,
+    updatedByUserId: orcaRouterCredentialSlots.updatedByUserId,
+  }).from(orcaRouterCredentialSlots).orderBy(orcaRouterCredentialSlots.slot);
+  return rows.map(row => ({
+    slot: row.slot,
+    fingerprintSuffix: row.keyFingerprint.slice(-6),
+    lastValidatedAt: row.lastValidatedAt,
+    updatedAt: row.updatedAt,
+    updatedByUserId: row.updatedByUserId,
+  }));
+}
+
+export async function loadOrcaRouterCredentialSlotCiphertexts() {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    slot: orcaRouterCredentialSlots.slot,
+    ciphertext: orcaRouterCredentialSlots.ciphertext,
+    iv: orcaRouterCredentialSlots.iv,
+    authTag: orcaRouterCredentialSlots.authTag,
+  }).from(orcaRouterCredentialSlots).orderBy(orcaRouterCredentialSlots.slot);
+}
+
+/** Replaces all three slots atomically after server-side validation has succeeded. */
+export async function replaceOrcaRouterCredentialPool(credentials: readonly [string, string, string], updatedByUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const encrypted = credentials.map((credential, slot) => ({ slot, ...encryptOrcaRouterCredential(credential) }));
+  const validatedAt = new Date();
+  await db.transaction(async tx => {
+    for (const item of encrypted) {
+      await tx.insert(orcaRouterCredentialSlots).values({
+        slot: item.slot,
+        ciphertext: item.ciphertext,
+        iv: item.iv,
+        authTag: item.authTag,
+        keyFingerprint: item.keyFingerprint,
+        lastValidatedAt: validatedAt,
+        updatedByUserId,
+      }).onDuplicateKeyUpdate({
+        set: {
+          ciphertext: item.ciphertext,
+          iv: item.iv,
+          authTag: item.authTag,
+          keyFingerprint: item.keyFingerprint,
+          lastValidatedAt: validatedAt,
+          updatedByUserId,
+          updatedAt: validatedAt,
+        },
+      });
+    }
+  });
+  return listOrcaRouterCredentialSlotSummaries();
 }
 
 /** Returns the currently published public announcement, normalized so whitespace-only values remain unpublished. */

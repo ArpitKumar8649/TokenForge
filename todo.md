@@ -248,3 +248,4 @@
 - [x] Research Claude Code’s Anthropic Messages contract and implement a scoped translation proxy for the OrcaRouter-backed Claude Opus 5 and Qwen3.8 27B routes, retaining the native OpenAI-compatible route and leaving Kimi K3 unchanged.
 - [x] Diagnose and repair the reported production `claude-opus-5` `/v1/messages` provider failure using a privacy-safe Claude Code-style reproduction, without exposing the supplied API key.
 - [x] Pin Claude Opus 5 at the top of the authenticated Playground model selector while preserving model search and availability status.
+- [x] Add an administrator-only encrypted three-key OrcaRouter credential pool with validation, health-aware round-robin selection, automatic failover, masked management controls, and privacy-safe audit events.

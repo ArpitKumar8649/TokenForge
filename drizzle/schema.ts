@@ -263,6 +263,27 @@ export const providerConfigs = mysqlTable("provider_configs", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+/**
+ * Server-encrypted, administrator-managed OrcaRouter credentials. The actual key
+ * material is never returned through tRPC, audit records, or telemetry.
+ */
+export const orcaRouterCredentialSlots = mysqlTable(
+  "orcarouter_credential_slots",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    slot: int("slot").notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    iv: varchar("iv", { length: 32 }).notNull(),
+    authTag: varchar("authTag", { length: 32 }).notNull(),
+    keyFingerprint: varchar("keyFingerprint", { length: 16 }).notNull(),
+    lastValidatedAt: timestamp("lastValidatedAt").notNull(),
+    updatedByUserId: int("updatedByUserId").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [uniqueIndex("orcarouter_credential_slots_slot_unique_idx").on(table.slot)],
+);
+
 /** Singleton-like platform settings keyed by a stable, audited identifier. */
 export const platformSettings = mysqlTable("platform_settings", {
   settingKey: varchar("settingKey", { length: 96 }).primaryKey(),
@@ -325,6 +346,7 @@ export type CreditAccount = typeof creditAccounts.$inferSelect;
 export type CreditLedgerEntry = typeof creditLedger.$inferSelect;
 export type DailyCheckin = typeof dailyCheckins.$inferSelect;
 export type ProviderConfig = typeof providerConfigs.$inferSelect;
+export type OrcaRouterCredentialSlot = typeof orcaRouterCredentialSlots.$inferSelect;
 export type ModelConfig = typeof modelConfigs.$inferSelect;
 export type AccountFlag = typeof accountFlags.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;

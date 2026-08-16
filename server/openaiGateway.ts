@@ -14,6 +14,7 @@ import {
 import { raiseOperationalAlert } from "./operationalAlerts";
 import { selectNextClusterProtocolCredentialWithSlot } from "./clusterProtocolCredentials";
 import { selectNextFxqidianCredentialWithSlot } from "./fxqidianCredentials";
+import { selectNextOrcaRouterCredentialWithSlot } from "./orcaRouterCredentials";
 import { isCredentialSlotEligible, recordCredentialFailover, recordCredentialFailure, recordCredentialSuccess, type CredentialTelemetryProvider } from "./providerCredentialTelemetry";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, getTokenForgeProviderSlug, getTokenForgeUpstreamModelId, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, type TokenForgeModelId } from "./modelCatalogue";
@@ -146,14 +147,14 @@ function retryableProviderStatus(status: number) {
   return status === 401 || status === 403 || status === 408 || status === 429 || status >= 500;
 }
 
-async function forwardWithCredentialFailover(providerSlug: CredentialTelemetryProvider, input: ChatInput, signal: AbortSignal, selectCredential: () => CredentialSelection | null, request: (credential: string) => Promise<globalThis.Response>) {
-  const first = selectCredential();
+async function forwardWithCredentialFailover(providerSlug: CredentialTelemetryProvider, input: ChatInput, signal: AbortSignal, selectCredential: () => CredentialSelection | null | Promise<CredentialSelection | null>, request: (credential: string) => Promise<globalThis.Response>) {
+  const first = await selectCredential();
   if (!first) throw new Error("TokenForge inference is not configured");
   let candidate = first;
   let lastResponse: globalThis.Response | null = null;
   for (let attempt = 0; attempt < candidate.poolSize; attempt += 1) {
     if (!isCredentialSlotEligible(providerSlug, candidate.slot) && attempt < candidate.poolSize - 1) {
-      const next = selectCredential();
+      const next = await selectCredential();
       if (next) {
         candidate = next;
         continue;
@@ -173,7 +174,7 @@ async function forwardWithCredentialFailover(providerSlug: CredentialTelemetryPr
     }
     if (attempt < candidate.poolSize - 1) {
       recordCredentialFailover(providerSlug);
-      const next = selectCredential();
+      const next = await selectCredential();
       if (next) candidate = next;
     }
   }
@@ -230,29 +231,22 @@ async function forwardTokenHarborRequest(input: ChatInput, signal: AbortSignal) 
 
 async function forwardClaudeOpus5Request(input: ChatInput, signal: AbortSignal) {
   const base = process.env.CLAUDE_OPUS5_BASE_URL?.replace(/\/$/, "");
-  const secret = process.env.CLAUDE_OPUS5_API_KEY?.trim();
   const configuredClaudeModel = process.env.CLAUDE_OPUS5_MODEL?.trim();
   const upstreamModel = input.model === "claude-opus-5"
     ? configuredClaudeModel
     : typeof input.model === "string"
       ? getTokenForgeUpstreamModelId(input.model)
       : undefined;
-  if (!base || !secret || !upstreamModel) throw new Error("TokenForge Claude Opus 5 inference is not configured");
+  if (!base || !upstreamModel) throw new Error("TokenForge Claude Opus 5 inference is not configured");
   const requestBody = { ...input, model: upstreamModel };
-  try {
-    const response = await fetch(`${base}/v1/chat/completions`, {
+  return forwardWithCredentialFailover(CLAUDE_OPUS5_PROVIDER_SLUG, input, signal, selectNextOrcaRouterCredentialWithSlot, credential =>
+    fetch(`${base}/v1/chat/completions`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
+      headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
       body: JSON.stringify(requestBody),
       signal,
-    });
-    if (response.ok || !retryableProviderStatus(response.status)) recordCredentialSuccess(CLAUDE_OPUS5_PROVIDER_SLUG, 0);
-    else recordCredentialFailure(CLAUDE_OPUS5_PROVIDER_SLUG, 0);
-    return response;
-  } catch (error) {
-    recordCredentialFailure(CLAUDE_OPUS5_PROVIDER_SLUG, 0);
-    throw error;
-  }
+    }),
+  );
 }
 
 export async function forwardProviderRequest(model: TokenForgeModelId, input: TokenForgeChatInput, signal: AbortSignal) {

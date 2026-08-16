@@ -6,6 +6,7 @@ vi.mock("./db", () => ({
   getModelAvailabilitySnapshot: vi.fn(),
   getRecentRequestCounts: vi.fn(),
   isModelAvailable: vi.fn(),
+  loadOrcaRouterCredentialSlotCiphertexts: vi.fn(),
   recordUsage: vi.fn(),
   reserveCredit: vi.fn(),
   settleReservedCredit: vi.fn(),
@@ -14,11 +15,12 @@ vi.mock("./db", () => ({
 
 vi.mock("./operationalAlerts", () => ({ raiseOperationalAlert: vi.fn() }));
 
-import { getQuotaStatus, getRecentRequestCounts, isModelAvailable, recordUsage, reserveCredit, settleReservedCredit } from "./db";
+import { getQuotaStatus, getRecentRequestCounts, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordUsage, reserveCredit, settleReservedCredit } from "./db";
 import { raiseOperationalAlert } from "./operationalAlerts";
 import { forwardProviderRequest, modelScopedGuidance, playgroundResponseGuidance, runPlaygroundCompletion, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
+import { invalidateOrcaRouterCredentialPool } from "./orcaRouterCredentials";
 import { getProviderCredentialTelemetry, resetProviderCredentialTelemetry } from "./providerCredentialTelemetry";
 import { FXQIDIAN_PROVIDER_SLUG } from "./modelCatalogue";
 
@@ -58,8 +60,10 @@ beforeEach(() => {
     chargedNanos: finalChargeNanos,
     balanceNanos: 50_000_000_000 - finalChargeNanos,
   }));
+  vi.mocked(loadOrcaRouterCredentialSlotCiphertexts).mockResolvedValue([]);
   resetClusterProtocolCredentialRotation();
   resetFxqidianCredentialRotation();
+  invalidateOrcaRouterCredentialPool();
   resetProviderCredentialTelemetry();
 });
 

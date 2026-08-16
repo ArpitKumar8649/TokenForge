@@ -40,6 +40,7 @@ import {
   getReferralOverview,
   resetDiscordVerification,
   getOrCreateAdminSessionPrincipal,
+  replaceOrcaRouterCredentialPool,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -49,6 +50,7 @@ import { configuredEmailAllowlist, isPermanentEmailAddress, PASSWORD_MIN_LENGTH 
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, type TokenForgeModelId } from "./modelCatalogue";
 import { runPlaygroundCompletion, TokenForgePlaygroundError, tokenForgeRequestIpHash } from "./openaiGateway";
 import { verifyAdminPasscode } from "./adminPasscode";
+import { getOrcaRouterCredentialPoolStatus, invalidateOrcaRouterCredentialPool, validateOrcaRouterCredential } from "./orcaRouterCredentials";
 
 const apiKeyLabel = z
   .string()
@@ -97,6 +99,13 @@ const discordVerificationResetInput = z.object({
   }
 });
 const announcementInput = z.object({ text: z.string().max(500, "Announcements must be 500 characters or fewer") });
+const orcaRouterCredentialPoolInput = z.object({
+  credentials: z.tuple([
+    z.string().trim().min(20, "Enter a complete OrcaRouter credential").max(512),
+    z.string().trim().min(20, "Enter a complete OrcaRouter credential").max(512),
+    z.string().trim().min(20, "Enter a complete OrcaRouter credential").max(512),
+  ]),
+});
 
 function playgroundTrpcError(error: TokenForgePlaygroundError) {
   const code = error.code === "model_not_found" ? "NOT_FOUND"
@@ -341,6 +350,26 @@ export const appRouter = router({
           return saved;
         } catch (error) {
           throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "TokenForge could not save the email allowlist" });
+        }
+      }),
+    orcaRouterCredentials: adminProcedure.query(() => getOrcaRouterCredentialPoolStatus()),
+    replaceOrcaRouterCredentials: adminProcedure
+      .input(orcaRouterCredentialPoolInput)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          for (const credential of input.credentials) await validateOrcaRouterCredential(credential);
+          const slots = await replaceOrcaRouterCredentialPool(input.credentials, ctx.user.id);
+          invalidateOrcaRouterCredentialPool();
+          await writeAuditEvent({
+            actorUserId: ctx.user.id,
+            action: "provider.orcarouter.credentials_rotated",
+            entityType: "provider",
+            entityId: CLAUDE_OPUS5_PROVIDER_SLUG,
+            metadata: { slotCount: slots.length, validation: "server_probe" },
+          });
+          return { source: "database" as const, slots };
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "OrcaRouter credential validation failed" });
         }
       }),
     announcement: adminProcedure.query(() => getAnnouncementText()),
