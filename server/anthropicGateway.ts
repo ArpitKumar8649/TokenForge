@@ -98,11 +98,24 @@ export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChat
   const temperature = typeof raw.temperature === "number" ? raw.temperature : undefined;
 
   const messages: TokenForgeChatMessage[] = [];
-  if (raw.system !== undefined) messages.push({ role: "system", content: systemToText(raw.system) });
+  const systemInstructions: string[] = raw.system === undefined ? [] : [systemToText(raw.system)];
   for (let messageIndex = 0; messageIndex < raw.messages.length; messageIndex += 1) {
     const candidate = raw.messages[messageIndex];
     if (!candidate || typeof candidate !== "object") throw new AnthropicBridgeError(400, "invalid_request_error", `messages[${messageIndex}] must be an object.`);
     const message = candidate as { role?: unknown; content?: unknown };
+    if (message.role === "system" || message.role === "developer") {
+      const instruction = contentToText(message.content).trim();
+      if (!instruction) throw new AnthropicBridgeError(400, "invalid_request_error", `messages[${messageIndex}].content must contain instruction text.`);
+      systemInstructions.push(instruction);
+      continue;
+    }
+    if (message.role === "tool" || message.role === "function") {
+      const result = contentToText(message.content).trim();
+      if (!result) throw new AnthropicBridgeError(400, "invalid_request_error", `messages[${messageIndex}].content must contain tool output.`);
+      const label = message.role === "tool" ? "Tool result" : "Function result";
+      messages.push({ role: "user", content: `[${label}]\n${result}` });
+      continue;
+    }
     if (message.role !== "user" && message.role !== "assistant") throw new AnthropicBridgeError(400, "invalid_request_error", `messages[${messageIndex}].role must be user or assistant.`);
     if (typeof message.content === "string") {
       messages.push({ role: message.role, content: message.content });
@@ -139,6 +152,21 @@ export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChat
       const content = [...toolResults, text].filter(Boolean).join("\n\n").trim();
       if (!content) throw new AnthropicBridgeError(400, "invalid_request_error", `messages[${messageIndex}] must contain text or tool_result content.`);
       messages.push({ role: "user", content });
+    }
+  }
+
+  const systemContext = systemInstructions.filter(Boolean).join("\n\n").trim();
+  if (systemContext) {
+    if (model === "kimi-k3") {
+      const firstUserIndex = messages.findIndex(message => message.role === "user");
+      const prefixedContext = `[System context]\n${systemContext}`;
+      if (firstUserIndex >= 0 && typeof messages[firstUserIndex].content === "string") {
+        messages[firstUserIndex] = { ...messages[firstUserIndex], content: `${prefixedContext}\n\n${messages[firstUserIndex].content}` };
+      } else {
+        messages.unshift({ role: "user", content: prefixedContext });
+      }
+    } else {
+      messages.unshift({ role: "system", content: systemContext });
     }
   }
 

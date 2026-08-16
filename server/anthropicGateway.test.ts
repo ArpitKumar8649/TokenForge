@@ -14,9 +14,9 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(anthropicApiKey(bearerRequest as never)).toBe("tf_live_y");
   });
 
-  it("translates system content, text blocks, tool calls, and tool results without forwarding a tool role", () => {
+  it("translates system content, text blocks, tool calls, and tool results without forwarding a tool role for a system-role-capable model", () => {
     const translated = translateAnthropicRequest({
-      model: "kimi-k3",
+      model: "gpt-5",
       system: [{ type: "text", text: "Act carefully." }],
       messages: [
         { role: "user", content: [{ type: "text", text: "Inspect the repository." }] },
@@ -38,6 +38,24 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(translated.tools).toEqual([expect.objectContaining({ type: "function", function: expect.objectContaining({ name: "read_file" }) })]);
     expect(translated.stream).toBe(true);
     expect(translated.max_tokens).toBe(2048);
+  });
+
+  it("normalizes Claude Code tool and instruction turns for Kimi K3 into supported user and assistant roles", () => {
+    const translated = translateAnthropicRequest({
+      model: "kimi-k3",
+      system: "Use repository-safe commands.",
+      messages: [
+        { role: "user", content: "Inspect the repository." },
+        { role: "tool", content: "README.md exists." },
+        { role: "developer", content: "Return a concise summary." },
+      ],
+    });
+
+    expect(translated.messages).toEqual([
+      { role: "user", content: "[System context]\nUse repository-safe commands.\n\nReturn a concise summary.\n\nInspect the repository." },
+      { role: "user", content: "[Tool result]\nREADME.md exists." },
+    ]);
+    expect(translated.messages?.every(message => message.role === "user" || message.role === "assistant")).toBe(true);
   });
 
   it("rejects non-Cluster models and unsupported image content before upstream routing", () => {
