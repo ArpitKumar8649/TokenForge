@@ -36,7 +36,7 @@ export default function Playground() {
 
   const complete = trpc.developer.playground.useMutation({
     onSuccess: response => {
-      setMessages(previous => [...previous, { role: "assistant", content: response.content }]);
+      setMessages(previous => [...previous, { role: "assistant", content: response.content, ...(response.thinking ? { thinking: response.thinking } : {}) }]);
       setLastUsage({ totalTokens: response.usage.totalTokens });
       setError(null);
       utils.developer.wallet.invalidate();
@@ -73,7 +73,7 @@ export default function Playground() {
       const applyEvent = (raw: string, name: string) => {
         if (!raw || raw === "[DONE]") return;
         try {
-          const payload = JSON.parse(raw) as { choices?: Array<{ delta?: { content?: string } }>; usage?: { totalTokens?: number }; credit?: unknown };
+          const payload = JSON.parse(raw) as { choices?: Array<{ delta?: { content?: string; reasoning_content?: string; reasoning?: string; thinking?: string } }>; usage?: { totalTokens?: number }; credit?: unknown };
           if (name === "tokenforge:usage") {
             const usage = payload.usage;
             if (usage?.totalTokens !== undefined) setLastUsage({ totalTokens: usage.totalTokens });
@@ -81,11 +81,16 @@ export default function Playground() {
             return;
           }
           const delta = payload.choices?.[0]?.delta?.content;
-          if (!delta) return;
+          const thinkingDelta = payload.choices?.[0]?.delta?.reasoning_content ?? payload.choices?.[0]?.delta?.reasoning ?? payload.choices?.[0]?.delta?.thinking;
+          if (!delta && !thinkingDelta) return;
           setMessages(previous => {
             const updated = [...previous];
             const last = updated[updated.length - 1];
-            if (last?.role === "assistant") updated[updated.length - 1] = { ...last, content: `${last.content}${delta}` };
+            if (last?.role === "assistant") updated[updated.length - 1] = {
+              ...last,
+              ...(delta ? { content: `${last.content}${delta}` } : {}),
+              ...(thinkingDelta ? { thinking: `${last.thinking ?? ""}${thinkingDelta}` } : {}),
+            };
             return updated;
           });
         } catch { /* Ignore non-JSON provider keep-alives and malformed passthrough events. */ }
@@ -109,7 +114,7 @@ export default function Playground() {
       }
       setError(null);
     } catch (requestError) {
-      setMessages(previous => previous.filter((message, index) => !(index === previous.length - 1 && message.role === "assistant" && !message.content)));
+      setMessages(previous => previous.filter((message, index) => !(index === previous.length - 1 && message.role === "assistant" && !message.content && !message.thinking)));
       setError(requestError instanceof Error ? requestError.message : "TokenForge could not complete this streamed request.");
     } finally {
       setIsStreaming(false);

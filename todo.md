@@ -255,3 +255,4 @@
 - [x] Inspect and report the active TokenForge gateway rate limits without changing code or configuration.
 - [x] Expand the administrator-managed OrcaRouter credential pool from three to fifteen encrypted replacement keys, preserving health-aware round-robin routing and atomic replacement behavior.
 - [x] Add an administrator-only privacy-safe bar chart showing per-slot request totals for the active fifteen-key OrcaRouter credential pool without exposing API key material.
+- [x] Validate and add the TokenRouter-backed Qwen 3.8 Max model across TokenForge, including supported OpenAI and Anthropic API routing, verified maximum reasoning control, and a responsive collapsible italic Playground thinking display.

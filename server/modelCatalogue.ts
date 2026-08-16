@@ -2,8 +2,9 @@ export const FXQIDIAN_PROVIDER_SLUG = "fxqidian" as const;
 export const CLUSTER_PROTOCOL_PROVIDER_SLUG = "cluster-protocol" as const;
 export const TOKENHARBOR_PROVIDER_SLUG = "tokenharbor" as const;
 export const CLAUDE_OPUS5_PROVIDER_SLUG = "claude-opus5" as const;
+export const TOKENROUTER_PROVIDER_SLUG = "tokenrouter" as const;
 
-export type TokenForgeProviderSlug = typeof FXQIDIAN_PROVIDER_SLUG | typeof CLUSTER_PROTOCOL_PROVIDER_SLUG | typeof TOKENHARBOR_PROVIDER_SLUG | typeof CLAUDE_OPUS5_PROVIDER_SLUG;
+export type TokenForgeProviderSlug = typeof FXQIDIAN_PROVIDER_SLUG | typeof CLUSTER_PROTOCOL_PROVIDER_SLUG | typeof TOKENHARBOR_PROVIDER_SLUG | typeof CLAUDE_OPUS5_PROVIDER_SLUG | typeof TOKENROUTER_PROVIDER_SLUG;
 
 export type TokenForgeModelDefinition = {
   id: string;
@@ -108,6 +109,19 @@ export const TOKENFORGE_MODEL_CATALOGUE = [
     pricingSource: "Qwen3.8 27B API pricing",
     pricingUrl: "https://openrouter.ai/qwen/qwen3.8-27b",
     upstreamModelId: "qwen/qwen3.8-27b-free",
+  },
+  {
+    id: "qwen3.8-max",
+    displayName: "Qwen 3.8 Max",
+    description: "Qwen’s flagship text route for advanced reasoning, coding, streamed chat, and visible Playground thinking summaries.",
+    providerSlug: TOKENROUTER_PROVIDER_SLUG,
+    providerName: "Qwen",
+    capabilities: ["reasoning", "thinking", "coding", "streaming"],
+    inputUsdPerMillion: 2,
+    outputUsdPerMillion: 6,
+    pricingSource: "OpenRouter Qwen3.8 Max published rate",
+    pricingUrl: "https://openrouter.ai/qwen/qwen3.8-max",
+    upstreamModelId: "qwen/qwen3.8-max-free",
   },
   {
     id: "glm-5.1",

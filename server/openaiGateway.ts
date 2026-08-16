@@ -17,7 +17,7 @@ import { selectNextFxqidianCredentialWithSlot } from "./fxqidianCredentials";
 import { selectNextOrcaRouterCredentialWithSlot } from "./orcaRouterCredentials";
 import { isCredentialSlotEligible, recordCredentialFailover, recordCredentialFailure, recordCredentialSuccess, type CredentialTelemetryProvider } from "./providerCredentialTelemetry";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
-import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, getTokenForgeProviderSlug, getTokenForgeUpstreamModelId, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, type TokenForgeModelId } from "./modelCatalogue";
+import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, getTokenForgeProviderSlug, getTokenForgeUpstreamModelId, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, type TokenForgeModelId } from "./modelCatalogue";
 import { sdk } from "./_core/sdk";
 
 export const TOKENFORGE_CATALOGUE = TOKENFORGE_MODEL_CATALOGUE.map(model => ({
@@ -249,12 +249,35 @@ async function forwardClaudeOpus5Request(input: ChatInput, signal: AbortSignal) 
   );
 }
 
+async function forwardTokenRouterRequest(input: ChatInput, signal: AbortSignal) {
+  const base = process.env.TOKENROUTER_BASE_URL?.replace(/\/$/, "");
+  const secret = process.env.TOKENROUTER_API_KEY;
+  const configuredModel = process.env.TOKENROUTER_MODEL?.trim();
+  if (!base || !secret || !configuredModel) throw new Error("TokenForge TokenRouter inference is not configured");
+  const requestBody = { ...input, model: input.model === "qwen3.8-max" ? configuredModel : getTokenForgeUpstreamModelId(String(input.model)) };
+  try {
+    const response = await fetch(`${base}/v1/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
+      body: JSON.stringify(requestBody),
+      signal,
+    });
+    if (response.ok || !retryableProviderStatus(response.status)) recordCredentialSuccess(TOKENROUTER_PROVIDER_SLUG, 0);
+    else recordCredentialFailure(TOKENROUTER_PROVIDER_SLUG, 0);
+    return response;
+  } catch (error) {
+    recordCredentialFailure(TOKENROUTER_PROVIDER_SLUG, 0);
+    throw error;
+  }
+}
+
 export async function forwardProviderRequest(model: TokenForgeModelId, input: TokenForgeChatInput, signal: AbortSignal) {
   const provider = getTokenForgeProviderSlug(model);
   if (provider === FXQIDIAN_PROVIDER_SLUG) return forwardFxqidianRequest(input, signal);
   if (provider === CLUSTER_PROTOCOL_PROVIDER_SLUG) return forwardClusterRequest(input, signal);
   if (provider === TOKENHARBOR_PROVIDER_SLUG) return forwardTokenHarborRequest(input, signal);
   if (provider === CLAUDE_OPUS5_PROVIDER_SLUG) return forwardClaudeOpus5Request(input, signal);
+  if (provider === TOKENROUTER_PROVIDER_SLUG) return forwardTokenRouterRequest(input, signal);
   throw new Error("TokenForge inference routing is not configured for this model");
 }
 
@@ -272,6 +295,15 @@ function textContentFrom(payload: unknown) {
   if (!Array.isArray(choices)) return null;
   const content = (choices[0] as { message?: { content?: unknown } } | undefined)?.message?.content;
   return typeof content === "string" && content.trim() ? content : null;
+}
+
+function reasoningContentFrom(payload: unknown) {
+  if (!payload || typeof payload !== "object") return null;
+  const choices = (payload as { choices?: unknown }).choices;
+  if (!Array.isArray(choices)) return null;
+  const message = (choices[0] as { message?: { reasoning_content?: unknown; reasoning?: unknown; thinking?: unknown } } | undefined)?.message;
+  const reasoning = message?.reasoning_content ?? message?.reasoning ?? message?.thinking;
+  return typeof reasoning === "string" && reasoning.trim() ? reasoning : null;
 }
 
 /** Runs a dashboard turn through the server-side provider without exposing its credential to the browser. */
@@ -324,6 +356,7 @@ export async function runPlaygroundCompletion(input: {
       stream: false,
       ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
       ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
+      ...(input.model === "qwen3.8-max" ? { reasoning_effort: "xhigh" } : {}),
     }, aborter.signal);
     if (!upstream.ok) {
       const payload = await upstream.json().catch(() => null);
@@ -338,6 +371,7 @@ export async function runPlaygroundCompletion(input: {
       await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "provider_error", sourceIpHash: input.sourceIpHash });
       throw new TokenForgePlaygroundError("provider_unavailable", "The selected provider returned an invalid response.");
     }
+    const thinking = input.model === "qwen3.8-max" ? reasoningContentFrom(payload) : null;
     const tokens = normalizedTokens(usageFrom(payload), estimatedInputTokens);
     const chargeNanos = calculateCreditChargeNanos(input.model, tokens.inputTokens, tokens.outputTokens);
     const settlement = await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos });
@@ -346,6 +380,7 @@ export async function runPlaygroundCompletion(input: {
       requestId,
       model: input.model,
       content,
+      ...(thinking ? { thinking } : {}),
       usage: { promptTokens: tokens.inputTokens, completionTokens: tokens.outputTokens, totalTokens: tokens.inputTokens + tokens.outputTokens },
       credit: { balanceNanos: settlement.balanceNanos, chargeNanos: settlement.chargedNanos },
     };
@@ -414,6 +449,7 @@ async function streamPlaygroundCompletion(input: {
       stream: true,
       ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
       ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
+      ...(input.model === "qwen3.8-max" ? { reasoning_effort: "xhigh" } : {}),
     }, aborter.signal);
     if (!upstream.ok) {
       const payload = await upstream.json().catch(() => null);

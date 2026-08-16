@@ -13,6 +13,7 @@ import { TokenForgeGlyph } from "./TokenForgeGlyph";
 export type Message = {
   role: "system" | "user" | "assistant";
   content: string;
+  thinking?: string;
 };
 
 export type AIChatBoxProps = {
@@ -229,7 +230,7 @@ export function AIChatBox({
               {displayMessages.map((message, index) => {
                 // Apply min-height to last message only if NOT loading (when loading, the loading indicator gets it)
                 const isLastMessage = index === displayMessages.length - 1;
-                const isPendingAssistant = message.role === "assistant" && isLoading && isLastMessage && !message.content;
+                const isPendingAssistant = message.role === "assistant" && isLoading && isLastMessage && !message.content && !message.thinking;
                 const shouldApplyMinHeight =
                   isLastMessage && !isLoading && minHeightForLastMessage > 0;
 
@@ -265,8 +266,14 @@ export function AIChatBox({
                       {isPendingAssistant ? (
                         <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label="TokenForge is responding" />
                       ) : message.role === "assistant" ? (
-                        <div className="prose prose-sm dark:prose-invert max-w-none leading-6 prose-p:my-2 prose-p:text-[14px] prose-p:leading-6 prose-headings:my-3 prose-headings:font-bold prose-h1:text-[21px] prose-h2:text-[19px] prose-h3:text-[17px] prose-li:my-1 prose-li:text-[14px]">
-                          <Streamdown>{message.content}</Streamdown>
+                        <div className="min-w-0">
+                          {message.thinking ? <details className="mb-3 rounded-md border border-lime-400/20 bg-lime-400/[0.045] px-3 py-2 text-xs text-muted-foreground">
+                            <summary className="cursor-pointer select-none font-medium text-lime-200 marker:text-lime-300">Thinking summary</summary>
+                            <div className="mt-2 whitespace-pre-wrap border-t border-lime-400/15 pt-2 italic leading-5 text-lime-50/70">{message.thinking}</div>
+                          </details> : null}
+                          {message.content ? <div className="prose prose-sm dark:prose-invert max-w-none leading-6 prose-p:my-2 prose-p:text-[14px] prose-p:leading-6 prose-headings:my-3 prose-headings:font-bold prose-h1:text-[21px] prose-h2:text-[19px] prose-h3:text-[17px] prose-li:my-1 prose-li:text-[14px]">
+                            <Streamdown>{message.content}</Streamdown>
+                          </div> : null}
                         </div>
                       ) : (
                         <p className="whitespace-pre-wrap text-sm">

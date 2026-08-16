@@ -32,7 +32,7 @@ const activeRequests = new Map<number, number>();
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number };
 type AnthropicRequest = { model?: unknown; messages?: unknown; system?: unknown; tools?: unknown; stream?: unknown; max_tokens?: unknown; temperature?: unknown };
 type AnthropicBlock = { type?: unknown; text?: unknown; id?: unknown; name?: unknown; input?: unknown; tool_use_id?: unknown; content?: unknown; is_error?: unknown };
-const ORCAROUTER_MESSAGES_MODELS = new Set(["claude-opus-5", "qwen3.8-27b"]);
+const OPENAI_TRANSLATED_MESSAGES_MODELS = new Set(["claude-opus-5", "qwen3.8-27b", "qwen3.8-max"]);
 
 export class AnthropicBridgeError extends Error {
   constructor(public readonly status: number, public readonly type: string, message: string) {
@@ -84,7 +84,7 @@ export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChat
     throw new AnthropicBridgeError(400, "invalid_request_error", "model must be a non-empty TokenForge Messages-supported model identifier.");
   }
   const provider = isTokenForgeModelId(raw.model) ? getTokenForgeProviderSlug(raw.model) : null;
-  if (provider !== CLUSTER_PROTOCOL_PROVIDER_SLUG && !ORCAROUTER_MESSAGES_MODELS.has(raw.model)) {
+  if (provider !== CLUSTER_PROTOCOL_PROVIDER_SLUG && !OPENAI_TRANSLATED_MESSAGES_MODELS.has(raw.model)) {
     throw new AnthropicBridgeError(400, "invalid_request_error", "The Anthropic Messages endpoint does not support the requested TokenForge model.");
   }
   if (!Array.isArray(raw.messages) || raw.messages.length < 1 || raw.messages.length > 100) {
@@ -98,7 +98,7 @@ export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChat
     throw new AnthropicBridgeError(400, "invalid_request_error", "temperature must be a number from 0 to 2.");
   }
   const model = raw.model as string;
-  const usesOpenAiNativeToolResults = ORCAROUTER_MESSAGES_MODELS.has(model);
+  const usesOpenAiNativeToolResults = OPENAI_TRANSLATED_MESSAGES_MODELS.has(model);
   const maxTokens = typeof raw.max_tokens === "number" ? raw.max_tokens : undefined;
   const temperature = typeof raw.temperature === "number" ? raw.temperature : undefined;
 

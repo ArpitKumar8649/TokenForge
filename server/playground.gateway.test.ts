@@ -51,6 +51,9 @@ beforeEach(() => {
   process.env.CLAUDE_OPUS5_BASE_URL = "https://opus5.example";
   process.env.CLAUDE_OPUS5_API_KEY = "server-only-opus5-secret";
   process.env.CLAUDE_OPUS5_MODEL = "upstream-claude-opus-5";
+  process.env.TOKENROUTER_BASE_URL = "https://tokenrouter.example";
+  process.env.TOKENROUTER_API_KEY = "server-only-tokenrouter-secret";
+  process.env.TOKENROUTER_MODEL = "qwen/qwen3.8-max-free";
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
   vi.mocked(getRecentRequestCounts).mockResolvedValue({ account: 0, ip: 0 });
@@ -274,6 +277,29 @@ describe("TokenForge Playground gateway", () => {
     expect(forwardedPayload.model).toBe("qwen/qwen3.8-27b-free");
     expect(JSON.stringify(forwardedPayload.messages)).not.toContain("configured Claude Opus 5 route");
     expect(withModelScopedGuidance("qwen3.8-27b", [{ role: "user", content: "Unchanged" }])).toEqual([{ role: "user", content: "Unchanged" }]);
+  });
+
+  it("routes Qwen 3.8 Max through TokenRouter with enforced highest supported Playground reasoning and returns its thinking summary", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: "Qwen response", reasoning_content: "Provider reasoning summary" } }],
+      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runPlaygroundCompletion({
+      userId: 42,
+      model: "qwen3.8-max",
+      messages: [{ role: "user", content: "Explain safe model routing." }],
+      sourceIpHash: "hashed-source-ip",
+    });
+
+    expect(result).toMatchObject({ model: "qwen3.8-max", content: "Qwen response", thinking: "Provider reasoning summary" });
+    expect(fetchMock).toHaveBeenCalledWith("https://tokenrouter.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret" }),
+    }));
+    const forwardedPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(forwardedPayload).toMatchObject({ model: "qwen/qwen3.8-max-free", reasoning_effort: "xhigh", stream: false });
+    expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-tokenrouter-secret");
   });
 
   it("stops before provider execution when the promotional credit reservation is denied", async () => {
