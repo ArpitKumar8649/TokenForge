@@ -16,7 +16,7 @@ vi.mock("./operationalAlerts", () => ({ raiseOperationalAlert: vi.fn() }));
 
 import { getQuotaStatus, getRecentRequestCounts, isModelAvailable, recordUsage, reserveCredit, settleReservedCredit } from "./db";
 import { raiseOperationalAlert } from "./operationalAlerts";
-import { forwardProviderRequest, modelScopedGuidance, runPlaygroundCompletion, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
+import { forwardProviderRequest, modelScopedGuidance, playgroundResponseGuidance, runPlaygroundCompletion, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 import { getProviderCredentialTelemetry, resetProviderCredentialTelemetry } from "./providerCredentialTelemetry";
@@ -90,6 +90,9 @@ describe("TokenForge Playground gateway", () => {
     expect(forwardedPayload.messages[0].content).toContain("selected TokenForge model: glm-5.2");
     expect(forwardedPayload.messages[0].content).toContain("do not claim to be Google Gemini");
     expect(forwardedPayload.messages[0].content).toContain("Do not invent a knowledge cutoff");
+    expect(forwardedPayload.messages[1]).toEqual(playgroundResponseGuidance());
+    expect(forwardedPayload.messages[1].content).toContain("useful, detailed, and clearly structured");
+    expect(forwardedPayload.messages[2]).toEqual({ role: "user", content: "How should I protect an upstream credential?" });
     expect(reserveCredit).toHaveBeenCalledWith(42, expect.any(Number), expect.stringMatching(/^tf_pg_/));
     expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 144_000 }));
     expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, modelId: "glm-5.2", status: "success", inputTokens: 12, outputTokens: 18, chargeNanos: 144_000, sourceIpHash: "hashed-source-ip" }));
@@ -249,6 +252,7 @@ describe("TokenForge Playground gateway", () => {
     expect(apiMessages[0]).toEqual(modelScopedGuidance("claude-opus-5"));
     expect(apiMessages[0].content).toContain("Do not state that you are Anthropic");
     expect(withModelScopedGuidance("glm-5.2", [{ role: "user", content: "Unchanged" }])).toEqual([{ role: "user", content: "Unchanged" }]);
+    expect(withModelScopedGuidance("claude-opus-5", [{ role: "user", content: "Unchanged" }])).not.toContainEqual(playgroundResponseGuidance());
   });
 
   it("stops before provider execution when the promotional credit reservation is denied", async () => {

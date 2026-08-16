@@ -233,3 +233,5 @@
 - [x] Correct the administrator “most tokens” ordering to use each account’s lifetime successful processed-token total rather than a limited or recent aggregate.
 - [x] Add the server-only Claude Opus 5 provider route for `https://ai.kscsnkli.site` and upstream model `claude-opus-5`, store its API key as a project secret, apply truthful model-scoped guidance to Playground and API requests, define a transparent interim pricing basis, update model surfaces, and validate the completed route.
 - [x] Store the Claude Opus 5 provider base URL and exact upstream model identifier as server-only managed configuration alongside its provider API key, with no provider configuration exposed to browser code.
+- [x] Replace fallback-style model marks in catalogue and Playground model-selection surfaces with appropriate recognizable provider artwork while preserving accessible labels and mobile layout.
+- [x] Add Playground-only internal guidance that makes responses useful, detailed, and clearly structured for both simple and complex prompts without changing external API-call behavior.
