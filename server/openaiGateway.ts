@@ -255,43 +255,6 @@ async function forwardClaudeOpus5Request(input: ChatInput, signal: AbortSignal) 
   }
 }
 
-export function claudeOpus5NativeMessagesBody(input: Record<string, unknown>, upstreamModel: string) {
-  const guidance = modelScopedGuidance("claude-opus-5").content;
-  const existingSystem = input.system;
-  const system = typeof existingSystem === "string"
-    ? `${guidance}\n\n${existingSystem}`
-    : Array.isArray(existingSystem)
-      ? [{ type: "text", text: guidance }, ...existingSystem]
-      : guidance;
-  return { ...input, model: upstreamModel, system };
-}
-
-export async function forwardClaudeOpus5NativeMessagesRequest(input: Record<string, unknown>, signal: AbortSignal) {
-  const base = process.env.CLAUDE_OPUS5_BASE_URL?.replace(/\/$/, "");
-  const secret = process.env.CLAUDE_OPUS5_API_KEY?.trim();
-  const upstreamModel = process.env.CLAUDE_OPUS5_MODEL?.trim();
-  if (!base || !secret || !upstreamModel) throw new Error("TokenForge Claude Opus 5 Messages inference is not configured");
-  try {
-    const response = await fetch(`${base}/v1/messages`, {
-      method: "POST",
-      headers: {
-        "x-api-key": secret,
-        "anthropic-version": "2023-06-01",
-        "Content-Type": "application/json",
-        Accept: input.stream === true ? "text/event-stream" : "application/json",
-      },
-      body: JSON.stringify(claudeOpus5NativeMessagesBody(input, upstreamModel)),
-      signal,
-    });
-    if (response.ok || !retryableProviderStatus(response.status)) recordCredentialSuccess(CLAUDE_OPUS5_PROVIDER_SLUG, 0);
-    else recordCredentialFailure(CLAUDE_OPUS5_PROVIDER_SLUG, 0);
-    return response;
-  } catch (error) {
-    recordCredentialFailure(CLAUDE_OPUS5_PROVIDER_SLUG, 0);
-    throw error;
-  }
-}
-
 export async function forwardProviderRequest(model: TokenForgeModelId, input: TokenForgeChatInput, signal: AbortSignal) {
   const provider = getTokenForgeProviderSlug(model);
   if (provider === FXQIDIAN_PROVIDER_SLUG) return forwardFxqidianRequest(input, signal);

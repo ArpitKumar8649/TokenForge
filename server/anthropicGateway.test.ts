@@ -5,7 +5,7 @@ import {
   translateAnthropicRequest,
   translateOpenAiMessageResponse,
 } from "./anthropicGateway";
-import { claudeOpus5NativeMessagesBody, publicProviderFailureStatus } from "./openaiGateway";
+import { publicProviderFailureStatus } from "./openaiGateway";
 
 describe("TokenForge Anthropic Messages bridge", () => {
   it("prefers Claude-style x-api-key authentication and supports Bearer fallback", () => {
@@ -71,9 +71,9 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(translated.messages?.every(message => message.role === "user" || message.role === "assistant")).toBe(true);
   });
 
-  it("allows supported Claude Opus 5 Messages requests while rejecting OpenAI-only, unsupported, and image-content requests", () => {
+  it("allows all OrcaRouter-backed Messages models while rejecting unsupported routes and image-content requests", () => {
     expect(translateAnthropicRequest({ model: "claude-opus-5", system: "Be concise.", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "claude-opus-5" });
-    expect(() => translateAnthropicRequest({ model: "qwen3.8-27b", messages: [{ role: "user", content: "Hello" }] })).toThrow("does not support");
+    expect(translateAnthropicRequest({ model: "qwen3.8-27b", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "qwen3.8-27b" });
     expect(() => translateAnthropicRequest({ model: "glm-5.2", messages: [{ role: "user", content: "Hello" }] })).toThrow(AnthropicBridgeError);
     expect(() => translateAnthropicRequest({ model: "kimi-k3", messages: [{ role: "user", content: [{ type: "image", source: {} }] }] })).toThrow("text and tool blocks only");
   });
@@ -84,12 +84,21 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(() => translateAnthropicRequest({ model: "claude-opus-5", messages: [{ role: "user", content: "Hello" }], max_tokens: Number.MAX_SAFE_INTEGER + 1 })).toThrow("positive safe integer");
   });
 
-  it("builds native Claude Opus 5 Messages input with server-owned model selection and the existing truthful guidance", () => {
-    const body = claudeOpus5NativeMessagesBody({ model: "claude-opus-5", system: "Use metric units.", messages: [{ role: "user", content: "Hello" }] }, "provider-owned-model");
-    expect(body).toMatchObject({ model: "provider-owned-model", messages: [{ role: "user", content: "Hello" }] });
-    expect(body.system).toContain("Use metric units.");
-    expect(body.system).toContain("Do not claim unsupported details");
-    expect(body.system).not.toContain("provider-owned-model");
+  it("accepts Claude Code thinking history without forwarding private reasoning as assistant text", () => {
+    const translated = translateAnthropicRequest({
+      model: "claude-opus-5",
+      messages: [
+        { role: "user", content: "Inspect the repository." },
+        { role: "assistant", content: [{ type: "thinking", thinking: "private reasoning", signature: "opaque" }, { type: "text", text: "I will inspect it." }] },
+        { role: "user", content: "Continue." },
+      ],
+    });
+    expect(translated.messages).toEqual([
+      { role: "user", content: "Inspect the repository." },
+      { role: "assistant", content: "I will inspect it." },
+      { role: "user", content: "Continue." },
+    ]);
+    expect(JSON.stringify(translated.messages)).not.toContain("private reasoning");
   });
 
   it("converts an OpenAI-style Cluster tool call into an Anthropic Messages response", () => {

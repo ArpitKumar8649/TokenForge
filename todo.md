@@ -245,3 +245,4 @@
 - [x] Replace the managed Claude Opus 5 provider configuration with the supplied OrcaRouter URL and server-only API key, verify native Messages and OpenAI-compatible behavior, then publish only after validation.
 - [x] Remove the fixed upper `max_tokens` cap from TokenForge’s Anthropic-compatible Messages validation while continuing to require a positive safe integer and returning provider-limit errors transparently.
 - [x] Add `qwen3.8-27b` as a customer-facing TokenForge route backed by OrcaRouter’s `qwen/qwen3.8-27b-free` upstream model with no upstream “free” tag exposed to users, then validate it with the existing server-only credential.
+- [x] Research Claude Code’s Anthropic Messages contract and implement a scoped translation proxy for the OrcaRouter-backed Claude Opus 5 and Qwen3.8 27B routes, retaining the native OpenAI-compatible route and leaving Kimi K3 unchanged.
