@@ -5,6 +5,7 @@ import {
   translateAnthropicRequest,
   translateOpenAiMessageResponse,
 } from "./anthropicGateway";
+import { publicProviderFailureStatus } from "./openaiGateway";
 
 describe("TokenForge Anthropic Messages bridge", () => {
   it("prefers Claude-style x-api-key authentication and supports Bearer fallback", () => {
@@ -75,5 +76,12 @@ describe("TokenForge Anthropic Messages bridge", () => {
       usage: { input_tokens: 11, output_tokens: 7 },
       content: [{ type: "tool_use", id: "call_1", name: "read_file", input: { path: "README.md" } }],
     });
+  });
+
+  it("does not misrepresent exhausted upstream 401 and 403 responses as caller authentication failures", () => {
+    expect(publicProviderFailureStatus(401)).toBe(503);
+    expect(publicProviderFailureStatus(403)).toBe(503);
+    expect(publicProviderFailureStatus(429)).toBe(429);
+    expect(publicProviderFailureStatus(400)).toBe(400);
   });
 });

@@ -86,6 +86,11 @@ export function tokenForgeErrorBody(status: number, message: string, code: strin
   return { error: { message, type: status === 429 ? "rate_limit_error" : status >= 500 ? "server_error" : "invalid_request_error", param: null, code } };
 }
 
+/** Provider credentials are server-only. Do not expose upstream authorization statuses as caller authentication failures. */
+export function publicProviderFailureStatus(status: number) {
+  return status === 401 || status === 403 || status >= 500 ? 503 : status;
+}
+
 function estimateInputTokens(messages: ChatMessage[]) {
   return messages.reduce((total, message) => {
     const content = typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? "");
@@ -536,7 +541,11 @@ export function registerOpenAiGateway(app: Express) {
       const payload = await upstream.json().catch(() => null);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request was not completed" });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
-      return errorResponse(res, requestId, upstream.status >= 500 ? 503 : upstream.status, upstreamError(payload), "provider_unavailable", headers);
+      const status = publicProviderFailureStatus(upstream.status);
+      const message = status === 503 && (upstream.status === 401 || upstream.status === 403)
+        ? "The selected provider temporarily denied this request after secure credential failover. Retry shortly or choose another model."
+        : upstreamError(payload);
+      return errorResponse(res, requestId, status, message, "provider_unavailable", headers);
     }
 
     await touchApiKey(key.id);

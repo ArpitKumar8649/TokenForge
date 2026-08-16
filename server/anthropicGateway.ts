@@ -14,6 +14,7 @@ import { raiseOperationalAlert } from "./operationalAlerts";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
 import {
   forwardProviderRequest,
+  publicProviderFailureStatus,
   tokenForgeRateHeaders,
   tokenForgeRequestIpHash,
   type TokenForgeChatInput,
@@ -294,7 +295,11 @@ export function registerAnthropicMessagesGateway(app: Express) {
       releaseSlot(key.userId);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages provider returned an error" });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
-      return respondError(res, requestId, upstream.status >= 500 ? 503 : upstream.status, "api_error", "The selected provider could not process this request.", rateHeaders);
+      const status = publicProviderFailureStatus(upstream.status);
+      const message = status === 503 && (upstream.status === 401 || upstream.status === 403)
+        ? "The selected provider temporarily denied this request after secure credential failover. Retry shortly or choose another model."
+        : "The selected provider could not process this request.";
+      return respondError(res, requestId, status, "api_error", message, rateHeaders);
     }
     await touchApiKey(key.id);
 
