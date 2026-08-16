@@ -3,6 +3,9 @@
 @import "tw-animate-css";
 @import "./brand-unification.css";
 
+/* The durable server-side deletion action is now the single visible control beside each credit grant. */
+[data-admin-account-row] button[aria-label="Permanently delete account"]:not([title]) { display: none; }
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

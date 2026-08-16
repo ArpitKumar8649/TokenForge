@@ -26,7 +26,7 @@ import {
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { hashPassword, normalizeEmail, nextFailedLoginState, normalizeEmailAllowlistEntries, retryAfterSeconds, verifyPassword } from "./localAuth";
-import { DAILY_CHECKIN_CREDIT_NANOS, INTRODUCTORY_CREDIT_NANOS } from "./creditPricing";
+import { DAILY_CHECKIN_CREDIT_NANOS, INTRODUCTORY_CREDIT_NANOS, NANODOLLARS_PER_DOLLAR } from "./creditPricing";
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, TOKENFORGE_MODEL_IDS, type TokenForgeModelId } from "./modelCatalogue";
 import { getClusterProtocolCredentialPool } from "./clusterProtocolCredentials";
 import { getFxqidianCredentialPool } from "./fxqidianCredentials";
@@ -1347,6 +1347,38 @@ export async function setAccountControl(input: { userId: number; isSuspended?: b
   if (!Object.keys(patch).length) return true;
   const result = await db.update(accountControls).set(patch).where(eq(accountControls.userId, input.userId));
   return result[0].affectedRows > 0;
+}
+
+/** Converts a bounded USD credit grant into exact nanodollars without trusting client-side arithmetic. */
+export function normalizeAdminCreditGrantAmount(amountUsd: number) {
+  if (!Number.isFinite(amountUsd) || amountUsd <= 0 || amountUsd > 100_000) return null;
+  const amountNanos = Math.round(amountUsd * NANODOLLARS_PER_DOLLAR);
+  return amountNanos > 0 ? amountNanos : null;
+}
+
+/** Adds a positive administrator credit grant and immutable wallet-ledger record for an existing account. */
+export async function grantAdminAccountCredit(input: { userId: number; amountNanos: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const amountNanos = Math.max(0, Math.trunc(input.amountNanos));
+  if (!amountNanos) throw new Error("Credit grant amount must be positive");
+  const user = (await db.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).limit(1))[0];
+  if (!user) return null;
+  await ensureCreditAccount(input.userId);
+  return db.transaction(async tx => {
+    await tx.update(creditAccounts).set({ balanceNanos: sql`${creditAccounts.balanceNanos} + ${amountNanos}` }).where(eq(creditAccounts.userId, input.userId));
+    const account = (await tx.select({ balanceNanos: creditAccounts.balanceNanos }).from(creditAccounts).where(eq(creditAccounts.userId, input.userId)).limit(1))[0];
+    const balanceNanos = account?.balanceNanos ?? amountNanos;
+    await tx.insert(creditLedger).values({
+      userId: input.userId,
+      kind: "manual_adjustment",
+      amountNanos,
+      balanceAfterNanos: balanceNanos,
+      referenceId: `admin-credit:${randomBytes(12).toString("hex")}`,
+      note: "Administrator credit grant",
+    });
+    return { amountNanos, balanceNanos };
+  });
 }
 
 export async function listOpenFlags() {

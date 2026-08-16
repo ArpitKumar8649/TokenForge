@@ -17,6 +17,7 @@ vi.mock("./db", () => ({
   getPasswordLoginThrottle: vi.fn(),
   clearLegacyAdministratorRoles: vi.fn(),
   deleteAccountPermanently: vi.fn(),
+  grantAdminAccountCredit: vi.fn(),
   getAuthSessionVersion: vi.fn(),
   getUsageLogs: vi.fn(),
   getQuotaStatus: vi.fn(),
@@ -61,6 +62,7 @@ import {
   listApiKeys,
   clearLegacyAdministratorRoles,
   deleteAccountPermanently,
+  grantAdminAccountCredit,
   getAuthSessionVersion,
   recordFailedPasswordLogin,
   revokeAllTokenForgeSessions,
@@ -374,12 +376,22 @@ describe("protected administrator account directory", () => {
     expect(getAdminAccountModelUsage).toHaveBeenCalledWith([42, 77]);
   });
 
-  it("permanently deletes another account only from a passcode-issued administrator session", async () => {
+  it("permanently deletes another account with one explicit administrator action", async () => {
     const admin = { ...localUser, isAdminSession: true };
-    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.deleteAccount({ userId: 55, confirmation: "DELETE ACCOUNT 55" })).resolves.toEqual({ success: true });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.deleteAccount({ userId: 55 })).resolves.toEqual({ success: true });
     expect(deleteAccountPermanently).toHaveBeenCalledWith(55);
-    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.deleteAccount({ userId: 55, confirmation: "not-55" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.deleteAccount({ userId: admin.id, confirmation: `DELETE ACCOUNT ${admin.id}` })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.deleteAccount({ userId: admin.id })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("adds a positive audited USD credit grant to another account only from a passcode-issued administrator session", async () => {
+    const admin = { ...localUser, id: 1, isAdminSession: true };
+    vi.mocked(grantAdminAccountCredit).mockResolvedValue({ amountNanos: 50_000_000_000, balanceNanos: 60_000_000_000 });
+
+    await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.addAccountCredit({ userId: 55, amountUsd: 50 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.addAccountCredit({ userId: admin.id, amountUsd: 50 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.addAccountCredit({ userId: 55, amountUsd: 50 })).resolves.toEqual({ amountNanos: 50_000_000_000, balanceNanos: 60_000_000_000 });
+    expect(grantAdminAccountCredit).toHaveBeenCalledWith({ userId: 55, amountNanos: 50_000_000_000 });
+    expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, targetUserId: 55, action: "account.credit_granted", entityType: "account", entityId: "55", metadata: { amountNanos: 50_000_000_000 } }));
   });
 
   it("lets only a passcode-issued administrator deliberately reset another account's Discord verification and records the action", async () => {

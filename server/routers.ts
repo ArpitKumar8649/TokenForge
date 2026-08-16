@@ -31,6 +31,7 @@ import {
   getUsageLogs,
   clearLegacyAdministratorRoles,
   deleteAccountPermanently,
+  grantAdminAccountCredit,
   getAdminAuditExport,
   getAuthSessionVersion,
   listAdminAuditEvents,
@@ -82,13 +83,10 @@ const adminAccountDirectoryInput = z.object({
   status: z.enum(["all", "active", "suspended", "flagged"]).default("all"),
   sort: z.enum(["latestJoin", "mostTokens", "discordVerified", "mostCredit"]).default("latestJoin"),
 });
-const permanentAccountDeleteInput = z.object({
+const permanentAccountDeleteInput = z.object({ userId: z.number().int().positive(), confirmation: z.string().trim().max(64).optional() });
+const adminCreditGrantInput = z.object({
   userId: z.number().int().positive(),
-  confirmation: z.string().trim().max(64),
-}).superRefine((input, context) => {
-  if (input.confirmation !== `DELETE ACCOUNT ${input.userId}`) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ["confirmation"], message: `Type DELETE ACCOUNT ${input.userId} to permanently delete this account` });
-  }
+  amountUsd: z.number().finite().positive().max(100_000).refine(value => Math.round(value * 100) === value * 100, "Use an amount with no more than two decimal places"),
 });
 const discordVerificationResetInput = z.object({
   userId: z.number().int().positive(),
@@ -310,6 +308,14 @@ export const appRouter = router({
       if (!deleted) throw new TRPCError({ code: "NOT_FOUND", message: "This account no longer exists" });
       await writeAuditEvent({ actorUserId: ctx.user.id, action: "account.permanently_deleted", entityType: "deleted_account", entityId: String(input.userId) });
       return { success: true } as const;
+    }),
+    addAccountCredit: adminProcedure.input(adminCreditGrantInput).mutation(async ({ ctx, input }) => {
+      if (input.userId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "Administrator session credit cannot be adjusted from the control plane" });
+      const amountNanos = Math.round(input.amountUsd * 1_000_000_000);
+      const result = await grantAdminAccountCredit({ userId: input.userId, amountNanos });
+      if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "This account no longer exists" });
+      await writeAuditEvent({ actorUserId: ctx.user.id, targetUserId: input.userId, action: "account.credit_granted", entityType: "account", entityId: String(input.userId), metadata: { amountNanos: result.amountNanos } });
+      return result;
     }),
     resetDiscordVerification: adminProcedure.input(discordVerificationResetInput).mutation(async ({ ctx, input }) => {
       if (input.userId === ctx.user.id) {

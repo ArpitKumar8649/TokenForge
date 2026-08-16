@@ -260,3 +260,5 @@
 - [x] Diagnose the Qwen 3.8 Max Playground cache-only admission rejection: direct upstream probes, including the enforced xhigh reasoning setting, succeeded, confirming a transient upstream admission condition rather than a TokenForge routing defect.
 - [x] Reproduce the exact Qwen 3.8 Max Playground gateway request, compare it against a successful direct TokenRouter call, and correct the TokenForge-specific multiple-system-message request shape that caused the cache-only admission rejection.
 - [x] Pin Qwen 3.8 Max to the top of the Playground model dropdown while preserving search and live availability status behavior.
+- [x] Add an administrator-only per-account credit grant control that accepts a positive USD amount and records an auditable credit adjustment.
+- [x] Replace the two-step permanent account-deletion flow with one explicit administrator action while preserving complete account-related data cleanup and an audit record.
