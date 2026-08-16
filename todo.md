@@ -254,3 +254,4 @@
 - [x] Verify the live Anthropic-compatible `/v1/messages` proxy eligibility and a representative Cluster Protocol model request without changing code or configuration.
 - [x] Inspect and report the active TokenForge gateway rate limits without changing code or configuration.
 - [x] Expand the administrator-managed OrcaRouter credential pool from three to fifteen encrypted replacement keys, preserving health-aware round-robin routing and atomic replacement behavior.
+- [x] Add an administrator-only privacy-safe bar chart showing per-slot request totals for the active fifteen-key OrcaRouter credential pool without exposing API key material.

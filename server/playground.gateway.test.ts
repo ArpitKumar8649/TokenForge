@@ -20,7 +20,7 @@ import { raiseOperationalAlert } from "./operationalAlerts";
 import { forwardProviderRequest, modelScopedGuidance, playgroundResponseGuidance, runPlaygroundCompletion, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
-import { invalidateOrcaRouterCredentialPool } from "./orcaRouterCredentials";
+import { invalidateOrcaRouterCredentialPool, resetOrcaRouterSlotRequestCounts } from "./orcaRouterCredentials";
 import { getProviderCredentialTelemetry, resetProviderCredentialTelemetry } from "./providerCredentialTelemetry";
 import { FXQIDIAN_PROVIDER_SLUG } from "./modelCatalogue";
 
@@ -64,6 +64,7 @@ beforeEach(() => {
   resetClusterProtocolCredentialRotation();
   resetFxqidianCredentialRotation();
   invalidateOrcaRouterCredentialPool();
+  resetOrcaRouterSlotRequestCounts();
   resetProviderCredentialTelemetry();
 });
 

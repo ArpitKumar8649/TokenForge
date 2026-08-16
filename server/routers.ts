@@ -50,7 +50,7 @@ import { configuredEmailAllowlist, isPermanentEmailAddress, PASSWORD_MIN_LENGTH 
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, type TokenForgeModelId } from "./modelCatalogue";
 import { runPlaygroundCompletion, TokenForgePlaygroundError, tokenForgeRequestIpHash } from "./openaiGateway";
 import { verifyAdminPasscode } from "./adminPasscode";
-import { getOrcaRouterCredentialPoolStatus, invalidateOrcaRouterCredentialPool, ORCA_ROUTER_CREDENTIAL_POOL_SIZE, validateOrcaRouterCredential } from "./orcaRouterCredentials";
+import { getOrcaRouterCredentialPoolStatus, getOrcaRouterSlotRequestCounts, invalidateOrcaRouterCredentialPool, ORCA_ROUTER_CREDENTIAL_POOL_SIZE, validateOrcaRouterCredential } from "./orcaRouterCredentials";
 
 const apiKeyLabel = z
   .string()
@@ -349,6 +349,7 @@ export const appRouter = router({
         }
       }),
     orcaRouterCredentials: adminProcedure.query(() => getOrcaRouterCredentialPoolStatus()),
+    orcaRouterSlotUsage: adminProcedure.query(() => getOrcaRouterSlotRequestCounts()),
     replaceOrcaRouterCredentials: adminProcedure
       .input(orcaRouterCredentialPoolInput)
       .mutation(async ({ ctx, input }) => {

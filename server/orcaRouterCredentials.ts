@@ -10,8 +10,21 @@ export type OrcaRouterCredentialPoolStatus = {
 export const ORCA_ROUTER_CREDENTIAL_POOL_SIZE = 15;
 const LEGACY_ORCA_ROUTER_CREDENTIAL_POOL_SIZE = 3;
 let rotationIndex = 0;
+const slotRequestCounts = new Map<number, number>();
 let cachedPool: { expiresAt: number; credentials: OrcaRouterCredentialSelection[] } | null = null;
 const POOL_CACHE_MS = 5_000;
+
+/** Runtime-only aggregate request totals. Credentials and caller data are intentionally excluded. */
+export function getOrcaRouterSlotRequestCounts(): Array<{ slot: number; requestCount: number }> {
+  return Array.from(slotRequestCounts.entries())
+    .map(([slot, requestCount]) => ({ slot, requestCount }))
+    .sort((left, right) => left.slot - right.slot);
+}
+
+/** Clears ephemeral totals during pool rotation and deterministic test setup. */
+export function resetOrcaRouterSlotRequestCounts() {
+  slotRequestCounts.clear();
+}
 
 function environmentFallback() {
   const credential = process.env.CLAUDE_OPUS5_API_KEY?.trim();
@@ -44,12 +57,14 @@ export async function selectNextOrcaRouterCredentialWithSlot() {
   if (!pool.length) return null;
   const selected = pool[rotationIndex % pool.length];
   rotationIndex = (rotationIndex + 1) % pool.length;
+  slotRequestCounts.set(selected.slot, (slotRequestCounts.get(selected.slot) ?? 0) + 1);
   return selected;
 }
 
 export function invalidateOrcaRouterCredentialPool() {
   cachedPool = null;
   rotationIndex = 0;
+  resetOrcaRouterSlotRequestCounts();
 }
 
 export async function getOrcaRouterCredentialPoolStatus(): Promise<OrcaRouterCredentialPoolStatus> {

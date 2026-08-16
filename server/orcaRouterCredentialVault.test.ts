@@ -8,7 +8,7 @@ const dbMocks = vi.hoisted(() => ({
 vi.mock("./db", () => dbMocks);
 
 import { decryptOrcaRouterCredential, encryptOrcaRouterCredential } from "./orcaRouterCredentialVault";
-import { getOrcaRouterCredentialPool, invalidateOrcaRouterCredentialPool, ORCA_ROUTER_CREDENTIAL_POOL_SIZE, selectNextOrcaRouterCredentialWithSlot } from "./orcaRouterCredentials";
+import { getOrcaRouterCredentialPool, getOrcaRouterSlotRequestCounts, invalidateOrcaRouterCredentialPool, ORCA_ROUTER_CREDENTIAL_POOL_SIZE, resetOrcaRouterSlotRequestCounts, selectNextOrcaRouterCredentialWithSlot } from "./orcaRouterCredentials";
 
 describe("OrcaRouter credential vault and pool", () => {
   beforeEach(() => {
@@ -18,6 +18,7 @@ describe("OrcaRouter credential vault and pool", () => {
     dbMocks.listOrcaRouterCredentialSlotSummaries.mockReset();
     dbMocks.listOrcaRouterCredentialSlotSummaries.mockResolvedValue([]);
     invalidateOrcaRouterCredentialPool();
+    resetOrcaRouterSlotRequestCounts();
   });
 
   it("encrypts credentials with authenticated random ciphertext that round-trips only server-side", () => {
@@ -52,6 +53,22 @@ describe("OrcaRouter credential vault and pool", () => {
     for (let slot = 2; slot < 14; slot += 1) await selectNextOrcaRouterCredentialWithSlot();
     await expect(selectNextOrcaRouterCredentialWithSlot()).resolves.toMatchObject({ credential: raw[14], slot: 14, poolSize: ORCA_ROUTER_CREDENTIAL_POOL_SIZE });
     await expect(selectNextOrcaRouterCredentialWithSlot()).resolves.toMatchObject({ credential: raw[0], slot: 0, poolSize: ORCA_ROUTER_CREDENTIAL_POOL_SIZE });
+  });
+
+  it("increments privacy-safe per-slot request totals when a credential is selected", async () => {
+    const raw = ["sk-orca-slot-one-key", "sk-orca-slot-two-key", "sk-orca-slot-three-key"];
+    dbMocks.loadOrcaRouterCredentialSlotCiphertexts.mockResolvedValue(raw.map((credential, slot) => ({ slot, ...encryptOrcaRouterCredential(credential) })));
+
+    await selectNextOrcaRouterCredentialWithSlot();
+    await selectNextOrcaRouterCredentialWithSlot();
+    await selectNextOrcaRouterCredentialWithSlot();
+    await selectNextOrcaRouterCredentialWithSlot();
+
+    expect(getOrcaRouterSlotRequestCounts()).toEqual([
+      { slot: 0, requestCount: 2 },
+      { slot: 1, requestCount: 1 },
+      { slot: 2, requestCount: 1 },
+    ]);
   });
 
   it("retains the existing environment key as a temporary fallback until all three managed slots exist", async () => {
