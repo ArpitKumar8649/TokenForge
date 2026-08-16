@@ -6,6 +6,8 @@ const runToolProbe = process.env.RUN_KIMI_K3_TOOL_PROBE === "true";
 const toolIt = runToolProbe ? it : it.skip;
 const runReasoningProbe = process.env.RUN_KIMI_K3_REASONING_PROBE === "true";
 const reasoningIt = runReasoningProbe ? it : it.skip;
+const runMaxReasoningProbe = process.env.RUN_KIMI_K3_REASONING_MAX_PROBE === "true";
+const maxReasoningIt = runMaxReasoningProbe ? it : it.skip;
 
 describe("Cluster Protocol Kimi K3 completion authorization", () => {
   liveIt("accepts a minimal Kimi K3 completion for every configured credential slot", async () => {
@@ -105,6 +107,40 @@ describe("Cluster Protocol Kimi K3 completion authorization", () => {
     console.info("[Kimi K3 reasoning probe]", {
       parameter: "reasoning_effort",
       value: "high",
+      status: response.status,
+      reasoningMetadataPresent: typeof reasoningContent === "string",
+    });
+    expect(typeof reasoningContent === "string" || reasoningContent === undefined).toBe(true);
+  }, 115_000);
+
+  maxReasoningIt("reports whether the exact max reasoning effort control is accepted", async () => {
+    const baseUrl = process.env.CLUSTER_PROTOCOL_BASE_URL?.replace(/\/$/, "");
+    const apiKey = process.env.CLUSTER_PROTOCOL_API_KEY;
+    expect(baseUrl).toBeTruthy();
+    expect(apiKey).toBeTruthy();
+
+    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "kimi-k3",
+        messages: [{ role: "user", content: "Reply with OK." }],
+        reasoning_effort: "max",
+        max_tokens: 8,
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(100_000),
+    });
+
+    expect(response.ok, `Kimi K3 rejected reasoning_effort=max with HTTP ${response.status}`).toBe(true);
+
+    const payload = await response.json() as {
+      choices?: Array<{ message?: { reasoning_content?: unknown } }>;
+    };
+    const reasoningContent = payload.choices?.[0]?.message?.reasoning_content;
+    console.info("[Kimi K3 max reasoning probe]", {
+      parameter: "reasoning_effort",
+      value: "max",
       status: response.status,
       reasoningMetadataPresent: typeof reasoningContent === "string",
     });

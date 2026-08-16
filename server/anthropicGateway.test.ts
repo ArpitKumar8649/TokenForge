@@ -41,6 +41,17 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(translated.max_tokens).toBe(2048);
   });
 
+  it("does not currently forward an OpenAI reasoning_effort field from the Anthropic Messages contract", () => {
+    const translated = translateAnthropicRequest({
+      model: "kimi-k3",
+      messages: [{ role: "user", content: "Reply with OK." }],
+      max_tokens: 8,
+      reasoning_effort: "max",
+    } as Parameters<typeof translateAnthropicRequest>[0] & { reasoning_effort: "max" });
+
+    expect("reasoning_effort" in translated).toBe(false);
+  });
+
   it("normalizes Claude Code tool and instruction turns for Kimi K3 into supported user and assistant roles", () => {
     const translated = translateAnthropicRequest({
       model: "kimi-k3",

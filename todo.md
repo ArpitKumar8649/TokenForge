@@ -227,3 +227,4 @@
 - [x] Diagnose and remediate the Kimi K3 403 provider failure affecting TokenForge Claude Code and API requests, preserving server-only credential handling and safe failure reporting.
 - [x] Commit and push all current TokenForge project changes to the selected GitHub repository, excluding local runtime logs and secrets.
 - [x] Run a minimal server-side Kimi K3 provider probe for supported reasoning-control parameters and report compatibility without changing production behavior.
+- [x] Test the exact Kimi K3 `reasoning_effort: "max"` parameter directly with Cluster Protocol and through TokenForge’s `/v1/messages` bridge, reporting only privacy-safe compatibility metadata without changing production behavior.
