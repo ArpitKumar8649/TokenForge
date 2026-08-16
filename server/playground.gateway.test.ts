@@ -16,7 +16,7 @@ vi.mock("./operationalAlerts", () => ({ raiseOperationalAlert: vi.fn() }));
 
 import { getQuotaStatus, getRecentRequestCounts, isModelAvailable, recordUsage, reserveCredit, settleReservedCredit } from "./db";
 import { raiseOperationalAlert } from "./operationalAlerts";
-import { forwardProviderRequest, runPlaygroundCompletion, TokenForgePlaygroundError } from "./openaiGateway";
+import { forwardProviderRequest, modelScopedGuidance, runPlaygroundCompletion, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 import { getProviderCredentialTelemetry, resetProviderCredentialTelemetry } from "./providerCredentialTelemetry";
@@ -46,6 +46,9 @@ beforeEach(() => {
   process.env.CLUSTER_PROTOCOL_API_KEY_3 = "server-only-cluster-secret-3";
   process.env.TOKENHARBOR_BASE_URL = "https://tokenharbor.example";
   process.env.TOKENHARBOR_API_KEY = "server-only-tokenharbor-secret";
+  process.env.CLAUDE_OPUS5_BASE_URL = "https://opus5.example";
+  process.env.CLAUDE_OPUS5_API_KEY = "server-only-opus5-secret";
+  process.env.CLAUDE_OPUS5_MODEL = "upstream-claude-opus-5";
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
   vi.mocked(getRecentRequestCounts).mockResolvedValue({ account: 0, ip: 0 });
@@ -217,6 +220,35 @@ describe("TokenForge Playground gateway", () => {
     expect(reserveCredit).toHaveBeenCalledWith(42, 432_810, expect.stringMatching(/^tf_pg_/));
     expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 10_500 }));
     expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "deepseek-v4-pro", status: "success", inputTokens: 10, outputTokens: 20 }));
+  });
+
+  it("routes Claude Opus 5 through only its server-side configuration and applies the same scoped guidance for Playground and API calls", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: "Configured upstream response" } }],
+      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await runPlaygroundCompletion({
+      userId: 42,
+      model: "claude-opus-5",
+      messages: [{ role: "user", content: "Describe a safe gateway." }],
+      sourceIpHash: "hashed-source-ip",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("https://opus5.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-opus5-secret" }),
+      body: expect.stringContaining('"model":"upstream-claude-opus-5"'),
+    }));
+    const playgroundPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(playgroundPayload.messages[0].content).toContain("configured Claude Opus 5 route");
+    expect(playgroundPayload.messages[0].content).toContain("Do not claim unsupported details");
+    expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toContain("server-only-provider-secret");
+
+    const apiMessages = withModelScopedGuidance("claude-opus-5", [{ role: "user", content: "Identify yourself." }]);
+    expect(apiMessages[0]).toEqual(modelScopedGuidance("claude-opus-5"));
+    expect(apiMessages[0].content).toContain("Do not state that you are Anthropic");
+    expect(withModelScopedGuidance("glm-5.2", [{ role: "user", content: "Unchanged" }])).toEqual([{ role: "user", content: "Unchanged" }]);
   });
 
   it("stops before provider execution when the promotional credit reservation is denied", async () => {

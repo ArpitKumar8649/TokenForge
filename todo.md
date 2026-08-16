@@ -231,4 +231,5 @@
 - [x] Enforce `reasoning_effort: "max"` internally only for Kimi K3 requests through TokenForge’s Anthropic-compatible `/v1/messages` bridge, without exposing a caller override.
 - [x] Add protected administrator account sorting for highest processed tokens, Discord verification state, highest current credit balance, and latest account join date.
 - [x] Correct the administrator “most tokens” ordering to use each account’s lifetime successful processed-token total rather than a limited or recent aggregate.
-- [ ] Add a server-only Claude Opus 5 provider route after receiving its base URL, API key, exact upstream model identifier, pricing basis, and a truthful model-scoped instruction policy for Playground and API requests.
+- [x] Add the server-only Claude Opus 5 provider route for `https://ai.kscsnkli.site` and upstream model `claude-opus-5`, store its API key as a project secret, apply truthful model-scoped guidance to Playground and API requests, define a transparent interim pricing basis, update model surfaces, and validate the completed route.
+- [x] Store the Claude Opus 5 provider base URL and exact upstream model identifier as server-only managed configuration alongside its provider API key, with no provider configuration exposed to browser code.

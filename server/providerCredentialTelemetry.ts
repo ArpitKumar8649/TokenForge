@@ -1,6 +1,6 @@
-import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG } from "./modelCatalogue";
+import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG } from "./modelCatalogue";
 
-export type CredentialTelemetryProvider = typeof FXQIDIAN_PROVIDER_SLUG | typeof CLUSTER_PROTOCOL_PROVIDER_SLUG | typeof TOKENHARBOR_PROVIDER_SLUG;
+export type CredentialTelemetryProvider = typeof FXQIDIAN_PROVIDER_SLUG | typeof CLUSTER_PROTOCOL_PROVIDER_SLUG | typeof TOKENHARBOR_PROVIDER_SLUG | typeof CLAUDE_OPUS5_PROVIDER_SLUG;
 
 type CredentialSlotHealth = {
   consecutiveFailures: number;
@@ -51,7 +51,7 @@ export function recordCredentialFailover(providerSlug: CredentialTelemetryProvid
 }
 
 export function getProviderCredentialTelemetry(poolSizes: Partial<Record<CredentialTelemetryProvider, number>>, now = Date.now()) {
-  return ([FXQIDIAN_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG] as const).map(providerSlug => {
+  return ([FXQIDIAN_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG, CLAUDE_OPUS5_PROVIDER_SLUG] as const).map(providerSlug => {
     const poolSize = Math.max(0, poolSizes[providerSlug] ?? 0);
     const slots = Array.from({ length: poolSize }, (_, slot) => healthFor(providerSlug, slot));
     const coolingDownSlots = slots.filter(slot => slot.cooldownUntil > now).length;

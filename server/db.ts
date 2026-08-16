@@ -26,7 +26,7 @@ import {
 import { ENV } from "./_core/env";
 import { hashPassword, normalizeEmail, nextFailedLoginState, normalizeEmailAllowlistEntries, retryAfterSeconds, verifyPassword } from "./localAuth";
 import { DAILY_CHECKIN_CREDIT_NANOS, INTRODUCTORY_CREDIT_NANOS } from "./creditPricing";
-import { CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, TOKENFORGE_MODEL_IDS, type TokenForgeModelId } from "./modelCatalogue";
+import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, TOKENFORGE_MODEL_IDS, type TokenForgeModelId } from "./modelCatalogue";
 import { getClusterProtocolCredentialPool } from "./clusterProtocolCredentials";
 import { getFxqidianCredentialPool } from "./fxqidianCredentials";
 import { getProviderCredentialTelemetry } from "./providerCredentialTelemetry";
@@ -894,10 +894,12 @@ export async function ensureCatalogue() {
     const baseUrl = process.env.FXQIDIAN_BASE_URL ?? "https://fxqidian.de5.net";
     const clusterBaseUrl = process.env.CLUSTER_PROTOCOL_BASE_URL ?? "https://api.clusterprotocol.ai";
     const tokenHarborBaseUrl = process.env.TOKENHARBOR_BASE_URL ?? "https://tokenharbor.ai";
+    const claudeOpus5BaseUrl = process.env.CLAUDE_OPUS5_BASE_URL ?? "https://ai.kscsnkli.site";
     await db.insert(providerConfigs).values([
       { slug: FXQIDIAN_PROVIDER_SLUG, displayName: "Selected hosted inference", baseUrl },
       { slug: CLUSTER_PROTOCOL_PROVIDER_SLUG, displayName: "Cluster Protocol", baseUrl: clusterBaseUrl },
       { slug: TOKENHARBOR_PROVIDER_SLUG, displayName: "TokenHarbor", baseUrl: tokenHarborBaseUrl },
+      { slug: CLAUDE_OPUS5_PROVIDER_SLUG, displayName: "Claude Opus 5 custom upstream", baseUrl: claudeOpus5BaseUrl },
     ]).onDuplicateKeyUpdate({ set: { baseUrl: sql`values(${providerConfigs.baseUrl})`, displayName: sql`values(${providerConfigs.displayName})` } });
     await db.insert(modelConfigs).values(CATALOGUE_DEFINITIONS.map(model => ({ modelId: model.id, displayName: model.displayName, description: model.description, capabilities: [...model.capabilities], providerSlug: model.providerSlug }))).onDuplicateKeyUpdate({
       set: { displayName: sql`values(${modelConfigs.displayName})`, description: sql`values(${modelConfigs.description})`, capabilities: sql`values(${modelConfigs.capabilities})`, providerSlug: sql`values(${modelConfigs.providerSlug})` },
@@ -1196,6 +1198,7 @@ export async function getAdminOverview() {
     [FXQIDIAN_PROVIDER_SLUG]: getFxqidianCredentialPool().length,
     [CLUSTER_PROTOCOL_PROVIDER_SLUG]: getClusterProtocolCredentialPool().length,
     [TOKENHARBOR_PROVIDER_SLUG]: process.env.TOKENHARBOR_API_KEY?.trim() ? 1 : 0,
+    [CLAUDE_OPUS5_PROVIDER_SLUG]: process.env.CLAUDE_OPUS5_API_KEY?.trim() ? 1 : 0,
   });
   return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })), emailProviders: normalizeAdminEmailProviderCounts(emailProviderRows), allAccountModelUsage: normalizeAdminGlobalModelUsage(allAccountModelUsageRows), totals: { totalTokens: Number(totals[0]?.totalTokens ?? 0), totalRequests: Number(totals[0]?.totalRequests ?? 0) }, providerTelemetry };
 }

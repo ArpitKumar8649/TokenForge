@@ -1,8 +1,9 @@
 export const FXQIDIAN_PROVIDER_SLUG = "fxqidian" as const;
 export const CLUSTER_PROTOCOL_PROVIDER_SLUG = "cluster-protocol" as const;
 export const TOKENHARBOR_PROVIDER_SLUG = "tokenharbor" as const;
+export const CLAUDE_OPUS5_PROVIDER_SLUG = "claude-opus5" as const;
 
-export type TokenForgeProviderSlug = typeof FXQIDIAN_PROVIDER_SLUG | typeof CLUSTER_PROTOCOL_PROVIDER_SLUG | typeof TOKENHARBOR_PROVIDER_SLUG;
+export type TokenForgeProviderSlug = typeof FXQIDIAN_PROVIDER_SLUG | typeof CLUSTER_PROTOCOL_PROVIDER_SLUG | typeof TOKENHARBOR_PROVIDER_SLUG | typeof CLAUDE_OPUS5_PROVIDER_SLUG;
 
 export type TokenForgeModelDefinition = {
   id: string;
@@ -81,6 +82,19 @@ export const TOKENFORGE_MODEL_CATALOGUE = [
     pricingSource: "DeepSeek V4 Flash API pricing (shared Flash upstream; cache-miss input)",
     pricingUrl: "https://api-docs.deepseek.com/quick_start/pricing",
     upstreamModelId: "deepseek-v4-flash:free",
+  },
+  {
+    id: "claude-opus-5",
+    displayName: "Claude Opus 5",
+    description: "A configured custom upstream route for capable text reasoning, coding, and streamed chat completions. Its provider identity and technical details are not asserted beyond this configured route.",
+    providerSlug: CLAUDE_OPUS5_PROVIDER_SLUG,
+    providerName: "Configured upstream",
+    capabilities: ["reasoning", "coding", "streaming"],
+    inputUsdPerMillion: 5,
+    outputUsdPerMillion: 25,
+    pricingSource: "TokenForge provisional configured-route pricing",
+    pricingUrl: "https://ai.kscsnkli.site",
+    upstreamModelId: "claude-opus-5",
   },
   {
     id: "glm-5.1",
