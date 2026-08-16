@@ -243,3 +243,5 @@
 - [x] Reproduce and compare the Claude Opus 5 native Messages `max_tokens` validation error against TokenForge and the configured upstream, then report the cause without modifying production behavior.
 - [x] Inspect the exact Claude Opus 5 payload forwarded by TokenForge and compare native Messages versus OpenAI-compatible provider limits and validation behavior without changing production behavior.
 - [x] Replace the managed Claude Opus 5 provider configuration with the supplied OrcaRouter URL and server-only API key, verify native Messages and OpenAI-compatible behavior, then publish only after validation.
+- [x] Remove the fixed upper `max_tokens` cap from TokenForge’s Anthropic-compatible Messages validation while continuing to require a positive safe integer and returning provider-limit errors transparently.
+- [x] Add `qwen3.8-27b` as a customer-facing TokenForge route backed by OrcaRouter’s `qwen/qwen3.8-27b-free` upstream model with no upstream “free” tag exposed to users, then validate it with the existing server-only credential.

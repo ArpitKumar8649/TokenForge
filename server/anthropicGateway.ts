@@ -21,7 +21,7 @@ import {
   type TokenForgeChatInput,
   type TokenForgeChatMessage,
 } from "./openaiGateway";
-import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, getTokenForgeProviderSlug, isTokenForgeModelId, type TokenForgeModelId } from "./modelCatalogue";
+import { CLUSTER_PROTOCOL_PROVIDER_SLUG, getTokenForgeProviderSlug, isTokenForgeModelId, type TokenForgeModelId } from "./modelCatalogue";
 
 const RATE_WINDOW_SECONDS = 60;
 const ACCOUNT_RATE_LIMIT_PER_MINUTE = 20;
@@ -83,15 +83,15 @@ export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChat
     throw new AnthropicBridgeError(400, "invalid_request_error", "model must be a non-empty TokenForge Messages-supported model identifier.");
   }
   const provider = isTokenForgeModelId(raw.model) ? getTokenForgeProviderSlug(raw.model) : null;
-  if (provider !== CLUSTER_PROTOCOL_PROVIDER_SLUG && provider !== CLAUDE_OPUS5_PROVIDER_SLUG) {
+  if (provider !== CLUSTER_PROTOCOL_PROVIDER_SLUG && raw.model !== "claude-opus-5") {
     throw new AnthropicBridgeError(400, "invalid_request_error", "The Anthropic Messages endpoint does not support the requested TokenForge model.");
   }
   if (!Array.isArray(raw.messages) || raw.messages.length < 1 || raw.messages.length > 100) {
     throw new AnthropicBridgeError(400, "invalid_request_error", "messages must contain between 1 and 100 entries.");
   }
   if (raw.stream !== undefined && typeof raw.stream !== "boolean") throw new AnthropicBridgeError(400, "invalid_request_error", "stream must be a Boolean.");
-  if (raw.max_tokens !== undefined && (!Number.isInteger(raw.max_tokens) || Number(raw.max_tokens) < 1 || Number(raw.max_tokens) > 32_768)) {
-    throw new AnthropicBridgeError(400, "invalid_request_error", "max_tokens must be an integer between 1 and 32768.");
+  if (raw.max_tokens !== undefined && (typeof raw.max_tokens !== "number" || !Number.isSafeInteger(raw.max_tokens) || raw.max_tokens < 1)) {
+    throw new AnthropicBridgeError(400, "invalid_request_error", "max_tokens must be a positive safe integer.");
   }
   if (raw.temperature !== undefined && (typeof raw.temperature !== "number" || !Number.isFinite(raw.temperature) || raw.temperature < 0 || raw.temperature > 2)) {
     throw new AnthropicBridgeError(400, "invalid_request_error", "temperature must be a number from 0 to 2.");
@@ -266,7 +266,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
         : respondError(res, requestId, 400, "invalid_request_error", "The Messages request could not be processed.");
     }
     const model = input.model as TokenForgeModelId;
-    const useNativeClaudeOpus5Messages = getTokenForgeProviderSlug(model) === CLAUDE_OPUS5_PROVIDER_SLUG;
+    const useNativeClaudeOpus5Messages = model === "claude-opus-5";
     if (!(await isModelAvailable(model))) return respondError(res, requestId, 503, "api_error", "The requested model is temporarily unavailable. Retry shortly or choose another available model.");
 
     const ipHash = tokenForgeRequestIpHash(req);

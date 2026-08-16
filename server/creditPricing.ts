@@ -4,7 +4,6 @@ export const NANODOLLARS_PER_DOLLAR = 1_000_000_000;
 export const INTRODUCTORY_CREDIT_NANOS = 50 * NANODOLLARS_PER_DOLLAR;
 export const DAILY_CHECKIN_CREDIT_NANOS = 5 * NANODOLLARS_PER_DOLLAR;
 export const DEFAULT_MAX_OUTPUT_TOKENS_FOR_CREDIT = 1_024;
-export const MAX_BILLABLE_OUTPUT_TOKENS = 8_192;
 export const TOKENFORGE_PLATFORM_CHARGE_MULTIPLIER = 1.5;
 
 function platformCreditRate(upstreamUsdPerMillion: number) {
@@ -42,8 +41,8 @@ export function calculateCreditChargeNanos(model: CreditPricedModel, inputTokens
 }
 
 export function normalizedBillableMaxOutputTokens(requestedMaxTokens?: number) {
-  if (!Number.isFinite(requestedMaxTokens)) return DEFAULT_MAX_OUTPUT_TOKENS_FOR_CREDIT;
-  return Math.min(MAX_BILLABLE_OUTPUT_TOKENS, Math.max(0, Math.floor(Number(requestedMaxTokens))));
+  if (typeof requestedMaxTokens !== "number" || !Number.isSafeInteger(requestedMaxTokens) || requestedMaxTokens < 1) return DEFAULT_MAX_OUTPUT_TOKENS_FOR_CREDIT;
+  return requestedMaxTokens;
 }
 
 export function formatCreditUsd(nanos: number) {

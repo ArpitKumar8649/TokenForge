@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   DAILY_CHECKIN_CREDIT_NANOS,
   INTRODUCTORY_CREDIT_NANOS,
-  MAX_BILLABLE_OUTPUT_TOKENS,
   NANODOLLARS_PER_DOLLAR,
   TOKENFORGE_CREDIT_PRICING,
   TOKENFORGE_PLATFORM_CHARGE_MULTIPLIER,
@@ -30,11 +29,13 @@ describe("TokenForge promotional credit pricing", () => {
     expect(TOKENFORGE_CREDIT_PRICING["grok-4.5"]).toMatchObject({ upstreamInputUsdPerMillion: 2, upstreamOutputUsdPerMillion: 6, inputUsdPerMillion: 3, outputUsdPerMillion: 9 });
     expect(TOKENFORGE_CREDIT_PRICING["deepseek-v4-flash"]).toMatchObject({ upstreamInputUsdPerMillion: 0.14, upstreamOutputUsdPerMillion: 0.28, inputUsdPerMillion: 0.21, outputUsdPerMillion: 0.42 });
     expect(TOKENFORGE_CREDIT_PRICING["deepseek-v4-pro"]).toMatchObject({ upstreamInputUsdPerMillion: 0.14, upstreamOutputUsdPerMillion: 0.28, inputUsdPerMillion: 0.21, outputUsdPerMillion: 0.42 });
+    expect(TOKENFORGE_CREDIT_PRICING["qwen3.8-27b"]).toMatchObject({ upstreamInputUsdPerMillion: 0.45, upstreamOutputUsdPerMillion: 3.2, inputUsdPerMillion: 0.675, outputUsdPerMillion: 4.8 });
   });
 
-  it("bounds a maximum-output reservation before a provider request is attempted", () => {
+  it("reserves a requested positive safe maximum without imposing a local upper ceiling", () => {
     expect(normalizedBillableMaxOutputTokens()).toBe(1_024);
-    expect(normalizedBillableMaxOutputTokens(MAX_BILLABLE_OUTPUT_TOKENS + 1)).toBe(MAX_BILLABLE_OUTPUT_TOKENS);
-    expect(normalizedBillableMaxOutputTokens(-1)).toBe(0);
+    expect(normalizedBillableMaxOutputTokens(2_000_000)).toBe(2_000_000);
+    expect(normalizedBillableMaxOutputTokens(-1)).toBe(1_024);
+    expect(normalizedBillableMaxOutputTokens(Number.MAX_SAFE_INTEGER + 1)).toBe(1_024);
   });
 });

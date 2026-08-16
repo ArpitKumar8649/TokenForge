@@ -255,6 +255,22 @@ describe("TokenForge Playground gateway", () => {
     expect(withModelScopedGuidance("claude-opus-5", [{ role: "user", content: "Unchanged" }])).not.toContainEqual(playgroundResponseGuidance());
   });
 
+  it("routes Qwen 3.8 27B through the shared server-only OrcaRouter credential with its own hidden upstream identifier and no Claude guidance", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await forwardProviderRequest("qwen3.8-27b", { model: "qwen3.8-27b", messages: [{ role: "user", content: "Route this safely." }] }, new AbortController().signal);
+
+    expect(fetchMock).toHaveBeenCalledWith("https://opus5.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-opus5-secret" }),
+      body: expect.stringContaining('"model":"qwen/qwen3.8-27b-free"'),
+    }));
+    const forwardedPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(forwardedPayload.model).toBe("qwen/qwen3.8-27b-free");
+    expect(JSON.stringify(forwardedPayload.messages)).not.toContain("configured Claude Opus 5 route");
+    expect(withModelScopedGuidance("qwen3.8-27b", [{ role: "user", content: "Unchanged" }])).toEqual([{ role: "user", content: "Unchanged" }]);
+  });
+
   it("stops before provider execution when the promotional credit reservation is denied", async () => {
     vi.mocked(reserveCredit).mockResolvedValue({ authorized: false, balanceNanos: 0 });
     const fetchMock = vi.fn();

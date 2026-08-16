@@ -231,7 +231,12 @@ async function forwardTokenHarborRequest(input: ChatInput, signal: AbortSignal) 
 async function forwardClaudeOpus5Request(input: ChatInput, signal: AbortSignal) {
   const base = process.env.CLAUDE_OPUS5_BASE_URL?.replace(/\/$/, "");
   const secret = process.env.CLAUDE_OPUS5_API_KEY?.trim();
-  const upstreamModel = process.env.CLAUDE_OPUS5_MODEL?.trim();
+  const configuredClaudeModel = process.env.CLAUDE_OPUS5_MODEL?.trim();
+  const upstreamModel = input.model === "claude-opus-5"
+    ? configuredClaudeModel
+    : typeof input.model === "string"
+      ? getTokenForgeUpstreamModelId(input.model)
+      : undefined;
   if (!base || !secret || !upstreamModel) throw new Error("TokenForge Claude Opus 5 inference is not configured");
   const requestBody = { ...input, model: upstreamModel };
   try {
