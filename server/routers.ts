@@ -78,6 +78,7 @@ const adminAccountDirectoryInput = z.object({
   pageSize: z.number().int().min(5).max(50).default(10),
   search: z.string().trim().max(120).default(""),
   status: z.enum(["all", "active", "suspended", "flagged"]).default("all"),
+  sort: z.enum(["latestJoin", "mostTokens", "discordVerified", "mostCredit"]).default("latestJoin"),
 });
 const permanentAccountDeleteInput = z.object({
   userId: z.number().int().positive(),

@@ -228,3 +228,5 @@
 - [x] Commit and push all current TokenForge project changes to the selected GitHub repository, excluding local runtime logs and secrets.
 - [x] Run a minimal server-side Kimi K3 provider probe for supported reasoning-control parameters and report compatibility without changing production behavior.
 - [x] Test the exact Kimi K3 `reasoning_effort: "max"` parameter directly with Cluster Protocol and through TokenForge’s `/v1/messages` bridge, reporting only privacy-safe compatibility metadata without changing production behavior.
+- [x] Enforce `reasoning_effort: "max"` internally only for Kimi K3 requests through TokenForge’s Anthropic-compatible `/v1/messages` bridge, without exposing a caller override.
+- [x] Add protected administrator account sorting for highest processed tokens, Discord verification state, highest current credit balance, and latest account join date.

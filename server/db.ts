@@ -950,14 +950,19 @@ export type AdminAccountDirectoryInput = {
   pageSize?: number;
   search?: string;
   status?: "all" | "active" | "suspended" | "flagged";
+  sort?: "latestJoin" | "mostTokens" | "discordVerified" | "mostCredit";
 };
 
 export function normalizeAdminAccountDirectoryInput(input: AdminAccountDirectoryInput = {}) {
+  const sort = input.sort === "mostTokens" || input.sort === "discordVerified" || input.sort === "mostCredit" || input.sort === "latestJoin"
+    ? input.sort
+    : "latestJoin";
   return {
     page: Math.max(1, Math.trunc(input.page ?? 1)),
     pageSize: Math.min(50, Math.max(5, Math.trunc(input.pageSize ?? 10))),
     search: input.search?.trim().slice(0, 120) ?? "",
     status: input.status ?? "all",
+    sort,
   };
 }
 
@@ -1023,13 +1028,26 @@ export async function listAdminAccounts(input: AdminAccountDirectoryInput = {}) 
     .where(whereClause);
   const pageCount = Math.ceil(Number(total) / query.pageSize);
   const page = pageCount ? Math.min(query.page, pageCount) : 1;
+  const usageTotals = db
+    .select({ userId: usageEvents.userId, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)` })
+    .from(usageEvents)
+    .groupBy(usageEvents.userId)
+    .as("admin_account_usage_totals");
+  const sortOrder = query.sort === "mostTokens"
+    ? [desc(usageTotals.totalTokens), desc(users.createdAt), desc(users.id)]
+    : query.sort === "discordVerified"
+      ? [desc(accountControls.discordVerifiedAt), desc(users.createdAt), desc(users.id)]
+      : query.sort === "mostCredit"
+        ? [desc(creditAccounts.balanceNanos), desc(users.createdAt), desc(users.id)]
+        : [desc(users.createdAt), desc(users.id)];
   const accounts = await db
     .select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos, discordVerifiedAt: accountControls.discordVerifiedAt })
     .from(users)
     .leftJoin(accountControls, eq(users.id, accountControls.userId))
     .leftJoin(creditAccounts, eq(users.id, creditAccounts.userId))
+    .leftJoin(usageTotals, eq(users.id, usageTotals.userId))
     .where(whereClause)
-    .orderBy(desc(users.lastSignedIn), desc(users.id))
+    .orderBy(...sortOrder)
     .limit(query.pageSize)
     .offset((page - 1) * query.pageSize);
   const userIds = accounts.map(account => account.id);

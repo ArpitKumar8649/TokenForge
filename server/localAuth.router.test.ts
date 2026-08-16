@@ -361,7 +361,7 @@ describe("protected administrator account directory", () => {
 
     await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.accounts({ page: 2, pageSize: 10, search: "arpit", status: "active" })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(appRouter.createCaller(makeContext(admin).ctx).admin.accounts({ page: 2, pageSize: 10, search: "arpit", status: "active" })).resolves.toEqual(page);
-    expect(listAdminAccounts).toHaveBeenCalledWith({ page: 2, pageSize: 10, search: "arpit", status: "active" });
+    expect(listAdminAccounts).toHaveBeenCalledWith({ page: 2, pageSize: 10, search: "arpit", status: "active", sort: "latestJoin" });
   });
 
   it("returns aggregate-only model bars for selected accounts exclusively to a passcode-issued administrator session", async () => {

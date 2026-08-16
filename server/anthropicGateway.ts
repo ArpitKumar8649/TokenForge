@@ -171,7 +171,15 @@ export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChat
     }
   }
 
-  const translated: TokenForgeChatInput = { model, messages, stream: raw.stream === true, ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}), ...(temperature !== undefined ? { temperature } : {}) };
+  const translated: TokenForgeChatInput = {
+    model,
+    messages,
+    stream: raw.stream === true,
+    ...(maxTokens !== undefined ? { max_tokens: maxTokens } : {}),
+    ...(temperature !== undefined ? { temperature } : {}),
+    // This bridge policy is deliberately model-scoped and not caller-configurable.
+    ...(model === "kimi-k3" ? { reasoning_effort: "max" } : {}),
+  };
   if (raw.tools !== undefined) {
     if (!Array.isArray(raw.tools)) throw new AnthropicBridgeError(400, "invalid_request_error", "tools must be an array.");
     translated.tools = raw.tools.map((candidate, index) => {
