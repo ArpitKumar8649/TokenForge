@@ -1028,13 +1028,16 @@ export async function listAdminAccounts(input: AdminAccountDirectoryInput = {}) 
     .where(whereClause);
   const pageCount = Math.ceil(Number(total) / query.pageSize);
   const page = pageCount ? Math.min(query.page, pageCount) : 1;
-  const usageTotals = db
-    .select({ userId: usageEvents.userId, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)` })
-    .from(usageEvents)
-    .groupBy(usageEvents.userId)
-    .as("admin_account_usage_totals");
+  // Sort before pagination using each account's full, successful processed-token history.
+  // A correlated aggregate avoids the unreliable derived-table ordering previously used here.
+  const successfulLifetimeTokens = sql<number>`coalesce((
+    select sum(${usageEvents.totalTokens})
+    from ${usageEvents}
+    where ${usageEvents.userId} = ${users.id}
+      and ${usageEvents.status} = ${"success"}
+  ), 0)`;
   const sortOrder = query.sort === "mostTokens"
-    ? [desc(usageTotals.totalTokens), desc(users.createdAt), desc(users.id)]
+    ? [desc(successfulLifetimeTokens), desc(users.createdAt), desc(users.id)]
     : query.sort === "discordVerified"
       ? [desc(accountControls.discordVerifiedAt), desc(users.createdAt), desc(users.id)]
       : query.sort === "mostCredit"
@@ -1045,14 +1048,13 @@ export async function listAdminAccounts(input: AdminAccountDirectoryInput = {}) 
     .from(users)
     .leftJoin(accountControls, eq(users.id, accountControls.userId))
     .leftJoin(creditAccounts, eq(users.id, creditAccounts.userId))
-    .leftJoin(usageTotals, eq(users.id, usageTotals.userId))
     .where(whereClause)
     .orderBy(...sortOrder)
     .limit(query.pageSize)
     .offset((page - 1) * query.pageSize);
   const userIds = accounts.map(account => account.id);
   const usageRows = userIds.length
-    ? await db.select({ userId: usageEvents.userId, requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, lastActivityAt: sql<Date | null>`max(${usageEvents.createdAt})` }).from(usageEvents).where(inArray(usageEvents.userId, userIds)).groupBy(usageEvents.userId)
+    ? await db.select({ userId: usageEvents.userId, requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, lastActivityAt: sql<Date | null>`max(${usageEvents.createdAt})` }).from(usageEvents).where(and(inArray(usageEvents.userId, userIds), eq(usageEvents.status, "success"))).groupBy(usageEvents.userId)
     : [];
 
   return { items: composeAdminAccountOverview(accounts, usageRows), total: Number(total), page, pageSize: query.pageSize, pageCount };
