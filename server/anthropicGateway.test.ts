@@ -101,6 +101,24 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(JSON.stringify(translated.messages)).not.toContain("private reasoning");
   });
 
+  it("preserves Anthropic tool-result linkage as native OpenAI tool messages for OrcaRouter models", () => {
+    const translated = translateAnthropicRequest({
+      model: "claude-opus-5",
+      messages: [
+        { role: "user", content: "Inspect the repository." },
+        { role: "assistant", content: [{ type: "tool_use", id: "tool_1", name: "read_file", input: { path: "README.md" } }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "tool_1", content: "file contents" }] },
+      ],
+      tools: [{ name: "read_file", input_schema: { type: "object", properties: { path: { type: "string" } } } }],
+    });
+
+    expect(translated.messages).toEqual([
+      { role: "user", content: "Inspect the repository." },
+      expect.objectContaining({ role: "assistant", tool_calls: [expect.objectContaining({ id: "tool_1" })] }),
+      { role: "tool", tool_call_id: "tool_1", content: "file contents" },
+    ]);
+  });
+
   it("converts an OpenAI-style Cluster tool call into an Anthropic Messages response", () => {
     expect(translateOpenAiMessageResponse("kimi-k3", {
       id: "chat_1",

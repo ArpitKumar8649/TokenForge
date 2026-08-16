@@ -98,6 +98,7 @@ export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChat
     throw new AnthropicBridgeError(400, "invalid_request_error", "temperature must be a number from 0 to 2.");
   }
   const model = raw.model as string;
+  const usesOpenAiNativeToolResults = ORCAROUTER_MESSAGES_MODELS.has(model);
   const maxTokens = typeof raw.max_tokens === "number" ? raw.max_tokens : undefined;
   const temperature = typeof raw.temperature === "number" ? raw.temperature : undefined;
 
@@ -129,7 +130,7 @@ export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChat
 
     let text = "";
     const toolCalls: Array<{ id: string; type: "function"; function: { name: string; arguments: string } }> = [];
-    const toolResults: string[] = [];
+    const toolResults: Array<{ toolUseId: string; content: string }> = [];
     for (let blockIndex = 0; blockIndex < message.content.length; blockIndex += 1) {
       const candidateBlock = message.content[blockIndex];
       if (!candidateBlock || typeof candidateBlock !== "object") throw new AnthropicBridgeError(400, "invalid_request_error", `messages[${messageIndex}].content[${blockIndex}] must be an object.`);
@@ -143,7 +144,7 @@ export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChat
         if (message.role !== "user") throw new AnthropicBridgeError(400, "invalid_request_error", "tool_result blocks require a user message.");
         const toolUseId = requireText(block.tool_use_id, "tool_result.tool_use_id must be a string.");
         const errorPrefix = block.is_error === true ? "Error: " : "";
-        toolResults.push(`[Tool Result for ${toolUseId}]:\n${errorPrefix}${contentToText(block.content)}`);
+        toolResults.push({ toolUseId, content: `${errorPrefix}${contentToText(block.content)}` });
       } else if (block.type === "thinking" || block.type === "redacted_thinking") {
         if (message.role !== "assistant") throw new AnthropicBridgeError(400, "invalid_request_error", `${String(block.type)} blocks require an assistant message.`);
         // OrcaRouter's OpenAI-compatible endpoint cannot verify Anthropic signatures. Do not forward
@@ -159,7 +160,14 @@ export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChat
         messages.push({ role: "assistant", content: text || null, ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}) } as TokenForgeChatMessage);
       }
     } else {
-      const content = [...toolResults, text].filter(Boolean).join("\n\n").trim();
+      if (usesOpenAiNativeToolResults && toolResults.length > 0) {
+        for (const result of toolResults) {
+          messages.push({ role: "tool", tool_call_id: result.toolUseId, content: result.content } as TokenForgeChatMessage);
+        }
+        if (text) messages.push({ role: "user", content: text });
+        continue;
+      }
+      const content = [...toolResults.map(result => `[Tool Result for ${result.toolUseId}]:\n${result.content}`), text].filter(Boolean).join("\n\n").trim();
       if (!content) throw new AnthropicBridgeError(400, "invalid_request_error", `messages[${messageIndex}] must contain text or tool_result content.`);
       messages.push({ role: "user", content });
     }
