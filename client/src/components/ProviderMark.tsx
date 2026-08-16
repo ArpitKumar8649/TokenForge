@@ -11,6 +11,7 @@ const OFFICIAL_MARKS: Partial<Record<string, string>> = {
   "Alibaba Cloud": "/manus-storage/qwen-official-mark_6d32eee6.png",
   "Moonshot AI": "/manus-storage/kimi-official-mark_f3ab99a3.png",
   Anthropic: "/manus-storage/anthropic_21a2c9bb.svg",
+  Claude: "/manus-storage/anthropic_21a2c9bb.svg",
   Google: "/manus-storage/google_8bc26cff.svg",
   DeepSeek: "/manus-storage/deepseek_3213d99a.svg",
   "Mistral AI": "/manus-storage/mistralai_7d87454b.svg",
@@ -19,7 +20,6 @@ const OFFICIAL_MARKS: Partial<Record<string, string>> = {
 
 const PROVIDER_MONOGRAMS: Record<string, string> = {
   "Z.AI": "GLM",
-  "Configured upstream": "TF",
 };
 
 export function ProviderMark({ provider, fallback = provider.slice(0, 1), size = 18, className }: ProviderMarkProps) {

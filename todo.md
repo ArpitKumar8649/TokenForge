@@ -235,3 +235,5 @@
 - [x] Store the Claude Opus 5 provider base URL and exact upstream model identifier as server-only managed configuration alongside its provider API key, with no provider configuration exposed to browser code.
 - [x] Replace fallback-style model marks in catalogue and Playground model-selection surfaces with appropriate recognizable provider artwork while preserving accessible labels and mobile layout.
 - [x] Add Playground-only internal guidance that makes responses useful, detailed, and clearly structured for both simple and complex prompts without changing external API-call behavior.
+- [x] Probe the configured Claude Opus 5 upstream for native Anthropic Messages compatibility and extend TokenForge’s `/v1/messages` support only if the upstream contract validates safely.
+- [x] Remove all user-facing provider-route, provider-brand, and upstream-routing labels such as “TokenHarbor flash route” and “shared flash route” from TokenForge model and Playground surfaces while preserving neutral model information.

@@ -13,6 +13,7 @@ import {
 import { raiseOperationalAlert } from "./operationalAlerts";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
 import {
+  forwardClaudeOpus5NativeMessagesRequest,
   forwardProviderRequest,
   publicProviderFailureStatus,
   tokenForgeRateHeaders,
@@ -20,7 +21,7 @@ import {
   type TokenForgeChatInput,
   type TokenForgeChatMessage,
 } from "./openaiGateway";
-import { CLUSTER_PROTOCOL_PROVIDER_SLUG, getTokenForgeProviderSlug, isTokenForgeModelId, type TokenForgeModelId } from "./modelCatalogue";
+import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, getTokenForgeProviderSlug, isTokenForgeModelId, type TokenForgeModelId } from "./modelCatalogue";
 
 const RATE_WINDOW_SECONDS = 60;
 const ACCOUNT_RATE_LIMIT_PER_MINUTE = 20;
@@ -79,10 +80,11 @@ function systemToText(system: unknown) {
 
 export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChatInput {
   if (typeof raw.model !== "string" || !raw.model.trim()) {
-    throw new AnthropicBridgeError(400, "invalid_request_error", "model must be a non-empty TokenForge Cluster Protocol model identifier.");
+    throw new AnthropicBridgeError(400, "invalid_request_error", "model must be a non-empty TokenForge Messages-supported model identifier.");
   }
-  if (!isTokenForgeModelId(raw.model) || getTokenForgeProviderSlug(raw.model) !== CLUSTER_PROTOCOL_PROVIDER_SLUG) {
-    throw new AnthropicBridgeError(400, "invalid_request_error", "The Anthropic Messages endpoint supports only TokenForge Cluster Protocol models.");
+  const provider = isTokenForgeModelId(raw.model) ? getTokenForgeProviderSlug(raw.model) : null;
+  if (provider !== CLUSTER_PROTOCOL_PROVIDER_SLUG && provider !== CLAUDE_OPUS5_PROVIDER_SLUG) {
+    throw new AnthropicBridgeError(400, "invalid_request_error", "The Anthropic Messages endpoint does not support the requested TokenForge model.");
   }
   if (!Array.isArray(raw.messages) || raw.messages.length < 1 || raw.messages.length > 100) {
     throw new AnthropicBridgeError(400, "invalid_request_error", "messages must contain between 1 and 100 entries.");
@@ -264,7 +266,8 @@ export function registerAnthropicMessagesGateway(app: Express) {
         : respondError(res, requestId, 400, "invalid_request_error", "The Messages request could not be processed.");
     }
     const model = input.model as TokenForgeModelId;
-    if (!(await isModelAvailable(model))) return respondError(res, requestId, 503, "api_error", "The requested model is temporarily unavailable. Retry shortly or choose another Cluster Protocol model.");
+    const useNativeClaudeOpus5Messages = getTokenForgeProviderSlug(model) === CLAUDE_OPUS5_PROVIDER_SLUG;
+    if (!(await isModelAvailable(model))) return respondError(res, requestId, 503, "api_error", "The requested model is temporarily unavailable. Retry shortly or choose another available model.");
 
     const ipHash = tokenForgeRequestIpHash(req);
     const quota = await getQuotaStatus(key.userId);
@@ -290,7 +293,9 @@ export function registerAnthropicMessagesGateway(app: Express) {
     const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
     let upstream: globalThis.Response;
     try {
-      upstream = await forwardProviderRequest(model, input, aborter.signal);
+      upstream = useNativeClaudeOpus5Messages
+        ? await forwardClaudeOpus5NativeMessagesRequest((req.body ?? {}) as Record<string, unknown>, aborter.signal)
+        : await forwardProviderRequest(model, input, aborter.signal);
     } catch (error) {
       clearTimeout(timeout);
       releaseSlot(key.userId);
@@ -321,7 +326,12 @@ export function registerAnthropicMessagesGateway(app: Express) {
         return respondError(res, requestId, 503, "api_error", "The selected provider returned an invalid response.", rateHeaders);
       }
       try {
-        const response = translateOpenAiMessageResponse(model, payload);
+        const response = useNativeClaudeOpus5Messages
+          ? payload as { type?: unknown; usage?: Usage }
+          : translateOpenAiMessageResponse(model, payload);
+        if (useNativeClaudeOpus5Messages && (response.type !== "message" || !Array.isArray((response as { content?: unknown }).content))) {
+          throw new AnthropicBridgeError(503, "api_error", "The selected provider returned an invalid Messages response.");
+        }
         const tokens = normalizedTokens(usageFrom(payload), estimatedInputTokens);
         const chargeNanos = calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
         const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos });
@@ -349,6 +359,48 @@ export function registerAnthropicMessagesGateway(app: Express) {
     res.setHeader("connection", "keep-alive");
     for (const [name, value] of Object.entries(tokenForgeRateHeaders(quota.requestLimit, quota.remainingRequests - 1))) res.setHeader(name, String(value));
     res.flushHeaders();
+
+    if (useNativeClaudeOpus5Messages) {
+      const reader = upstream.body?.getReader();
+      if (!reader) {
+        clearTimeout(timeout);
+        releaseSlot(key.userId);
+        await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages provider returned an empty native stream" });
+        return res.end();
+      }
+      const decoder = new TextDecoder();
+      let usage: Usage = {};
+      let failed = false;
+      res.on("close", () => { if (!res.writableEnded) aborter.abort(); });
+      try {
+        while (true) {
+          const next = await reader.read();
+          if (next.done) break;
+          const chunk = decoder.decode(next.value, { stream: true });
+          res.write(chunk);
+          for (const line of chunk.split("\n")) {
+            if (!line.startsWith("data:")) continue;
+            try {
+              const event = JSON.parse(line.slice(5).trim()) as { type?: unknown; usage?: Usage; message?: { usage?: Usage } };
+              usage = { ...usage, ...event.message?.usage, ...event.usage };
+              if (event.type === "error") failed = true;
+            } catch { /* Preserve opaque valid SSE chunks; billing falls back to the estimate if usage is absent. */ }
+          }
+        }
+      } catch {
+        failed = true;
+      } finally {
+        clearTimeout(timeout);
+        const tokens = normalizedTokens(usage, estimatedInputTokens);
+        const chargeNanos = failed ? 0 : calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
+        const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos, releaseReason: failed ? "Anthropic Messages native stream was cancelled" : undefined });
+        await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: true, status: failed ? "cancelled" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
+        releaseSlot(key.userId);
+        res.end();
+      }
+      return;
+    }
+
     writeSse(res, "message_start", { type: "message_start", message: { id: `msg_${randomUUID().replaceAll("-", "")}`, type: "message", role: "assistant", content: [], model, stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } });
 
     const reader = upstream.body?.getReader();
