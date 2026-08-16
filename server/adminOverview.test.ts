@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ADMIN_EMAIL_PROVIDER_EXPRESSION, composeAdminAccountOverview, normalizeAdminAccountModelUsage, normalizeAdminEmailProviderCounts } from "./db";
+import { ADMIN_EMAIL_PROVIDER_EXPRESSION, composeAdminAccountOverview, normalizeAdminAccountModelUsage, normalizeAdminEmailProviderCounts, normalizeAdminGlobalModelUsage } from "./db";
 
 describe("composeAdminAccountOverview", () => {
   it("attaches live credit and usage aggregates without returning API-key material", () => {
@@ -99,6 +99,33 @@ describe("normalizeAdminAccountModelUsage", () => {
       { userId: 8, modelId: "model-b", requestCount: 2, totalTokens: 50 },
       { userId: 8, modelId: "model-a", requestCount: 2, totalTokens: 75 },
       { userId: 8, modelId: "model-c", requestCount: 4, totalTokens: 2 },
+    ]);
+
+    expect(usage.map(row => row.modelId)).toEqual(["model-c", "model-a", "model-b"]);
+  });
+});
+
+describe("normalizeAdminGlobalModelUsage", () => {
+  it("returns comparative all-account model aggregates without account identities or request content", () => {
+    const usage = normalizeAdminGlobalModelUsage([
+      { modelId: "kimi-k3", accountCount: 3, requestCount: 9, totalTokens: 18_000 },
+      { modelId: "qwen3.7-max", accountCount: 1, requestCount: 2, totalTokens: 600 },
+      { modelId: "unused-model", accountCount: 0, requestCount: 0, totalTokens: 0 },
+    ]);
+
+    expect(usage).toEqual([
+      { modelId: "kimi-k3", accountCount: 3, requestCount: 9, totalTokens: 18_000 },
+      { modelId: "qwen3.7-max", accountCount: 1, requestCount: 2, totalTokens: 600 },
+    ]);
+    expect(JSON.stringify(usage)).not.toContain("userId");
+    expect(JSON.stringify(usage)).not.toContain("prompt");
+  });
+
+  it("orders all-account model bars by request count, then processed tokens", () => {
+    const usage = normalizeAdminGlobalModelUsage([
+      { modelId: "model-b", accountCount: 1, requestCount: 2, totalTokens: 50 },
+      { modelId: "model-a", accountCount: 1, requestCount: 2, totalTokens: 75 },
+      { modelId: "model-c", accountCount: 1, requestCount: 4, totalTokens: 2 },
     ]);
 
     expect(usage.map(row => row.modelId)).toEqual(["model-c", "model-a", "model-b"]);

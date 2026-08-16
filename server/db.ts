@@ -958,12 +958,32 @@ export type AdminAccountModelUsageRow = {
   totalTokens: number;
 };
 
+export type AdminGlobalModelUsageRow = {
+  modelId: string;
+  accountCount: number;
+  requestCount: number;
+  totalTokens: number;
+};
+
 /** Normalizes aggregate-only activity rows without returning prompts, API keys, or message content. */
 export function normalizeAdminAccountModelUsage(rows: AdminAccountModelUsageRow[]) {
   return rows
     .filter(row => Number.isInteger(row.userId) && row.userId > 0 && Boolean(row.modelId) && Number(row.requestCount) > 0)
     .map(row => ({ userId: row.userId, modelId: row.modelId, requestCount: Math.max(0, Number(row.requestCount) || 0), totalTokens: Math.max(0, Number(row.totalTokens) || 0) }))
     .sort((left, right) => left.userId - right.userId || right.requestCount - left.requestCount || right.totalTokens - left.totalTokens || left.modelId.localeCompare(right.modelId));
+}
+
+/** Normalizes aggregate-only all-account model activity without returning account, prompt, or credential data. */
+export function normalizeAdminGlobalModelUsage(rows: AdminGlobalModelUsageRow[]) {
+  return rows
+    .filter(row => Boolean(row.modelId) && Number(row.accountCount) > 0 && Number(row.requestCount) > 0)
+    .map(row => ({
+      modelId: row.modelId,
+      accountCount: Math.max(0, Number(row.accountCount) || 0),
+      requestCount: Math.max(0, Number(row.requestCount) || 0),
+      totalTokens: Math.max(0, Number(row.totalTokens) || 0),
+    }))
+    .sort((left, right) => right.requestCount - left.requestCount || right.totalTokens - left.totalTokens || left.modelId.localeCompare(right.modelId));
 }
 
 /** Returns successful, aggregate model activity only for the bounded visible administrator account page. */
@@ -1049,11 +1069,11 @@ export async function getModelAvailabilitySnapshot() {
 export async function getAdminOverview() {
   await ensureCatalogue();
   const db = await getDb();
-  if (!db) return { models: [], providers: [], accounts: [], usage: [], emailProviders: [], totals: { totalTokens: 0, totalRequests: 0 }, providerTelemetry: getProviderCredentialTelemetry({}) };
+  if (!db) return { models: [], providers: [], accounts: [], usage: [], emailProviders: [], allAccountModelUsage: [], totals: { totalTokens: 0, totalRequests: 0 }, providerTelemetry: getProviderCredentialTelemetry({}) };
   // This aggregate queries only `users`; keep this expression unqualified so the SELECT,
   // GROUP BY, and ORDER BY clauses remain byte-for-byte compatible on the deployed MySQL dialect.
   const emailProvider = sql<string>`${sql.raw(ADMIN_EMAIL_PROVIDER_EXPRESSION)}`;
-  const [models, providers, accounts, usage, accountUsage, totals, emailProviderRows] = await Promise.all([
+  const [models, providers, accounts, usage, accountUsage, totals, emailProviderRows, allAccountModelUsageRows] = await Promise.all([
     db.select().from(modelConfigs).orderBy(modelConfigs.displayName),
     db.select().from(providerConfigs).orderBy(providerConfigs.displayName),
     db.select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos }).from(users).leftJoin(accountControls, eq(users.id, accountControls.userId)).leftJoin(creditAccounts, eq(users.id, creditAccounts.userId)).orderBy(desc(users.lastSignedIn)).limit(100),
@@ -1061,13 +1081,14 @@ export async function getAdminOverview() {
     db.select({ userId: usageEvents.userId, requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, lastActivityAt: sql<Date | null>`max(${usageEvents.createdAt})` }).from(usageEvents).groupBy(usageEvents.userId),
     db.select({ totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, totalRequests: sql<number>`coalesce(count(${usageEvents.id}), 0)` }).from(usageEvents),
     db.select({ provider: emailProvider, accountCount: sql<number>`count(id)` }).from(users).where(sql`${users.email} is not null and ${users.email} like '%@%'`).groupBy(emailProvider).orderBy(desc(sql`count(id)`), emailProvider),
+    db.select({ modelId: usageEvents.modelId, accountCount: sql<number>`count(distinct ${usageEvents.userId})`, requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)` }).from(usageEvents).where(eq(usageEvents.status, "success")).groupBy(usageEvents.modelId).orderBy(desc(sql`count(${usageEvents.id})`), desc(sql`sum(${usageEvents.totalTokens})`), usageEvents.modelId),
   ]);
   const providerTelemetry = getProviderCredentialTelemetry({
     [FXQIDIAN_PROVIDER_SLUG]: getFxqidianCredentialPool().length,
     [CLUSTER_PROTOCOL_PROVIDER_SLUG]: getClusterProtocolCredentialPool().length,
     [TOKENHARBOR_PROVIDER_SLUG]: process.env.TOKENHARBOR_API_KEY?.trim() ? 1 : 0,
   });
-  return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })), emailProviders: normalizeAdminEmailProviderCounts(emailProviderRows), totals: { totalTokens: Number(totals[0]?.totalTokens ?? 0), totalRequests: Number(totals[0]?.totalRequests ?? 0) }, providerTelemetry };
+  return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })), emailProviders: normalizeAdminEmailProviderCounts(emailProviderRows), allAccountModelUsage: normalizeAdminGlobalModelUsage(allAccountModelUsageRows), totals: { totalTokens: Number(totals[0]?.totalTokens ?? 0), totalRequests: Number(totals[0]?.totalRequests ?? 0) }, providerTelemetry };
 }
 
 /** Deletes a user and every account-owned TokenForge record, retaining only non-reversible hashed identity tombstones. */
