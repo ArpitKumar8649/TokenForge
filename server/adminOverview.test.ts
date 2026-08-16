@@ -17,9 +17,9 @@ describe("composeAdminAccountOverview", () => {
         tokenLimit: 100_000,
         balanceNanos: 48_500_000_000,
       },
-    ], [{ userId: 7, requestCount: 12, totalTokens: 45_600, lastActivityAt: "2026-01-03T12:00:00Z" }]);
+    ], [{ userId: 7, requestCount: 12, totalTokens: 45_600, lifetimeSpendNanos: 68_400_000, lastActivityAt: "2026-01-03T12:00:00Z" }]);
 
-    expect(accounts[0]).toMatchObject({ id: 7, balanceNanos: 48_500_000_000, requestCount: 12, totalTokens: 45_600 });
+    expect(accounts[0]).toMatchObject({ id: 7, balanceNanos: 48_500_000_000, lifetimeSpendNanos: 68_400_000, requestCount: 12, totalTokens: 45_600 });
     expect(accounts[0]?.lastActivityAt?.toISOString()).toBe("2026-01-03T12:00:00.000Z");
     expect(accounts[0]).not.toHaveProperty("keyHash");
     expect(accounts[0]).not.toHaveProperty("keyPrefix");
@@ -42,7 +42,7 @@ describe("composeAdminAccountOverview", () => {
       },
     ], []);
 
-    expect(accounts[0]).toMatchObject({ balanceNanos: 0, requestCount: 0, totalTokens: 0, lastActivityAt: null });
+    expect(accounts[0]).toMatchObject({ balanceNanos: 0, lifetimeSpendNanos: 0, requestCount: 0, totalTokens: 0, lastActivityAt: null });
   });
 });
 

@@ -262,3 +262,4 @@
 - [x] Pin Qwen 3.8 Max to the top of the Playground model dropdown while preserving search and live availability status behavior.
 - [x] Add an administrator-only per-account credit grant control that accepts a positive USD amount and records an auditable credit adjustment.
 - [x] Replace the two-step permanent account-deletion flow with one explicit administrator action while preserving complete account-related data cleanup and an audit record.
+- [x] Show each administrator account row’s current credit balance and lifetime settled credit spend using server-calculated totals.

@@ -1002,6 +1002,7 @@ export type AdminAccountUsage = {
   userId: number;
   requestCount: number | null;
   totalTokens: number | null;
+  lifetimeSpendNanos?: number | null;
   lastActivityAt: Date | string | null;
 };
 
@@ -1037,6 +1038,7 @@ export function composeAdminAccountOverview(accounts: AdminAccountBase[], usageR
       balanceNanos: Number(account.balanceNanos ?? 0),
       requestCount: Number(usage?.requestCount ?? 0),
       totalTokens: Number(usage?.totalTokens ?? 0),
+      lifetimeSpendNanos: Number(usage?.lifetimeSpendNanos ?? 0),
       lastActivityAt: lastActivity && !Number.isNaN(lastActivity.getTime()) ? lastActivity : null,
     };
   });
@@ -1114,7 +1116,7 @@ export async function listAdminAccounts(input: AdminAccountDirectoryInput = {}) 
     .offset((page - 1) * query.pageSize);
   const userIds = accounts.map(account => account.id);
   const usageRows = userIds.length
-    ? await db.select({ userId: usageEvents.userId, requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, lastActivityAt: sql<Date | null>`max(${usageEvents.createdAt})` }).from(usageEvents).where(and(inArray(usageEvents.userId, userIds), eq(usageEvents.status, "success"))).groupBy(usageEvents.userId)
+    ? await db.select({ userId: usageEvents.userId, requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, lifetimeSpendNanos: sql<number>`coalesce(sum(${usageEvents.chargeNanos}), 0)`, lastActivityAt: sql<Date | null>`max(${usageEvents.createdAt})` }).from(usageEvents).where(and(inArray(usageEvents.userId, userIds), eq(usageEvents.status, "success"))).groupBy(usageEvents.userId)
     : [];
 
   return { items: composeAdminAccountOverview(accounts, usageRows), total: Number(total), page, pageSize: query.pageSize, pageCount };
