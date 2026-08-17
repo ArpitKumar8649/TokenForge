@@ -297,3 +297,4 @@
 - [x] Fix the administrator Giveaway bulk-credit transaction failing at verified-account scale, protect the browser from raw database error output, and verify whether the attempted $20 giveaway was applied exactly once or rolled back.
 - [x] Add persisted Giveaway history for administrators and optional recipient-facing announcement notes that accompany each completed verified-account credit grant.
 - [x] Show newly received Giveaway announcements as a recipient-specific dashboard notification after login, while retaining the wallet-history record and a clear dismiss state.
+- [x] Redesign the recipient Giveaway notification with a bold GIVEAWAY ALERT heading, animated rotating perimeter light, and colourful falling-ribbon celebration that respects reduced-motion preferences.

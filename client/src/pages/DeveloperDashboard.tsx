@@ -178,15 +178,13 @@ function GiveawayNotificationBanner({ enabled }: { enabled: boolean }) {
   const credit = `$${(notification.amountNanos / 1_000_000_000).toFixed(2)}`;
   const note = notification.announcementNote || "Thank you for being a Discord-verified TokenForge member. Your giveaway credit is ready to use.";
   const remaining = Math.max(0, (notifications.data?.length ?? 1) - 1);
-  return <section className="mb-5 flex items-start gap-3 rounded-2xl border border-[#befe6c]/30 bg-[radial-gradient(circle_at_90%_0%,rgba(190,254,108,.15),transparent_44%),#151b12] p-4 shadow-[0_18px_44px_rgba(0,0,0,.16)]" aria-label="New Giveaway credit">
-    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#befe6c]/15 text-[#d8ff9d]"><Gift size={19} /></div>
-    <div className="min-w-0 flex-1">
-      <p className="text-[10px] font-bold uppercase tracking-[.15em] text-[#cfff8d]">New verified-member giveaway</p>
-      <h2 className="mt-1 text-sm font-bold text-white">{credit} has been added to your TokenForge credit balance.</h2>
-      <p className="mt-1 text-xs leading-5 text-[#c5d8ae]">{note}</p>
-      {remaining > 0 && <p className="mt-2 text-[11px] font-medium text-[#d8ff9d]">{remaining} more giveaway {remaining === 1 ? "notice" : "notices"} waiting.</p>}
+  return <section className="giveaway-alert mb-5" aria-label="New Giveaway credit" role="status">
+    <div className="giveaway-alert__edge" aria-hidden="true" />
+    <div className="giveaway-alert__ribbons" aria-hidden="true">{Array.from({ length: 11 }, (_, index) => <i key={index} />)}</div>
+    <div className="giveaway-alert__content">
+      <div className="giveaway-alert__topline"><div className="giveaway-alert__heading"><span className="giveaway-alert__gift"><Gift size={18} /></span><p>GIVEAWAY ALERT</p></div><Button variant="ghost" size="icon" className="giveaway-alert__dismiss" onClick={() => dismiss.mutate({ notificationId: notification.id })} disabled={dismiss.isPending} aria-label="Dismiss giveaway notification"><X size={17} /></Button></div>
+      <div className="giveaway-alert__body"><div className="giveaway-alert__amount">{credit}</div><div className="min-w-0 flex-1"><h2>Credit added to your TokenForge balance</h2><p>{note}</p>{remaining > 0 && <small>{remaining} more giveaway {remaining === 1 ? "notice" : "notices"} waiting.</small>}</div></div>
     </div>
-    <Button variant="ghost" size="icon" className="shrink-0 text-[#c5d8ae] hover:bg-white/10 hover:text-white" onClick={() => dismiss.mutate({ notificationId: notification.id })} disabled={dismiss.isPending} aria-label="Dismiss giveaway notification"><X size={17} /></Button>
   </section>;
 }
 
