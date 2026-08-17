@@ -15,6 +15,8 @@ import { raiseOperationalAlert } from "./operationalAlerts";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
 import {
   forwardProviderRequest,
+  forwardTokenRouterAnthropicMessagesRequest,
+  modelScopedGuidance,
   publicProviderFailureStatus,
   tokenForgeRateHeaders,
   tokenForgeRequestIpHash,
@@ -31,9 +33,19 @@ const PROVIDER_TIMEOUT_MS = 110_000;
 const activeRequests = new Map<number, number>();
 
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number };
-type AnthropicRequest = { model?: unknown; messages?: unknown; system?: unknown; tools?: unknown; stream?: unknown; max_tokens?: unknown; temperature?: unknown };
+type AnthropicRequest = { model?: unknown; messages?: unknown; system?: unknown; tools?: unknown; stream?: unknown; max_tokens?: unknown; temperature?: unknown; [key: string]: unknown };
 type AnthropicBlock = { type?: unknown; text?: unknown; id?: unknown; name?: unknown; input?: unknown; tool_use_id?: unknown; content?: unknown; is_error?: unknown };
-const OPENAI_TRANSLATED_MESSAGES_MODELS = new Set(["claude-opus-5", "qwen3.8-27b", "qwen3.8-max", "claude-fable-5"]);
+const OPENAI_TRANSLATED_MESSAGES_MODELS = new Set(["claude-opus-5", "qwen3.8-27b", "qwen3.8-max"]);
+
+type NativeClaudeFableMessagesInput = {
+  model: "claude-fable-5";
+  messages: unknown[];
+  stream?: boolean;
+  max_tokens?: number;
+  system?: unknown;
+  reasoning_effort: "xhigh";
+  [key: string]: unknown;
+};
 
 export class AnthropicBridgeError extends Error {
   constructor(public readonly status: number, public readonly type: string, message: string) {
@@ -78,6 +90,38 @@ function systemToText(system: unknown) {
     }
     return requireText((candidate as AnthropicBlock).text, `system[${index}].text must be a string.`);
   }).join("\n");
+}
+
+export function isNativeClaudeFableMessagesRequest(raw: AnthropicRequest) {
+  return raw.model === "claude-fable-5";
+}
+
+/** Preserve Claude Code's native Anthropic payload shape for the configured TokenRouter route. */
+export function prepareNativeClaudeFableMessagesRequest(raw: AnthropicRequest): NativeClaudeFableMessagesInput {
+  if (!Array.isArray(raw.messages) || raw.messages.length < 1 || raw.messages.length > 100) {
+    throw new AnthropicBridgeError(400, "invalid_request_error", "messages must contain between 1 and 100 entries.");
+  }
+  if (raw.stream !== undefined && typeof raw.stream !== "boolean") throw new AnthropicBridgeError(400, "invalid_request_error", "stream must be a Boolean.");
+  if (raw.max_tokens !== undefined && (typeof raw.max_tokens !== "number" || !Number.isSafeInteger(raw.max_tokens) || raw.max_tokens < 1)) {
+    throw new AnthropicBridgeError(400, "invalid_request_error", "max_tokens must be a positive safe integer.");
+  }
+  if (raw.system !== undefined && typeof raw.system !== "string" && !Array.isArray(raw.system)) {
+    throw new AnthropicBridgeError(400, "invalid_request_error", "system must be a string or an array of text blocks.");
+  }
+  const stream = raw.stream === true ? true : undefined;
+  const maxTokens = typeof raw.max_tokens === "number" ? raw.max_tokens : undefined;
+  const guidance = modelScopedGuidance("claude-fable-5").content;
+  const guidanceText = typeof guidance === "string" ? guidance : "";
+  const system = raw.system === undefined
+    ? guidanceText
+    : typeof raw.system === "string"
+      ? `${guidanceText}\n\n${raw.system}`
+      : [{ type: "text", text: guidanceText }, ...raw.system];
+  return { ...raw, model: "claude-fable-5", messages: raw.messages, system, stream, max_tokens: maxTokens, reasoning_effort: "xhigh" };
+}
+
+function estimateNativeAnthropicInputTokens(input: NativeClaudeFableMessagesInput) {
+  return Math.ceil(JSON.stringify({ system: input.system, messages: input.messages, tools: input.tools }).length / 4) + 4;
 }
 
 export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChatInput {
@@ -266,6 +310,153 @@ function writeSse(res: Response, event: string, payload: unknown) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
 }
 
+function nativeClaudeFableResponse(payload: unknown) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  return { ...(payload as Record<string, unknown>), model: "claude-fable-5" };
+}
+
+async function handleNativeClaudeFableMessagesRequest(req: Request, res: Response, requestId: string, key: { id: number; userId: number }) {
+  let input: NativeClaudeFableMessagesInput;
+  try {
+    input = prepareNativeClaudeFableMessagesRequest((req.body ?? {}) as AnthropicRequest);
+  } catch (error) {
+    return error instanceof AnthropicBridgeError
+      ? respondError(res, requestId, error.status, error.type, error.message)
+      : respondError(res, requestId, 400, "invalid_request_error", "The Messages request could not be processed.");
+  }
+  const model: TokenForgeModelId = "claude-fable-5";
+  if (!(await isModelAvailable(model))) return respondError(res, requestId, 503, "api_error", "The requested model is temporarily unavailable. Retry shortly or choose another available model.");
+
+  const ipHash = tokenForgeRequestIpHash(req);
+  const quota = await getQuotaStatus(key.userId);
+  if (!quota) return respondError(res, requestId, 503, "api_error", "Quota state is temporarily unavailable. Retry shortly.");
+  const rateHeaders = tokenForgeRateHeaders(ACCOUNT_RATE_LIMIT_PER_MINUTE, ACCOUNT_RATE_LIMIT_PER_MINUTE);
+  if (quota.suspended) return respondError(res, requestId, 403, "permission_error", "This account is currently suspended.", rateHeaders);
+  const recent = await getRecentRequestCounts(key.userId, ipHash, new Date(Date.now() - RATE_WINDOW_SECONDS * 1_000));
+  if (recent.account >= ACCOUNT_RATE_LIMIT_PER_MINUTE || recent.ip >= IP_RATE_LIMIT_PER_MINUTE) {
+    void raiseOperationalAlert("rate_circuit", { userId: key.userId, requestId, reason: "Native Claude Fable 5 Messages per-minute account or source-IP rate threshold exceeded" });
+    return respondError(res, requestId, 429, "rate_limit_error", "Rate limit reached. Slow down briefly and retry.", { ...tokenForgeRateHeaders(ACCOUNT_RATE_LIMIT_PER_MINUTE, ACCOUNT_RATE_LIMIT_PER_MINUTE - recent.account), "retry-after": RATE_WINDOW_SECONDS });
+  }
+
+  const estimatedInputTokens = estimateNativeAnthropicInputTokens(input);
+  const reservedNanos = calculateCreditChargeNanos(model, estimatedInputTokens, normalizedBillableMaxOutputTokens(input.max_tokens));
+  const reservation = await reserveCredit(key.userId, reservedNanos, requestId);
+  if (!reservation.authorized) return respondError(res, requestId, 402, "permission_error", "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.", rateHeaders);
+  if (!reserveSlot(key.userId, quota.maxConcurrentRequests)) {
+    await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Native Claude Fable 5 Messages request was not started because the concurrency limit was reached" });
+    return respondError(res, requestId, 429, "rate_limit_error", "This account has reached its concurrent-request limit. Wait for an active request to finish.", { ...rateHeaders, "retry-after": 5 });
+  }
+
+  const aborter = new AbortController();
+  const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
+  let upstream: globalThis.Response;
+  try {
+    upstream = await forwardTokenRouterAnthropicMessagesRequest(input, aborter.signal, req.header("anthropic-beta")?.trim());
+  } catch (error) {
+    clearTimeout(timeout);
+    releaseSlot(key.userId);
+    await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Native Claude Fable 5 Messages provider request did not complete" });
+    await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
+    return respondError(res, requestId, 503, "api_error", error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.", rateHeaders);
+  }
+  if (!upstream.ok) {
+    clearTimeout(timeout);
+    releaseSlot(key.userId);
+    await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Native Claude Fable 5 Messages provider returned an error" });
+    await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
+    const status = publicProviderFailureStatus(upstream.status);
+    const message = status === 503 && (upstream.status === 401 || upstream.status === 403)
+      ? "The selected provider temporarily denied this request after secure credential failover. Retry shortly or choose another model."
+      : "The selected provider could not process this request.";
+    return respondError(res, requestId, status, "api_error", message, rateHeaders);
+  }
+  await touchApiKey(key.id);
+
+  if (!input.stream) {
+    clearTimeout(timeout);
+    const payload = await upstream.json().catch(() => null);
+    const response = nativeClaudeFableResponse(payload);
+    if (!response) {
+      releaseSlot(key.userId);
+      await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Native Claude Fable 5 Messages provider returned an invalid response" });
+      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash });
+      return respondError(res, requestId, 503, "api_error", "The selected provider returned an invalid response.", rateHeaders);
+    }
+    const tokens = normalizedTokens(usageFrom(response), estimatedInputTokens);
+    const chargeNanos = calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
+    const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos });
+    await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
+    releaseSlot(key.userId);
+    res.setHeader("request-id", requestId);
+    res.setHeader("x-request-id", requestId);
+    res.setHeader("x-tokenforge-credit-balance", String(settlement.balanceNanos));
+    res.setHeader("x-tokenforge-credit-charge", String(settlement.chargedNanos));
+    for (const [name, value] of Object.entries(tokenForgeRateHeaders(quota.requestLimit, quota.remainingRequests - 1))) res.setHeader(name, String(value));
+    return res.status(200).json(response);
+  }
+
+  res.status(200);
+  res.setHeader("request-id", requestId);
+  res.setHeader("x-request-id", requestId);
+  res.setHeader("content-type", "text/event-stream; charset=utf-8");
+  res.setHeader("cache-control", "no-cache, no-transform");
+  res.setHeader("connection", "keep-alive");
+  for (const [name, value] of Object.entries(tokenForgeRateHeaders(quota.requestLimit, quota.remainingRequests - 1))) res.setHeader(name, String(value));
+  res.flushHeaders();
+  const reader = upstream.body?.getReader();
+  if (!reader) {
+    clearTimeout(timeout);
+    releaseSlot(key.userId);
+    await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Native Claude Fable 5 Messages provider returned an empty stream" });
+    return res.end();
+  }
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let usage: Usage = {};
+  let failed = false;
+  res.on("close", () => { if (!res.writableEnded) aborter.abort(); });
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      buffer += decoder.decode(next.value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const sourceLine of lines) {
+        if (!sourceLine.trim().startsWith("data:")) {
+          res.write(`${sourceLine}\n`);
+          continue;
+        }
+        const serialized = sourceLine.slice(sourceLine.indexOf(":") + 1).trim();
+        if (!serialized || serialized === "[DONE]") {
+          res.write(`${sourceLine}\n`);
+          continue;
+        }
+        try {
+          const event = JSON.parse(serialized) as { type?: unknown; message?: { model?: unknown; usage?: Usage }; usage?: Usage };
+          if (event.type === "error") failed = true;
+          usage = { ...usage, ...(event.message?.usage ?? {}), ...(event.usage ?? {}) };
+          if (event.type === "message_start" && event.message) event.message.model = "claude-fable-5";
+          res.write(`data: ${JSON.stringify(event)}\n`);
+        } catch {
+          res.write(`${sourceLine}\n`);
+        }
+      }
+    }
+    if (buffer) res.write(`${buffer}\n`);
+  } catch {
+    failed = true;
+  } finally {
+    clearTimeout(timeout);
+    const tokens = normalizedTokens(usage, estimatedInputTokens);
+    const chargeNanos = failed ? 0 : calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
+    const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos, ...(failed ? { releaseReason: "Native Claude Fable 5 Messages stream did not complete" } : {}) });
+    await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: true, status: failed ? "provider_error" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
+    releaseSlot(key.userId);
+    res.end();
+  }
+}
+
 export function registerAnthropicMessagesGateway(app: Express) {
   app.post("/v1/messages", async (req: Request, res: Response) => {
     const requestId = `tf_msg_${randomUUID().replaceAll("-", "")}`;
@@ -275,6 +466,10 @@ export function registerAnthropicMessagesGateway(app: Express) {
     if (!key) return respondError(res, requestId, 401, "authentication_error", "The supplied TokenForge key is missing, invalid, or revoked.");
     if ((await getPlatformMaintenanceConfig()).enabled) {
       return respondError(res, requestId, 503, "overloaded_error", "TokenForge is under maintenance. Inference requests are temporarily unavailable; retry shortly.");
+    }
+
+    if (isNativeClaudeFableMessagesRequest((req.body ?? {}) as AnthropicRequest)) {
+      return handleNativeClaudeFableMessagesRequest(req, res, requestId, key);
     }
 
     let input: TokenForgeChatInput;

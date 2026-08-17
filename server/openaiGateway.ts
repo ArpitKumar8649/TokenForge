@@ -297,6 +297,28 @@ async function forwardTokenRouterRequest(input: ChatInput, signal: AbortSignal) 
   );
 }
 
+/** Claude Fable 5 is the only TokenRouter route configured for native Anthropic Messages forwarding. */
+export async function forwardTokenRouterAnthropicMessagesRequest(input: { model: "claude-fable-5"; stream?: boolean; [key: string]: unknown }, signal: AbortSignal, anthropicBeta?: string) {
+  const base = process.env.TOKENROUTER_BASE_URL?.replace(/\/$/, "");
+  const configuredClaudeFable5Model = process.env.TOKENROUTER_CLAUDE_FABLE5_MODEL?.trim();
+  if (!base || !configuredClaudeFable5Model) throw new Error("TokenForge Claude Fable 5 Messages inference is not configured");
+  const requestBody = { ...input, model: configuredClaudeFable5Model };
+  return forwardWithCredentialFailover(TOKENROUTER_PROVIDER_SLUG, input, signal, selectNextTokenRouterCredentialWithSlot, credential =>
+    fetch(`${base}/v1/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${credential}`,
+        "Content-Type": "application/json",
+        "anthropic-version": "2023-06-01",
+        ...(anthropicBeta ? { "anthropic-beta": anthropicBeta } : {}),
+        Accept: input.stream ? "text/event-stream" : "application/json",
+      },
+      body: JSON.stringify(requestBody),
+      signal,
+    }),
+  );
+}
+
 export async function forwardProviderRequest(model: TokenForgeModelId, input: TokenForgeChatInput, signal: AbortSignal) {
   const provider = getTokenForgeProviderSlug(model);
   if (provider === FXQIDIAN_PROVIDER_SLUG) return forwardFxqidianRequest(input, signal);

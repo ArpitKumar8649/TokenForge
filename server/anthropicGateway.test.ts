@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AnthropicBridgeError,
   anthropicApiKey,
+  prepareNativeClaudeFableMessagesRequest,
   translateAnthropicRequest,
   translateOpenAiMessageResponse,
 } from "./anthropicGateway";
@@ -50,7 +51,7 @@ describe("TokenForge Anthropic Messages bridge", () => {
     } as Parameters<typeof translateAnthropicRequest>[0] & { reasoning_effort: "low" });
 
     expect(translated.reasoning_effort).toBe("max");
-    expect(translateAnthropicRequest({ model: "claude-fable-5", messages: [{ role: "user", content: "Reply with OK." }] }).reasoning_effort).toBe("xhigh");
+    expect(prepareNativeClaudeFableMessagesRequest({ model: "claude-fable-5", messages: [{ role: "user", content: "Reply with OK." }], reasoning_effort: "low" }).reasoning_effort).toBe("xhigh");
     expect(translateAnthropicRequest({ model: "gpt-5", messages: [{ role: "user", content: "Reply with OK." }] }).reasoning_effort).toBeUndefined();
   });
 
@@ -76,7 +77,7 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(translateAnthropicRequest({ model: "claude-opus-5", system: "Be concise.", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "claude-opus-5" });
     expect(translateAnthropicRequest({ model: "qwen3.8-27b", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "qwen3.8-27b" });
     expect(translateAnthropicRequest({ model: "qwen3.8-max", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "qwen3.8-max" });
-    expect(translateAnthropicRequest({ model: "claude-fable-5", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "claude-fable-5" });
+    expect(prepareNativeClaudeFableMessagesRequest({ model: "claude-fable-5", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "claude-fable-5" });
     expect(() => translateAnthropicRequest({ model: "glm-5.2", messages: [{ role: "user", content: "Hello" }] })).toThrow(AnthropicBridgeError);
     expect(() => translateAnthropicRequest({ model: "kimi-k3", messages: [{ role: "user", content: [{ type: "image", source: {} }] }] })).toThrow("text and tool blocks only");
   });
@@ -85,6 +86,25 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(translateAnthropicRequest({ model: "claude-opus-5", messages: [{ role: "user", content: "Hello" }], max_tokens: 2_000_000 })).toMatchObject({ max_tokens: 2_000_000 });
     expect(() => translateAnthropicRequest({ model: "claude-opus-5", messages: [{ role: "user", content: "Hello" }], max_tokens: 0 })).toThrow("positive safe integer");
     expect(() => translateAnthropicRequest({ model: "claude-opus-5", messages: [{ role: "user", content: "Hello" }], max_tokens: Number.MAX_SAFE_INTEGER + 1 })).toThrow("positive safe integer");
+  });
+
+  it("preserves native Claude Code content and tools for Claude Fable 5 while adding only required TokenForge guidance", () => {
+    const prepared = prepareNativeClaudeFableMessagesRequest({
+      model: "claude-fable-5",
+      system: [{ type: "text", text: "Use safe repository operations." }],
+      messages: [{ role: "user", content: [{ type: "text", text: "Inspect README.md" }] }],
+      tools: [{ name: "read_file", input_schema: { type: "object", properties: { path: { type: "string" } } } }],
+      max_tokens: 2048,
+      stream: true,
+    });
+
+    expect(prepared.system).toEqual([
+      expect.objectContaining({ type: "text", text: expect.stringContaining("You are Claude Fable 5") }),
+      { type: "text", text: "Use safe repository operations." },
+    ]);
+    expect(prepared.messages).toEqual([{ role: "user", content: [{ type: "text", text: "Inspect README.md" }] }]);
+    expect(prepared.tools).toEqual([{ name: "read_file", input_schema: expect.any(Object) }]);
+    expect(prepared).toMatchObject({ model: "claude-fable-5", stream: true, max_tokens: 2048, reasoning_effort: "xhigh" });
   });
 
   it("accepts Claude Code thinking history without forwarding private reasoning as assistant text", () => {
