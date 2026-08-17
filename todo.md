@@ -266,3 +266,4 @@
 - [x] Configure the existing TokenRouter Qwen 3.8 Max credential plus two new server-only credentials in a health-aware three-key round-robin pool with failover and validation.
 - [x] Add Claude Fable 5 as a TokenRouter-backed model while keeping its exact upstream model identifier exclusively in a server-side secret.
 - [x] Apply truthful Claude Fable 5 TokenForge identity guidance to both external API and Playground traffic, subject the route to verified `xhigh` reasoning control, expose it through both OpenAI-compatible and Anthropic-compatible endpoints, add it to all model catalogues, and pin it first in the Playground selector.
+- [x] Update Claude Fable 5 pricing to $10/M input and $50/M output, and set all Claude Opus model pricing to $5/M input and $25/M output while retaining the centralized 1.5× platform charge.

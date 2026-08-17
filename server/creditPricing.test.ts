@@ -30,6 +30,10 @@ describe("TokenForge promotional credit pricing", () => {
     expect(TOKENFORGE_CREDIT_PRICING["deepseek-v4-flash"]).toMatchObject({ upstreamInputUsdPerMillion: 0.14, upstreamOutputUsdPerMillion: 0.28, inputUsdPerMillion: 0.21, outputUsdPerMillion: 0.42 });
     expect(TOKENFORGE_CREDIT_PRICING["deepseek-v4-pro"]).toMatchObject({ upstreamInputUsdPerMillion: 0.14, upstreamOutputUsdPerMillion: 0.28, inputUsdPerMillion: 0.21, outputUsdPerMillion: 0.42 });
     expect(TOKENFORGE_CREDIT_PRICING["qwen3.8-27b"]).toMatchObject({ upstreamInputUsdPerMillion: 0.45, upstreamOutputUsdPerMillion: 3.2, inputUsdPerMillion: 0.675, outputUsdPerMillion: 4.8 });
+    expect(TOKENFORGE_CREDIT_PRICING["claude-fable-5"]).toMatchObject({ upstreamInputUsdPerMillion: 10, upstreamOutputUsdPerMillion: 50, inputUsdPerMillion: 15, outputUsdPerMillion: 75 });
+    for (const model of ["claude-opus-5", "claude-opus-4.5", "claude-opus-4.6", "claude-opus-4.7"] as const) {
+      expect(TOKENFORGE_CREDIT_PRICING[model]).toMatchObject({ upstreamInputUsdPerMillion: 5, upstreamOutputUsdPerMillion: 25, inputUsdPerMillion: 7.5, outputUsdPerMillion: 37.5 });
+    }
   });
 
   it("reserves a requested positive safe maximum without imposing a local upper ceiling", () => {
