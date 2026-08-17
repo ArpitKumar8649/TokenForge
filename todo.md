@@ -286,3 +286,7 @@
 - [x] Fix the TokenForge Playground cache-only admission rejection for TokenRouter-backed models by consolidating Claude Opus 5 Playground guidance into one system turn, with deterministic and live-provider validation.
 - [x] Diagnose and fix the Claude Opus 5 TokenRouter-backed `/v1/messages` failure by translating to compatible Chat Completions and using a stable cache-admission-compatible identity directive, with native tool-payload validation.
 - [x] Build a dedicated TokenRouter Claude Code `/v1/messages` translation route for both Claude Fable 5 and Claude Opus 5, including compatible streaming, tool calls, and retry behavior.
+- [x] Assess whether 9Router can be safely deployed as an intermediary between Claude Code and TokenForge’s OpenAI-compatible gateway, including hosting, upstream authentication, model aliases, streaming, tools, and failure boundaries.
+- [x] Do not implement a 9Router intermediary because the user elected direct Claude Code reproduction and stock 9Router would collapse TokenForge usage into a static upstream credential.
+- [x] Assess a separate Render deployment for 9Router, including supported persistent storage, per-user TokenForge bearer-token handling, model aliases, and Render-approved operational behavior without sleep-evasion keepalive traffic.
+- [x] Install and run the actual Claude Code CLI against temporary TokenForge API keys and the published `/v1/messages` endpoint; capture its request shape and validate both Claude Fable 5 and Claude Opus 5 successfully.
