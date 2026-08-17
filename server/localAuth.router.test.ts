@@ -439,6 +439,18 @@ describe("protected administrator account directory", () => {
     expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, action: "account.discord_verified.giveaway_credited", entityType: "credit_giveaway", entityId: "discord_verified", metadata: { amountNanos: 5_000_000_000, recipientCount: 2, totalAmountNanos: 10_000_000_000 } }));
   });
 
+  it("redacts giveaway persistence failures rather than exposing raw database details to an administrator browser", async () => {
+    const admin = { ...localUser, id: 1, isAdminSession: true };
+    const input = { amountUsd: 20, expectedRecipientCount: 149, confirmation: "GIVE $20.00 TO 149 VERIFIED ACCOUNTS" };
+    vi.mocked(grantDiscordVerifiedAccountGiveaway).mockRejectedValue(new Error("Failed query: insert into credit_accounts ... on duplicate key update userId = user_id"));
+
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.giveDiscordVerifiedAccountsCredit(input)).rejects.toMatchObject({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "The giveaway could not be completed. No giveaway credit was applied; review the recipient count and try again.",
+    });
+    expect(writeAuditEvent).not.toHaveBeenCalled();
+  });
+
   it("lets only a passcode-issued administrator deliberately reset another account's Discord verification and records the action", async () => {
     const admin = { ...localUser, id: 1, isAdminSession: true };
     const input = { userId: 55, confirmation: "RESET DISCORD VERIFICATION 55" };

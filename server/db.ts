@@ -1489,7 +1489,11 @@ export async function grantDiscordVerifiedAccountGiveaway(input: { amountNanos: 
     const userIds = recipients.map(recipient => recipient.userId);
     await tx.insert(creditAccounts)
       .values(userIds.map(userId => ({ userId, balanceNanos: 0 })))
-      .onDuplicateKeyUpdate({ set: { userId: sql`user_id` } });
+      // Keep an existing wallet unchanged.  The typed column reference is
+      // essential here: raw `user_id` does not exist in TokenForge's camelCase
+      // production schema and caused large giveaways to fail before the
+      // transaction could credit or ledger any recipient.
+      .onDuplicateKeyUpdate({ set: { balanceNanos: sql`${creditAccounts.balanceNanos}` } });
     await tx.update(creditAccounts)
       .set({ balanceNanos: sql`${creditAccounts.balanceNanos} + ${amountNanos}` })
       .where(inArray(creditAccounts.userId, userIds));

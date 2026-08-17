@@ -293,3 +293,5 @@
 - [x] Add automatic entry-aware history compaction for TokenRouter-backed Claude Code translations before the 100-message provider limit, preserving system instructions, format, and complete tool-call/result chains; validate with a real long Claude Code session.
 - [x] Audit current Discord-verified and unverified account counts, then delete unverified accounts and dependent data only after the administrator explicitly confirms the reviewed count.
 - [x] Add an administrator-only Giveaway workspace that credits a selected promotional amount to every currently Discord-verified account, records auditable ledger entries, and confirms the amount, recipient count, and total allocation.
+- [x] Investigate the reported deployed Claude Fable 5 Claude Code 100-entry failure; reporter subsequently confirmed the existing compaction path was working, so no further change was required.
+- [x] Fix the administrator Giveaway bulk-credit transaction failing at verified-account scale, protect the browser from raw database error output, and verify whether the attempted $20 giveaway was applied exactly once or rolled back.

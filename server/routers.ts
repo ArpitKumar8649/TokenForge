@@ -345,7 +345,16 @@ export const appRouter = router({
     discordVerifiedGiveawayRecipients: adminProcedure.query(async () => ({ count: await countDiscordVerifiedAccounts() })),
     giveDiscordVerifiedAccountsCredit: adminProcedure.input(discordVerifiedGiveawayInput).mutation(async ({ ctx, input }) => {
       const amountNanos = Math.round(input.amountUsd * 1_000_000_000);
-      const result = await grantDiscordVerifiedAccountGiveaway({ amountNanos, expectedRecipientCount: input.expectedRecipientCount });
+      let result: Awaited<ReturnType<typeof grantDiscordVerifiedAccountGiveaway>>;
+      try {
+        result = await grantDiscordVerifiedAccountGiveaway({ amountNanos, expectedRecipientCount: input.expectedRecipientCount });
+      } catch (error) {
+        console.error("[TokenForge giveaway persistence failure]", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "The giveaway could not be completed. No giveaway credit was applied; review the recipient count and try again.",
+        });
+      }
       if (!result.applied) {
         throw new TRPCError({ code: "CONFLICT", message: `The verified recipient set changed from ${input.expectedRecipientCount} to ${result.recipientCount} accounts. Review the updated count and confirm again.` });
       }
