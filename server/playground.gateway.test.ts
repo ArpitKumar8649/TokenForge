@@ -24,7 +24,8 @@ import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 import { invalidateOrcaRouterCredentialPool, resetOrcaRouterSlotRequestCounts } from "./orcaRouterCredentials";
 import { resetTokenRouterCredentialRotation } from "./tokenRouterCredentials";
 import { getProviderCredentialTelemetry, resetProviderCredentialTelemetry } from "./providerCredentialTelemetry";
-import { FXQIDIAN_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG } from "./modelCatalogue";
+import { CLAUDE_OPUS5_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG } from "./modelCatalogue";
+import { encryptOrcaRouterCredential } from "./orcaRouterCredentialVault";
 
 const availableQuota = {
   day: "2026-08-14",
@@ -53,6 +54,7 @@ beforeEach(() => {
   process.env.CLAUDE_OPUS5_BASE_URL = "https://opus5.example";
   process.env.CLAUDE_OPUS5_API_KEY = "server-only-opus5-secret";
   process.env.CLAUDE_OPUS5_MODEL = "upstream-claude-opus-5";
+  process.env.JWT_SECRET = "managed-orcarouter-pool-test-secret";
   process.env.TOKENROUTER_BASE_URL = "https://tokenrouter.example";
   process.env.TOKENROUTER_API_KEY = "server-only-tokenrouter-secret";
   process.env.TOKENROUTER_API_KEY_2 = "server-only-tokenrouter-secret-2";
@@ -177,6 +179,29 @@ describe("TokenForge Playground gateway", () => {
     const telemetry = getProviderCredentialTelemetry({ [FXQIDIAN_PROVIDER_SLUG]: 2 }).find(item => item.providerSlug === FXQIDIAN_PROVIDER_SLUG)!;
     expect(telemetry).toMatchObject({ healthySlots: 1, coolingDownSlots: 1, failoverCount: 1 });
     expect(JSON.stringify(telemetry)).not.toContain("server-only-provider-secret");
+  });
+
+  it("fails over from an OrcaRouter capacity response to the next managed Claude Opus 5 credential slot", async () => {
+    const managedCredentials = Array.from({ length: 15 }, (_, slot) => `server-only-managed-opus-slot-${slot + 1}`);
+    vi.mocked(loadOrcaRouterCredentialSlotCiphertexts).mockResolvedValue(
+      managedCredentials.map((credential, slot) => ({ slot, ...encryptOrcaRouterCredential(credential) })),
+    );
+    invalidateOrcaRouterCredentialPool();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "free capacity is limited" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Fail over safely." }] }, new AbortController().signal);
+
+    expect(response.status).toBe(200);
+    expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
+      "Bearer server-only-managed-opus-slot-1",
+      "Bearer server-only-managed-opus-slot-2",
+    ]);
+    const telemetry = getProviderCredentialTelemetry({ [CLAUDE_OPUS5_PROVIDER_SLUG]: 15 }).find(item => item.providerSlug === CLAUDE_OPUS5_PROVIDER_SLUG)!;
+    expect(telemetry).toMatchObject({ healthySlots: 14, coolingDownSlots: 1, failoverCount: 1 });
+    expect(JSON.stringify(telemetry)).not.toContain("server-only-managed-opus-slot");
   });
 
   it("routes a verified Cluster Protocol model through its server-only credential and preserves metering", async () => {

@@ -558,8 +558,9 @@ export async function authenticatePasswordUser(emailInput: string, password: str
     return null;
   }
   if (!(await verifyPassword(password, account.passwordHash))) return null;
-  await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, account.user.id));
-  return account.user;
+  const signedInAt = new Date();
+  await db.update(users).set({ lastSignedIn: signedInAt }).where(eq(users.id, account.user.id));
+  return { ...account.user, lastSignedIn: signedInAt };
 }
 
 function hashLoginIdentifier(email: string) {

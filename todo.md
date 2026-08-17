@@ -277,3 +277,5 @@
 - [x] Verify the persistent production welcome-tour artwork failure from the published TokenForge domain and report the exact deployed asset-routing cause before making another repair.
 - [x] Investigated the managed welcome-tour image path under the effective Content Security Policy: both images load successfully from the published dashboard document, so no CSP allowlist change is required.
 - [x] Remove the Claude Fable 5 and Qwen 3.8 Max artwork panels from the recurring welcome tour and restore a polished text-and-icon presentation without image fallbacks.
+- [x] Correct the recurring welcome tour so it appears after a successful sign-in or signup only, rather than reopening on ordinary page reloads within the same authenticated browser session.
+- [x] Diagnose the Claude Opus 5 OrcaRouter capacity rejection and verify whether the configured fifteen-slot credential pool is active, selected, and healthy without exposing credential material.
