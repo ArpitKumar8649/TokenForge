@@ -35,10 +35,10 @@ const activeRequests = new Map<number, number>();
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number };
 type AnthropicRequest = { model?: unknown; messages?: unknown; system?: unknown; tools?: unknown; stream?: unknown; max_tokens?: unknown; temperature?: unknown; [key: string]: unknown };
 type AnthropicBlock = { type?: unknown; text?: unknown; id?: unknown; name?: unknown; input?: unknown; tool_use_id?: unknown; content?: unknown; is_error?: unknown };
-const OPENAI_TRANSLATED_MESSAGES_MODELS = new Set(["qwen3.8-27b", "qwen3.8-max"]);
+const OPENAI_TRANSLATED_MESSAGES_MODELS = new Set(["qwen3.8-27b", "qwen3.8-max", "claude-opus-5"]);
 
 type NativeTokenRouterMessagesInput = {
-  model: "claude-fable-5" | "claude-opus-5";
+  model: "claude-fable-5";
   messages: unknown[];
   stream?: boolean;
   max_tokens?: number;
@@ -97,10 +97,10 @@ export function isNativeClaudeFableMessagesRequest(raw: AnthropicRequest) {
 }
 
 export function isNativeTokenRouterMessagesRequest(raw: AnthropicRequest) {
-  return raw.model === "claude-fable-5" || raw.model === "claude-opus-5";
+  return raw.model === "claude-fable-5";
 }
 
-/** Preserve Claude Code's native Anthropic payload shape for the configured TokenRouter routes. */
+/** Preserve Claude Code's native Anthropic payload shape for Claude Fable 5. */
 export function prepareNativeTokenRouterMessagesRequest(raw: AnthropicRequest): NativeTokenRouterMessagesInput {
   if (!isNativeTokenRouterMessagesRequest(raw)) throw new AnthropicBridgeError(400, "invalid_request_error", "The requested model does not support native TokenRouter Messages forwarding.");
   if (!Array.isArray(raw.messages) || raw.messages.length < 1 || raw.messages.length > 100) {
@@ -123,7 +123,7 @@ export function prepareNativeTokenRouterMessagesRequest(raw: AnthropicRequest): 
     : typeof raw.system === "string"
       ? `${guidanceText}\n\n${raw.system}`
       : [{ type: "text", text: guidanceText }, ...raw.system];
-  return { ...raw, model, messages: raw.messages, system, stream, max_tokens: maxTokens, ...(model === "claude-fable-5" ? { reasoning_effort: "xhigh" as const } : {}) };
+  return { ...raw, model, messages: raw.messages, system, stream, max_tokens: maxTokens, reasoning_effort: "xhigh" as const };
 }
 
 /** Backward-compatible focused helper retained for the Claude Fable 5 regression suite. */

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AnthropicBridgeError,
   anthropicApiKey,
+  isNativeTokenRouterMessagesRequest,
   prepareNativeClaudeFableMessagesRequest,
   prepareNativeTokenRouterMessagesRequest,
   translateAnthropicRequest,
@@ -74,8 +75,9 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(translated.messages?.every(message => message.role === "user" || message.role === "assistant")).toBe(true);
   });
 
-  it("allows native TokenRouter and translated Messages models while rejecting unsupported routes and image-content requests", () => {
-    expect(prepareNativeTokenRouterMessagesRequest({ model: "claude-opus-5", system: "Be concise.", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "claude-opus-5" });
+  it("uses native TokenRouter forwarding only for Claude Fable 5 and translates Claude Opus 5 Messages through its compatible Chat Completions route", () => {
+    expect(isNativeTokenRouterMessagesRequest({ model: "claude-opus-5", system: "Be concise.", messages: [{ role: "user", content: "Hello" }] })).toBe(false);
+    expect(translateAnthropicRequest({ model: "claude-opus-5", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "claude-opus-5" });
     expect(translateAnthropicRequest({ model: "qwen3.8-27b", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "qwen3.8-27b" });
     expect(translateAnthropicRequest({ model: "qwen3.8-max", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "qwen3.8-max" });
     expect(prepareNativeClaudeFableMessagesRequest({ model: "claude-fable-5", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "claude-fable-5" });
@@ -83,10 +85,10 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(() => translateAnthropicRequest({ model: "kimi-k3", messages: [{ role: "user", content: [{ type: "image", source: {} }] }] })).toThrow("text and tool blocks only");
   });
 
-  it("accepts any positive safe max_tokens value without a TokenForge ceiling", () => {
-    expect(prepareNativeTokenRouterMessagesRequest({ model: "claude-opus-5", messages: [{ role: "user", content: "Hello" }], max_tokens: 2_000_000 })).toMatchObject({ max_tokens: 2_000_000 });
-    expect(() => prepareNativeTokenRouterMessagesRequest({ model: "claude-opus-5", messages: [{ role: "user", content: "Hello" }], max_tokens: 0 })).toThrow("positive safe integer");
-    expect(() => prepareNativeTokenRouterMessagesRequest({ model: "claude-opus-5", messages: [{ role: "user", content: "Hello" }], max_tokens: Number.MAX_SAFE_INTEGER + 1 })).toThrow("positive safe integer");
+  it("accepts any positive safe Claude Opus 5 max_tokens value without a TokenForge ceiling", () => {
+    expect(translateAnthropicRequest({ model: "claude-opus-5", messages: [{ role: "user", content: "Hello" }], max_tokens: 2_000_000 })).toMatchObject({ max_tokens: 2_000_000 });
+    expect(() => translateAnthropicRequest({ model: "claude-opus-5", messages: [{ role: "user", content: "Hello" }], max_tokens: 0 })).toThrow("positive safe integer");
+    expect(() => translateAnthropicRequest({ model: "claude-opus-5", messages: [{ role: "user", content: "Hello" }], max_tokens: Number.MAX_SAFE_INTEGER + 1 })).toThrow("positive safe integer");
   });
 
   it("preserves native Claude Code content and tools for Claude Fable 5 while adding only required TokenForge guidance", () => {
@@ -108,8 +110,8 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(prepared).toMatchObject({ model: "claude-fable-5", stream: true, max_tokens: 2048, reasoning_effort: "xhigh" });
   });
 
-  it("preserves Claude Code thinking history natively for the configured Claude Opus 5 TokenRouter route", () => {
-    const prepared = prepareNativeTokenRouterMessagesRequest({
+  it("drops unverifiable Claude Code thinking history while preserving safe Claude Opus 5 conversation turns through translation", () => {
+    const translated = translateAnthropicRequest({
       model: "claude-opus-5",
       messages: [
         { role: "user", content: "Inspect the repository." },
@@ -117,13 +119,13 @@ describe("TokenForge Anthropic Messages bridge", () => {
         { role: "user", content: "Continue." },
       ],
     });
-    expect(prepared.messages).toHaveLength(3);
-    expect(JSON.stringify(prepared.messages)).toContain("private reasoning");
-    expect(prepared.reasoning_effort).toBeUndefined();
+    expect(translated.messages).toHaveLength(3);
+    expect(JSON.stringify(translated.messages)).not.toContain("private reasoning");
+    expect(translated.messages?.[1]).toMatchObject({ role: "assistant", content: "I will inspect it." });
   });
 
-  it("preserves Claude Code tool-result linkage natively for Claude Opus 5", () => {
-    const prepared = prepareNativeTokenRouterMessagesRequest({
+  it("preserves Claude Code tool-result linkage through Claude Opus 5 translation", () => {
+    const translated = translateAnthropicRequest({
       model: "claude-opus-5",
       messages: [
         { role: "user", content: "Inspect the repository." },
@@ -133,10 +135,10 @@ describe("TokenForge Anthropic Messages bridge", () => {
       tools: [{ name: "read_file", input_schema: { type: "object", properties: { path: { type: "string" } } } }],
     });
 
-    expect(prepared.messages).toEqual([
+    expect(translated.messages).toEqual([
       { role: "user", content: "Inspect the repository." },
-      { role: "assistant", content: [{ type: "tool_use", id: "tool_1", name: "read_file", input: { path: "README.md" } }] },
-      { role: "user", content: [{ type: "tool_result", tool_use_id: "tool_1", content: "file contents" }] },
+      { role: "assistant", content: null, tool_calls: [{ id: "tool_1", type: "function", function: { name: "read_file", arguments: "{\"path\":\"README.md\"}" } }] },
+      { role: "tool", tool_call_id: "tool_1", content: "file contents" },
     ]);
   });
 

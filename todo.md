@@ -284,3 +284,4 @@
 - [x] Add editable server-only Claude Opus 5 TokenRouter base-URL and upstream-model configuration entries, with validation and regression coverage.
 - [x] Add the supplied fourth server-only TokenRouter credential and extend health-aware round-robin selection, failover telemetry, and regression coverage from three to four slots.
 - [x] Fix the TokenForge Playground cache-only admission rejection for TokenRouter-backed models by consolidating Claude Opus 5 Playground guidance into one system turn, with deterministic and live-provider validation.
+- [x] Diagnose and fix the Claude Opus 5 TokenRouter-backed `/v1/messages` failure by translating to compatible Chat Completions and using a stable cache-admission-compatible identity directive, with native tool-payload validation.

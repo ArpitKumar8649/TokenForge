@@ -98,4 +98,124 @@ describe.runIf(claudeOpus5Configured)("TokenRouter Claude Opus 5 route configura
     expect(response.status).toBe(200);
     expect(Array.isArray(payload?.choices)).toBe(true);
   }, 35_000);
+
+  it("records the configured route's native Anthropic Messages support status without exposing credentials", async () => {
+    const baseUrl = process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL!.replace(/\/$/, "");
+    const credentials = [
+      process.env.TOKENROUTER_API_KEY!,
+      process.env.TOKENROUTER_API_KEY_2!,
+      process.env.TOKENROUTER_API_KEY_3!,
+      process.env.TOKENROUTER_API_KEY_4!,
+    ];
+    const outcomes: Array<{ slot: number; status: number; error: string | null }> = [];
+
+    for (const [index, credential] of credentials.entries()) {
+      const response = await fetch(`${baseUrl}/v1/messages`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${credential}`,
+          "Content-Type": "application/json",
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL,
+          max_tokens: 64,
+          system: [{ type: "text", text: "Be concise." }],
+          messages: [{ role: "user", content: [{ type: "text", text: "Reply with exactly OK." }] }],
+          tools: [{ name: "read_file", input_schema: { type: "object", properties: { path: { type: "string" } } } }],
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      const payload = await response.json().catch(() => null) as { error?: { message?: unknown } } | null;
+      outcomes.push({
+        slot: index + 1,
+        status: response.status,
+        error: typeof payload?.error?.message === "string" ? payload.error.message : null,
+      });
+    }
+
+    console.info("[TokenRouter Claude Opus 5 native Messages probe]", outcomes);
+    expect(outcomes).toHaveLength(credentials.length);
+  }, 120_000);
+
+  it("records Claude Code-style OpenAI tool-call compatibility across the shared credential pool", async () => {
+    const baseUrl = process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL!.replace(/\/$/, "");
+    const credentials = [
+      process.env.TOKENROUTER_API_KEY!,
+      process.env.TOKENROUTER_API_KEY_2!,
+      process.env.TOKENROUTER_API_KEY_3!,
+      process.env.TOKENROUTER_API_KEY_4!,
+    ];
+    const outcomes: Array<{ slot: number; status: number; error: string | null }> = [];
+
+    for (const [index, credential] of credentials.entries()) {
+      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL,
+          messages: [
+            { role: "system", content: "You are an AI assistant available through TokenForge. Be concise." },
+            { role: "user", content: "Reply with exactly: ok" },
+          ],
+          tools: [{ type: "function", function: { name: "read_file", description: "Read a file", parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } } }],
+          max_tokens: 64,
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      const payload = await response.json().catch(() => null) as { error?: { message?: unknown }; message?: unknown } | null;
+      const error = typeof payload?.error?.message === "string"
+        ? payload.error.message
+        : typeof payload?.message === "string" ? payload.message : null;
+      outcomes.push({ slot: index + 1, status: response.status, error });
+    }
+
+    console.info("[TokenRouter Claude Opus 5 Chat Completions tools probe]", outcomes);
+    expect(outcomes).toHaveLength(credentials.length);
+  }, 120_000);
+
+  it("records exact translated Claude Code payload compatibility across the shared credential pool", async () => {
+    const baseUrl = process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL!.replace(/\/$/, "");
+    const credentials = [
+      process.env.TOKENROUTER_API_KEY!,
+      process.env.TOKENROUTER_API_KEY_2!,
+      process.env.TOKENROUTER_API_KEY_3!,
+      process.env.TOKENROUTER_API_KEY_4!,
+    ];
+    const translated = translateAnthropicRequest({
+      model: "claude-opus-5",
+      max_tokens: 64,
+      system: [{ type: "text", text: "Be concise." }],
+      messages: [{ role: "user", content: [{ type: "text", text: "Reply with exactly OK." }] }],
+      tools: [{ name: "read_file", input_schema: { type: "object", properties: { path: { type: "string" } } } }],
+      stream: false,
+    });
+    const payload = {
+      ...translated,
+      model: process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL,
+      messages: withModelScopedGuidance("claude-opus-5", translated.messages ?? []),
+    };
+    const outcomes: Array<{ slot: number; status: number; error: string | null }> = [];
+
+    for (const [index, credential] of credentials.entries()) {
+      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(30_000),
+      });
+      const responsePayload = await response.json().catch(() => null) as { error?: { message?: unknown }; message?: unknown } | null;
+      const error = typeof responsePayload?.error?.message === "string"
+        ? responsePayload.error.message
+        : typeof responsePayload?.message === "string" ? responsePayload.message : null;
+      outcomes.push({ slot: index + 1, status: response.status, error });
+    }
+
+    console.info("[TokenRouter Claude Opus 5 exact translated payload probe]", outcomes);
+    expect(outcomes).toHaveLength(credentials.length);
+  }, 120_000);
 });
+import { translateAnthropicRequest } from "./anthropicGateway";
+import { withModelScopedGuidance } from "./openaiGateway";
