@@ -61,6 +61,8 @@ beforeEach(() => {
   process.env.TOKENROUTER_API_KEY_3 = "server-only-tokenrouter-secret-3";
   process.env.TOKENROUTER_MODEL = "qwen/qwen3.8-max-free";
   process.env.TOKENROUTER_CLAUDE_FABLE5_MODEL = "upstream-claude-fable-5-model";
+  process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL = "https://opus5-tokenrouter.example";
+  process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL = "upstream-claude-opus-5";
   vi.mocked(getPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
@@ -181,12 +183,7 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.stringify(telemetry)).not.toContain("server-only-provider-secret");
   });
 
-  it("fails over from an OrcaRouter capacity response to the next managed Claude Opus 5 credential slot", async () => {
-    const managedCredentials = Array.from({ length: 15 }, (_, slot) => `server-only-managed-opus-slot-${slot + 1}`);
-    vi.mocked(loadOrcaRouterCredentialSlotCiphertexts).mockResolvedValue(
-      managedCredentials.map((credential, slot) => ({ slot, ...encryptOrcaRouterCredential(credential) })),
-    );
-    invalidateOrcaRouterCredentialPool();
+  it("fails over from a TokenRouter capacity response to the next shared credential slot for Claude Opus 5", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "free capacity is limited" } }), { status: 429 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
@@ -196,12 +193,12 @@ describe("TokenForge Playground gateway", () => {
 
     expect(response.status).toBe(200);
     expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
-      "Bearer server-only-managed-opus-slot-1",
-      "Bearer server-only-managed-opus-slot-2",
+      "Bearer server-only-tokenrouter-secret",
+      "Bearer server-only-tokenrouter-secret-2",
     ]);
-    const telemetry = getProviderCredentialTelemetry({ [CLAUDE_OPUS5_PROVIDER_SLUG]: 15 }).find(item => item.providerSlug === CLAUDE_OPUS5_PROVIDER_SLUG)!;
-    expect(telemetry).toMatchObject({ healthySlots: 14, coolingDownSlots: 1, failoverCount: 1 });
-    expect(JSON.stringify(telemetry)).not.toContain("server-only-managed-opus-slot");
+    const telemetry = getProviderCredentialTelemetry({ [TOKENROUTER_PROVIDER_SLUG]: 3 }).find(item => item.providerSlug === TOKENROUTER_PROVIDER_SLUG)!;
+    expect(telemetry).toMatchObject({ healthySlots: 2, coolingDownSlots: 1, failoverCount: 1 });
+    expect(JSON.stringify(telemetry)).not.toContain("server-only-tokenrouter-secret");
   });
 
   it("routes a verified Cluster Protocol model through its server-only credential and preserves metering", async () => {
@@ -289,8 +286,8 @@ describe("TokenForge Playground gateway", () => {
       sourceIpHash: "hashed-source-ip",
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("https://opus5.example/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-opus5-secret" }),
+    expect(fetchMock).toHaveBeenCalledWith("https://opus5-tokenrouter.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret" }),
       body: expect.stringContaining('"model":"upstream-claude-opus-5"'),
     }));
     const playgroundPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);

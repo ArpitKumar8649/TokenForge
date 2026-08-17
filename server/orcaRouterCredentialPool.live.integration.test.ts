@@ -5,7 +5,7 @@ import { forwardProviderRequest } from "./openaiGateway";
 const livePoolProbe = process.env.RUN_TOKENFORGE_ORCAROUTER_POOL_PROBE === "true" ? it : it.skip;
 
 describe("OrcaRouter managed credential pool live probe", () => {
-  livePoolProbe("checks each configured slot with a minimal Claude Opus 5 completion", async () => {
+  livePoolProbe("checks each configured slot while retaining Qwen3.8 27B provider capacity", async () => {
     const pool = await getOrcaRouterCredentialPool();
     expect(pool).toHaveLength(ORCA_ROUTER_CREDENTIAL_POOL_SIZE);
 
@@ -29,10 +29,10 @@ describe("OrcaRouter managed credential pool live probe", () => {
     expect(results.some(result => result.status === "ready")).toBe(true);
   }, 1_500_000);
 
-  livePoolProbe("routes a minimal Claude Opus 5 request through the managed pool with secure failover", async () => {
+  livePoolProbe("routes a minimal Qwen3.8 27B request through the retained managed pool with secure failover", async () => {
     const response = await forwardProviderRequest(
-      "claude-opus-5",
-      { model: "claude-opus-5", messages: [{ role: "user", content: "Reply with: ready" }], max_tokens: 2, stream: false },
+      "qwen3.8-27b",
+      { model: "qwen3.8-27b", messages: [{ role: "user", content: "Reply with: ready" }], max_tokens: 2, stream: false },
       new AbortController().signal,
     );
 

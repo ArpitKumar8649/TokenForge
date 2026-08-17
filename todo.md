@@ -279,3 +279,6 @@
 - [x] Remove the Claude Fable 5 and Qwen 3.8 Max artwork panels from the recurring welcome tour and restore a polished text-and-icon presentation without image fallbacks.
 - [x] Correct the recurring welcome tour so it appears after a successful sign-in or signup only, rather than reopening on ordinary page reloads within the same authenticated browser session.
 - [x] Diagnose the Claude Opus 5 OrcaRouter capacity rejection and verify whether the configured fifteen-slot credential pool is active, selected, and healthy without exposing credential material.
+- [x] Migrate Claude Opus 5 from OrcaRouter to the existing TokenRouter three-key credential pool while preserving OpenAI-compatible and Anthropic-compatible API behavior.
+- [x] Remove the OrcaRouter fifteen-key management panel and Claude Opus 5 routing from TokenForge administration, while retaining the encrypted pool solely for Qwen3.8 27B.
+- [x] Add editable server-only Claude Opus 5 TokenRouter base-URL and upstream-model configuration entries, with validation and regression coverage.

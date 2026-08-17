@@ -256,15 +256,11 @@ async function forwardTokenHarborRequest(input: ChatInput, signal: AbortSignal) 
   }
 }
 
-async function forwardClaudeOpus5Request(input: ChatInput, signal: AbortSignal) {
+/** OrcaRouter remains only for the separately configured Qwen3.8 27B route. */
+async function forwardOrcaRouterRequest(input: ChatInput, signal: AbortSignal) {
   const base = process.env.CLAUDE_OPUS5_BASE_URL?.replace(/\/$/, "");
-  const configuredClaudeModel = process.env.CLAUDE_OPUS5_MODEL?.trim();
-  const upstreamModel = input.model === "claude-opus-5"
-    ? configuredClaudeModel
-    : typeof input.model === "string"
-      ? getTokenForgeUpstreamModelId(input.model)
-      : undefined;
-  if (!base || !upstreamModel) throw new Error("TokenForge Claude Opus 5 inference is not configured");
+  const upstreamModel = typeof input.model === "string" ? getTokenForgeUpstreamModelId(input.model) : undefined;
+  if (!base || !upstreamModel) throw new Error("TokenForge OrcaRouter inference is not configured");
   const requestBody = { ...input, model: upstreamModel };
   return forwardWithCredentialFailover(CLAUDE_OPUS5_PROVIDER_SLUG, input, signal, selectNextOrcaRouterCredentialWithSlot, credential =>
     fetch(`${base}/v1/chat/completions`, {
@@ -277,14 +273,19 @@ async function forwardClaudeOpus5Request(input: ChatInput, signal: AbortSignal) 
 }
 
 async function forwardTokenRouterRequest(input: ChatInput, signal: AbortSignal) {
-  const base = process.env.TOKENROUTER_BASE_URL?.replace(/\/$/, "");
+  const base = (input.model === "claude-opus-5"
+    ? process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL || process.env.TOKENROUTER_BASE_URL
+    : process.env.TOKENROUTER_BASE_URL)?.replace(/\/$/, "");
   const configuredModel = process.env.TOKENROUTER_MODEL?.trim();
   const configuredClaudeFable5Model = process.env.TOKENROUTER_CLAUDE_FABLE5_MODEL?.trim();
+  const configuredClaudeOpus5Model = process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL?.trim();
   const upstreamModel = input.model === "qwen3.8-max"
     ? configuredModel
     : input.model === "claude-fable-5"
       ? configuredClaudeFable5Model
-      : getTokenForgeUpstreamModelId(String(input.model));
+      : input.model === "claude-opus-5"
+        ? configuredClaudeOpus5Model
+        : getTokenForgeUpstreamModelId(String(input.model));
   if (!base || !upstreamModel) throw new Error("TokenForge TokenRouter inference is not configured");
   const requestBody = { ...input, model: upstreamModel };
   return forwardWithCredentialFailover(TOKENROUTER_PROVIDER_SLUG, input, signal, selectNextTokenRouterCredentialWithSlot, credential =>
@@ -297,12 +298,16 @@ async function forwardTokenRouterRequest(input: ChatInput, signal: AbortSignal) 
   );
 }
 
-/** Claude Fable 5 is the only TokenRouter route configured for native Anthropic Messages forwarding. */
-export async function forwardTokenRouterAnthropicMessagesRequest(input: { model: "claude-fable-5"; stream?: boolean; [key: string]: unknown }, signal: AbortSignal, anthropicBeta?: string) {
-  const base = process.env.TOKENROUTER_BASE_URL?.replace(/\/$/, "");
+/** Preserve native Anthropic Messages payloads for the TokenRouter-backed Claude routes. */
+export async function forwardTokenRouterAnthropicMessagesRequest(input: { model: "claude-fable-5" | "claude-opus-5"; stream?: boolean; [key: string]: unknown }, signal: AbortSignal, anthropicBeta?: string) {
+  const base = (input.model === "claude-opus-5"
+    ? process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL || process.env.TOKENROUTER_BASE_URL
+    : process.env.TOKENROUTER_BASE_URL)?.replace(/\/$/, "");
   const configuredClaudeFable5Model = process.env.TOKENROUTER_CLAUDE_FABLE5_MODEL?.trim();
-  if (!base || !configuredClaudeFable5Model) throw new Error("TokenForge Claude Fable 5 Messages inference is not configured");
-  const requestBody = { ...input, model: configuredClaudeFable5Model };
+  const configuredClaudeOpus5Model = process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL?.trim();
+  const upstreamModel = input.model === "claude-opus-5" ? configuredClaudeOpus5Model : configuredClaudeFable5Model;
+  if (!base || !upstreamModel) throw new Error("TokenForge native TokenRouter Messages inference is not configured");
+  const requestBody = { ...input, model: upstreamModel };
   return forwardWithCredentialFailover(TOKENROUTER_PROVIDER_SLUG, input, signal, selectNextTokenRouterCredentialWithSlot, credential =>
     fetch(`${base}/v1/messages`, {
       method: "POST",
@@ -324,7 +329,7 @@ export async function forwardProviderRequest(model: TokenForgeModelId, input: To
   if (provider === FXQIDIAN_PROVIDER_SLUG) return forwardFxqidianRequest(input, signal);
   if (provider === CLUSTER_PROTOCOL_PROVIDER_SLUG) return forwardClusterRequest(input, signal);
   if (provider === TOKENHARBOR_PROVIDER_SLUG) return forwardTokenHarborRequest(input, signal);
-  if (provider === CLAUDE_OPUS5_PROVIDER_SLUG) return forwardClaudeOpus5Request(input, signal);
+  if (provider === CLAUDE_OPUS5_PROVIDER_SLUG) return forwardOrcaRouterRequest(input, signal);
   if (provider === TOKENROUTER_PROVIDER_SLUG) return forwardTokenRouterRequest(input, signal);
   throw new Error("TokenForge inference routing is not configured for this model");
 }
