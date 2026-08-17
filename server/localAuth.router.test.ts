@@ -24,6 +24,8 @@ vi.mock("./db", () => ({
   clearLegacyAdministratorRoles: vi.fn(),
   deleteAccountPermanently: vi.fn(),
   grantAdminAccountCredit: vi.fn(),
+  grantDiscordVerifiedAccountGiveaway: vi.fn(),
+  countDiscordVerifiedAccounts: vi.fn(),
   getAuthSessionVersion: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
   countDiscordUnverifiedAccounts: vi.fn(),
@@ -73,6 +75,8 @@ import {
   clearLegacyAdministratorRoles,
   deleteAccountPermanently,
   grantAdminAccountCredit,
+  grantDiscordVerifiedAccountGiveaway,
+  countDiscordVerifiedAccounts,
   getAuthSessionVersion,
   getPlatformMaintenanceConfig,
   countDiscordUnverifiedAccounts,
@@ -126,6 +130,8 @@ beforeEach(() => {
   vi.mocked(getAdminAccountModelUsage).mockResolvedValue([]);
   vi.mocked(clearLegacyAdministratorRoles).mockResolvedValue(true);
   vi.mocked(deleteAccountPermanently).mockResolvedValue(true);
+  vi.mocked(countDiscordVerifiedAccounts).mockResolvedValue(2);
+  vi.mocked(grantDiscordVerifiedAccountGiveaway).mockResolvedValue({ applied: true, recipientCount: 2, amountNanos: 5_000_000_000, totalAmountNanos: 10_000_000_000 });
   vi.mocked(getAuthSessionVersion).mockResolvedValue(3);
   vi.mocked(getPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
   vi.mocked(setPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
@@ -421,6 +427,16 @@ describe("protected administrator account directory", () => {
     await expect(appRouter.createCaller(makeContext(admin).ctx).admin.addAccountCredit({ userId: 55, amountUsd: 50 })).resolves.toEqual({ amountNanos: 50_000_000_000, balanceNanos: 60_000_000_000 });
     expect(grantAdminAccountCredit).toHaveBeenCalledWith({ userId: 55, amountNanos: 50_000_000_000 });
     expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, targetUserId: 55, action: "account.credit_granted", entityType: "account", entityId: "55", metadata: { amountNanos: 50_000_000_000 } }));
+  });
+
+  it("credits only the reviewed Discord-verified recipient set from a passcode-issued administrator session and records one aggregate audit event", async () => {
+    const admin = { ...localUser, id: 1, isAdminSession: true };
+    const input = { amountUsd: 5, expectedRecipientCount: 2, confirmation: "GIVE $5.00 TO 2 VERIFIED ACCOUNTS" };
+
+    await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.giveDiscordVerifiedAccountsCredit(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.giveDiscordVerifiedAccountsCredit(input)).resolves.toEqual({ applied: true, recipientCount: 2, amountNanos: 5_000_000_000, totalAmountNanos: 10_000_000_000 });
+    expect(grantDiscordVerifiedAccountGiveaway).toHaveBeenCalledWith({ amountNanos: 5_000_000_000, expectedRecipientCount: 2 });
+    expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, action: "account.discord_verified.giveaway_credited", entityType: "credit_giveaway", entityId: "discord_verified", metadata: { amountNanos: 5_000_000_000, recipientCount: 2, totalAmountNanos: 10_000_000_000 } }));
   });
 
   it("lets only a passcode-issued administrator deliberately reset another account's Discord verification and records the action", async () => {

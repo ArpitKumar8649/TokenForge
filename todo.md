@@ -291,3 +291,5 @@
 - [x] Assess a separate Render deployment for 9Router, including supported persistent storage, per-user TokenForge bearer-token handling, model aliases, and Render-approved operational behavior without sleep-evasion keepalive traffic.
 - [x] Install and run the actual Claude Code CLI against temporary TokenForge API keys and the published `/v1/messages` endpoint; capture its request shape and validate both Claude Fable 5 and Claude Opus 5 successfully.
 - [x] Add automatic entry-aware history compaction for TokenRouter-backed Claude Code translations before the 100-message provider limit, preserving system instructions, format, and complete tool-call/result chains; validate with a real long Claude Code session.
+- [x] Audit current Discord-verified and unverified account counts, then delete unverified accounts and dependent data only after the administrator explicitly confirms the reviewed count.
+- [x] Add an administrator-only Giveaway workspace that credits a selected promotional amount to every currently Discord-verified account, records auditable ledger entries, and confirms the amount, recipient count, and total allocation.

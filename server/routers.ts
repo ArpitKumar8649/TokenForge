@@ -30,8 +30,10 @@ import {
   getPublicModelTokenMetrics,
   getUsageLogs,
   clearLegacyAdministratorRoles,
+  countDiscordVerifiedAccounts,
   deleteAccountPermanently,
   grantAdminAccountCredit,
+  grantDiscordVerifiedAccountGiveaway,
   getAdminAuditExport,
   getAuthSessionVersion,
   getPlatformMaintenanceConfig,
@@ -92,6 +94,16 @@ const permanentAccountDeleteInput = z.object({ userId: z.number().int().positive
 const adminCreditGrantInput = z.object({
   userId: z.number().int().positive(),
   amountUsd: z.number().finite().positive().max(100_000).refine(value => Math.round(value * 100) === value * 100, "Use an amount with no more than two decimal places"),
+});
+const discordVerifiedGiveawayInput = z.object({
+  amountUsd: z.number().finite().positive().max(100_000).refine(value => Math.round(value * 100) === value * 100, "Use an amount with no more than two decimal places"),
+  expectedRecipientCount: z.number().int().min(0).max(1_000_000),
+  confirmation: z.string().trim().max(160),
+}).superRefine((input, context) => {
+  const phrase = `GIVE $${input.amountUsd.toFixed(2)} TO ${input.expectedRecipientCount} VERIFIED ACCOUNTS`;
+  if (input.confirmation !== phrase) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["confirmation"], message: `Type ${phrase} to confirm this giveaway` });
+  }
 });
 const discordVerificationResetInput = z.object({
   userId: z.number().int().positive(),
@@ -329,6 +341,22 @@ export const appRouter = router({
       const maintenance = await setPlatformMaintenanceConfig(input.enabled, ctx.user.id);
       await writeAuditEvent({ actorUserId: ctx.user.id, action: input.enabled ? "platform.maintenance.enabled" : "platform.maintenance.disabled", entityType: "platform_setting", entityId: "platform_maintenance" });
       return maintenance;
+    }),
+    discordVerifiedGiveawayRecipients: adminProcedure.query(async () => ({ count: await countDiscordVerifiedAccounts() })),
+    giveDiscordVerifiedAccountsCredit: adminProcedure.input(discordVerifiedGiveawayInput).mutation(async ({ ctx, input }) => {
+      const amountNanos = Math.round(input.amountUsd * 1_000_000_000);
+      const result = await grantDiscordVerifiedAccountGiveaway({ amountNanos, expectedRecipientCount: input.expectedRecipientCount });
+      if (!result.applied) {
+        throw new TRPCError({ code: "CONFLICT", message: `The verified recipient set changed from ${input.expectedRecipientCount} to ${result.recipientCount} accounts. Review the updated count and confirm again.` });
+      }
+      await writeAuditEvent({
+        actorUserId: ctx.user.id,
+        action: "account.discord_verified.giveaway_credited",
+        entityType: "credit_giveaway",
+        entityId: "discord_verified",
+        metadata: { amountNanos: result.amountNanos, recipientCount: result.recipientCount, totalAmountNanos: result.totalAmountNanos },
+      });
+      return result;
     }),
     discordUnverifiedAccountCleanup: adminProcedure.query(async () => ({ count: await countDiscordUnverifiedAccounts() })),
     deleteDiscordUnverifiedAccounts: adminProcedure.input(discordUnverifiedCleanupInput).mutation(async ({ ctx, input }) => {

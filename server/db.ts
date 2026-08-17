@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNull, like, lte, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, like, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createHmac, randomBytes, randomInt } from "node:crypto";
 import {
@@ -1453,6 +1453,65 @@ export function normalizeAdminCreditGrantAmount(amountUsd: number) {
   if (!Number.isFinite(amountUsd) || amountUsd <= 0 || amountUsd > 100_000) return null;
   const amountNanos = Math.round(amountUsd * NANODOLLARS_PER_DOLLAR);
   return amountNanos > 0 ? amountNanos : null;
+}
+
+/** Counts regular accounts that have completed TokenForge's Discord membership verification. */
+export async function countDiscordVerifiedAccounts() {
+  const db = await getDb();
+  if (!db) return 0;
+  const row = (await db.select({ count: sql<number>`count(${users.id})` })
+    .from(users)
+    .innerJoin(accountControls, eq(users.id, accountControls.userId))
+    .where(and(ne(users.openId, ADMIN_SESSION_PRINCIPAL_OPEN_ID), isNotNull(accountControls.discordVerifiedAt))))[0];
+  return Math.max(0, Number(row?.count ?? 0));
+}
+
+/**
+ * Atomically applies one administrator giveaway to every currently Discord-verified regular account.
+ * Each recipient receives an immutable wallet-ledger entry; the caller records one aggregate audit event.
+ */
+export async function grantDiscordVerifiedAccountGiveaway(input: { amountNanos: number; expectedRecipientCount: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const amountNanos = Math.max(0, Math.trunc(input.amountNanos));
+  if (!amountNanos) throw new Error("Giveaway amount must be positive");
+  const expectedRecipientCount = Math.max(0, Math.trunc(input.expectedRecipientCount));
+  return db.transaction(async tx => {
+    const recipients = await tx.select({ userId: users.id })
+      .from(users)
+      .innerJoin(accountControls, eq(users.id, accountControls.userId))
+      .where(and(ne(users.openId, ADMIN_SESSION_PRINCIPAL_OPEN_ID), isNotNull(accountControls.discordVerifiedAt)));
+    if (recipients.length !== expectedRecipientCount) {
+      return { applied: false as const, recipientCount: recipients.length, amountNanos, totalAmountNanos: 0 };
+    }
+    if (!recipients.length) return { applied: true as const, recipientCount: 0, amountNanos, totalAmountNanos: 0 };
+
+    const userIds = recipients.map(recipient => recipient.userId);
+    await tx.insert(creditAccounts)
+      .values(userIds.map(userId => ({ userId, balanceNanos: 0 })))
+      .onDuplicateKeyUpdate({ set: { userId: sql`user_id` } });
+    await tx.update(creditAccounts)
+      .set({ balanceNanos: sql`${creditAccounts.balanceNanos} + ${amountNanos}` })
+      .where(inArray(creditAccounts.userId, userIds));
+    const balances = await tx.select({ userId: creditAccounts.userId, balanceNanos: creditAccounts.balanceNanos })
+      .from(creditAccounts)
+      .where(inArray(creditAccounts.userId, userIds));
+    const giveawayId = randomBytes(12).toString("hex");
+    await tx.insert(creditLedger).values(balances.map(account => ({
+      userId: account.userId,
+      kind: "manual_adjustment" as const,
+      amountNanos,
+      balanceAfterNanos: account.balanceNanos,
+      referenceId: `discord-giveaway:${giveawayId}:${account.userId}`,
+      note: "Administrator giveaway for Discord-verified accounts",
+    })));
+    return {
+      applied: true as const,
+      recipientCount: balances.length,
+      amountNanos,
+      totalAmountNanos: amountNanos * balances.length,
+    };
+  });
 }
 
 /** Adds a positive administrator credit grant and immutable wallet-ledger record for an existing account. */
