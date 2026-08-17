@@ -6,8 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 const DISCORD_INVITE_URL = "https://discord.gg/pnsWamDbe";
 export const LOGIN_WELCOME_TOUR_COMPLETED_KEY = "tokenforge_login_welcome_completed";
 export const LOGIN_WELCOME_TOUR_ARTWORK = {
-  fable: "/manus-storage/claude-fable-5-welcome_853894c2.jpg",
-  qwen: "/manus-storage/qwen-3-8-max-welcome_d02dabaf.jpg",
+  fable: "/manus-storage/claude-fable-5-welcome_9dff9b9b.jpg",
+  qwen: "/manus-storage/qwen-3-8-max-welcome_2d739293.jpg",
 } as const;
 
 export function loginWelcomeTourArtworkClass(visual: keyof typeof LOGIN_WELCOME_TOUR_ARTWORK) {

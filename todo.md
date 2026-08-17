@@ -273,3 +273,4 @@
 - [x] Diagnose and fix the Claude Fable 5 `/v1/messages` failure in Claude Code, using native TokenRouter Anthropic Messages forwarding rather than OpenAI translation when the configured upstream route supports it.
 - [x] Replace the Claude Fable 5 and Qwen 3.8 Max welcome-tour skeleton visuals with the user-supplied artwork, displayed as polished half-card imagery in the first two mandatory modal steps.
 - [x] Correct the Qwen 3.8 Max welcome-tour artwork fit so the full top headline and model composition are visible without crop.
+- [x] Repair the Claude Fable 5 and Qwen 3.8 Max welcome-tour image URLs through managed project static storage and verify that both load in production.

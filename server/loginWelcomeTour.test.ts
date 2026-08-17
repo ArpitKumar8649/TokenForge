@@ -23,8 +23,8 @@ describe("LoginWelcomeTour session behavior", () => {
 
   it("uses managed Claude Fable and Qwen artwork in the first two tour steps", () => {
     expect(LOGIN_WELCOME_TOUR_ARTWORK).toEqual({
-      fable: "/manus-storage/claude-fable-5-welcome_853894c2.jpg",
-      qwen: "/manus-storage/qwen-3-8-max-welcome_d02dabaf.jpg",
+      fable: "/manus-storage/claude-fable-5-welcome_9dff9b9b.jpg",
+      qwen: "/manus-storage/qwen-3-8-max-welcome_2d739293.jpg",
     });
   });
 
