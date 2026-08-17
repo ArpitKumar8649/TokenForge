@@ -32,8 +32,8 @@ afterEach(async () => {
   await cleanupProbe();
 });
 
-describe("TokenForge Claude Fable 5 native Anthropic Messages compatibility", () => {
-  nativeProbeIt("forwards a Claude Code-style request through TokenRouter's native Messages route without OpenAI translation", async () => {
+describe("TokenForge Claude Fable 5 Anthropic Messages compatibility", () => {
+	  nativeProbeIt("translates a Claude Code-style request through TokenRouter's compatible Chat Completions route", async () => {
     await upsertUser({
       openId: probeOpenId,
       name: "Ephemeral Claude Fable Native Probe",
@@ -69,14 +69,14 @@ describe("TokenForge Claude Fable 5 native Anthropic Messages compatibility", ()
     });
 
     const payload = await response.json().catch(() => null) as { type?: unknown; model?: unknown; content?: unknown } | null;
-    console.info("[TokenForge native Claude Fable 5 Messages probe]", {
+	    console.info("[TokenForge translated Claude Fable 5 Messages probe]", {
       status: response.status,
       endpointAcceptedRequest: response.ok,
       responseType: payload?.type,
       returnedModel: payload?.model,
       hasContent: Array.isArray(payload?.content),
     });
-    expect(response.ok, `TokenForge /v1/messages rejected the native Claude Fable 5 probe with HTTP ${response.status}: ${JSON.stringify(payload)}`).toBe(true);
+	    expect(response.ok, `TokenForge /v1/messages rejected the translated Claude Fable 5 probe with HTTP ${response.status}: ${JSON.stringify(payload)}`).toBe(true);
     expect(payload).toMatchObject({ type: "message", model: "claude-fable-5" });
     expect(Array.isArray(payload?.content)).toBe(true);
   }, 120_000);

@@ -35,7 +35,10 @@ const activeRequests = new Map<number, number>();
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number };
 type AnthropicRequest = { model?: unknown; messages?: unknown; system?: unknown; tools?: unknown; stream?: unknown; max_tokens?: unknown; temperature?: unknown; [key: string]: unknown };
 type AnthropicBlock = { type?: unknown; text?: unknown; id?: unknown; name?: unknown; input?: unknown; tool_use_id?: unknown; content?: unknown; is_error?: unknown };
-const OPENAI_TRANSLATED_MESSAGES_MODELS = new Set(["qwen3.8-27b", "qwen3.8-max", "claude-opus-5"]);
+// TokenRouter exposes the validated Claude routes through OpenAI-compatible Chat
+// Completions. Keep both customer-facing Claude models on the same converter so
+// Claude Code receives consistent Anthropic response, tool, and SSE semantics.
+const OPENAI_TRANSLATED_MESSAGES_MODELS = new Set(["qwen3.8-27b", "qwen3.8-max", "claude-fable-5", "claude-opus-5"]);
 
 type NativeTokenRouterMessagesInput = {
   model: "claude-fable-5";
@@ -92,12 +95,8 @@ function systemToText(system: unknown) {
   }).join("\n");
 }
 
-export function isNativeClaudeFableMessagesRequest(raw: AnthropicRequest) {
-  return raw.model === "claude-fable-5";
-}
-
 export function isNativeTokenRouterMessagesRequest(raw: AnthropicRequest) {
-  return raw.model === "claude-fable-5";
+  return false;
 }
 
 /** Preserve Claude Code's native Anthropic payload shape for Claude Fable 5. */
@@ -479,10 +478,6 @@ export function registerAnthropicMessagesGateway(app: Express) {
     if (!key) return respondError(res, requestId, 401, "authentication_error", "The supplied TokenForge key is missing, invalid, or revoked.");
     if ((await getPlatformMaintenanceConfig()).enabled) {
       return respondError(res, requestId, 503, "overloaded_error", "TokenForge is under maintenance. Inference requests are temporarily unavailable; retry shortly.");
-    }
-
-    if (isNativeTokenRouterMessagesRequest((req.body ?? {}) as AnthropicRequest)) {
-      return handleNativeTokenRouterMessagesRequest(req, res, requestId, key);
     }
 
     let input: TokenForgeChatInput;

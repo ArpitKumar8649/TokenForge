@@ -285,3 +285,4 @@
 - [x] Add the supplied fourth server-only TokenRouter credential and extend health-aware round-robin selection, failover telemetry, and regression coverage from three to four slots.
 - [x] Fix the TokenForge Playground cache-only admission rejection for TokenRouter-backed models by consolidating Claude Opus 5 Playground guidance into one system turn, with deterministic and live-provider validation.
 - [x] Diagnose and fix the Claude Opus 5 TokenRouter-backed `/v1/messages` failure by translating to compatible Chat Completions and using a stable cache-admission-compatible identity directive, with native tool-payload validation.
+- [x] Build a dedicated TokenRouter Claude Code `/v1/messages` translation route for both Claude Fable 5 and Claude Opus 5, including compatible streaming, tool calls, and retry behavior.
