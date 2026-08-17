@@ -172,6 +172,18 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(compactTranslatedMessages(messages)).toBe(messages);
   });
 
+  it("accepts a 300-entry Claude history and compacts the translated provider payload without a raw-entry refusal", () => {
+    const translated = translateAnthropicRequest({
+      model: "claude-opus-5",
+      messages: Array.from({ length: 300 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", content: `turn-${index}` })),
+    });
+    const compacted = compactTranslatedMessages(translated.messages ?? []);
+
+    expect(translated.messages).toHaveLength(300);
+    expect(compacted.length).toBeLessThanOrEqual(99);
+    expect(compacted.at(-1)).toEqual({ role: "assistant", content: "turn-299" });
+  });
+
   it("compacts TokenRouter Claude history before the 100-entry provider limit while preserving system and latest user context", () => {
     const messages = [
       { role: "system", content: "Keep this instruction." },

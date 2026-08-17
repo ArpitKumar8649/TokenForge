@@ -361,8 +361,8 @@ export async function runPlaygroundCompletion(input: {
 }) {
   const requestId = `tf_pg_${randomUUID().replaceAll("-", "")}`;
   if (!MODELS.has(input.model)) throw new TokenForgePlaygroundError("model_not_found", "The requested model is not in the active TokenForge catalogue.");
-  if (!Array.isArray(input.messages) || input.messages.length === 0 || input.messages.length > 100) {
-    throw new TokenForgePlaygroundError("invalid_messages", "Send between 1 and 100 conversation messages.");
+  if (!Array.isArray(input.messages) || input.messages.length === 0) {
+    throw new TokenForgePlaygroundError("invalid_messages", "Send a non-empty array of conversation messages.");
   }
   if ((await getPlatformMaintenanceConfig()).enabled) {
     throw new TokenForgePlaygroundError("platform_maintenance", "TokenForge is under maintenance. Inference requests are temporarily unavailable; retry shortly.");
@@ -429,13 +429,12 @@ export async function runPlaygroundCompletion(input: {
 }
 
 function validPlaygroundMessages(value: unknown): value is TokenForgeChatMessage[] {
-  return Array.isArray(value) && value.length >= 1 && value.length <= 100 && value.every(message => {
+  return Array.isArray(value) && value.length >= 1 && value.every(message => {
     if (!message || typeof message !== "object") return false;
     const candidate = message as TokenForgeChatMessage;
     return ["user", "assistant", "system"].includes(String(candidate.role))
       && typeof candidate.content === "string"
-      && candidate.content.trim().length >= 1
-      && candidate.content.length <= 20_000;
+      && candidate.content.trim().length >= 1;
   });
 }
 
@@ -547,10 +546,17 @@ export function registerPlaygroundGateway(app: Express) {
     const model = raw.model;
     const maxOutputTokens = raw.maxOutputTokens;
     const temperature = raw.temperature;
-    if (typeof model !== "string" || !isTokenForgeModelId(model) || !validPlaygroundMessages(raw.messages)
-      || (maxOutputTokens !== undefined && (!Number.isInteger(maxOutputTokens) || Number(maxOutputTokens) < 64 || Number(maxOutputTokens) > 8_192))
-      || (temperature !== undefined && (typeof temperature !== "number" || !Number.isFinite(temperature) || temperature < 0 || temperature > 2))) {
-      return errorResponse(res, `tf_pg_${randomUUID().replaceAll("-", "")}`, 400, "The Playground request parameters are invalid.", "invalid_request");
+    if (typeof model !== "string" || !isTokenForgeModelId(model)) {
+      return errorResponse(res, `tf_pg_${randomUUID().replaceAll("-", "")}`, 400, "Choose a valid TokenForge model before sending a Playground request.", "invalid_model");
+    }
+    if (!validPlaygroundMessages(raw.messages)) {
+      return errorResponse(res, `tf_pg_${randomUUID().replaceAll("-", "")}`, 400, "Messages must be a non-empty array of user, assistant, or system turns with non-empty text content.", "invalid_messages");
+    }
+    if (maxOutputTokens !== undefined && (!Number.isInteger(maxOutputTokens) || Number(maxOutputTokens) < 64 || Number(maxOutputTokens) > 8_192)) {
+      return errorResponse(res, `tf_pg_${randomUUID().replaceAll("-", "")}`, 400, "Max output must be a whole number from 64 to 8,192 tokens.", "invalid_max_output_tokens");
+    }
+    if (temperature !== undefined && (typeof temperature !== "number" || !Number.isFinite(temperature) || temperature < 0 || temperature > 2)) {
+      return errorResponse(res, `tf_pg_${randomUUID().replaceAll("-", "")}`, 400, "Temperature must be a number from 0 to 2.", "invalid_temperature");
     }
     try {
       await streamPlaygroundCompletion({ userId: user.id, model, messages: raw.messages, maxOutputTokens: maxOutputTokens as number | undefined, temperature: temperature as number | undefined, sourceIpHash, req, res });
@@ -593,10 +599,6 @@ export function registerOpenAiGateway(app: Express) {
     if (!Array.isArray(input.messages) || input.messages.length === 0) {
       return errorResponse(res, requestId, 400, "messages must be a non-empty array.", "invalid_messages");
     }
-    if (input.messages.length > 100) {
-      return errorResponse(res, requestId, 400, "messages may contain at most 100 entries.", "invalid_messages");
-    }
-
     const ipHash = tokenForgeRequestIpHash(req);
     const quota = await getQuotaStatus(key.userId);
     if (!quota) return errorResponse(res, requestId, 503, "Account status is temporarily unavailable. Retry shortly.", "account_unavailable");

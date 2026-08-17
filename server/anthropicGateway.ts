@@ -98,8 +98,8 @@ export function isNativeTokenRouterMessagesRequest(raw: AnthropicRequest) {
 /** Preserve Claude Code's native Anthropic payload shape for Claude Fable 5. */
 export function prepareNativeTokenRouterMessagesRequest(raw: AnthropicRequest): NativeTokenRouterMessagesInput {
   if (!isNativeTokenRouterMessagesRequest(raw)) throw new AnthropicBridgeError(400, "invalid_request_error", "The requested model does not support native TokenRouter Messages forwarding.");
-  if (!Array.isArray(raw.messages) || raw.messages.length < 1 || raw.messages.length > 100) {
-    throw new AnthropicBridgeError(400, "invalid_request_error", "messages must contain between 1 and 100 entries.");
+  if (!Array.isArray(raw.messages) || raw.messages.length < 1) {
+    throw new AnthropicBridgeError(400, "invalid_request_error", "messages must contain at least one entry.");
   }
   if (raw.stream !== undefined && typeof raw.stream !== "boolean") throw new AnthropicBridgeError(400, "invalid_request_error", "stream must be a Boolean.");
   if (raw.max_tokens !== undefined && (typeof raw.max_tokens !== "number" || !Number.isSafeInteger(raw.max_tokens) || raw.max_tokens < 1)) {
@@ -208,8 +208,8 @@ export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChat
   if (provider !== CLUSTER_PROTOCOL_PROVIDER_SLUG && !OPENAI_TRANSLATED_MESSAGES_MODELS.has(raw.model)) {
     throw new AnthropicBridgeError(400, "invalid_request_error", "The Anthropic Messages endpoint does not support the requested TokenForge model.");
   }
-  if (!Array.isArray(raw.messages) || raw.messages.length < 1 || raw.messages.length > 100) {
-    throw new AnthropicBridgeError(400, "invalid_request_error", "messages must contain between 1 and 100 entries.");
+  if (!Array.isArray(raw.messages) || raw.messages.length < 1) {
+    throw new AnthropicBridgeError(400, "invalid_request_error", "messages must contain at least one entry.");
   }
   if (raw.stream !== undefined && typeof raw.stream !== "boolean") throw new AnthropicBridgeError(400, "invalid_request_error", "stream must be a Boolean.");
   if (raw.max_tokens !== undefined && (typeof raw.max_tokens !== "number" || !Number.isSafeInteger(raw.max_tokens) || raw.max_tokens < 1)) {

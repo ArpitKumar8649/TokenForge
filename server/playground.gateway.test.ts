@@ -103,6 +103,25 @@ describe("TokenForge Playground gateway", () => {
     expect(recordUsage).toHaveBeenCalledTimes(2);
   });
 
+  it("admits a 300-message Playground history without a local entry-count refusal", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: "Long history accepted." } }],
+      usage: { prompt_tokens: 600, completion_tokens: 4, total_tokens: 604 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(runPlaygroundCompletion({
+      userId: 42,
+      model: "glm-5.3",
+      messages: Array.from({ length: 300 }, (_, index) => ({ role: index % 2 ? "assistant" as const : "user" as const, content: `turn-${index}` })),
+      sourceIpHash: "long-history-ip",
+    })).resolves.toMatchObject({ model: "glm-5.3", usage: { totalTokens: 604 } });
+
+    const forwardedPayload = JSON.parse(vi.mocked(fetchMock).mock.calls[0][1].body as string);
+    expect(forwardedPayload.messages).toHaveLength(302);
+    expect(forwardedPayload.messages.at(-1)).toEqual({ role: "assistant", content: "turn-299" });
+  });
+
   it("stops before model availability, credits, and provider work when global maintenance is active", async () => {
     vi.mocked(getPlatformMaintenanceConfig).mockResolvedValueOnce({ enabled: true, updatedAt: new Date("2026-08-17T00:00:00.000Z") });
     const fetchMock = vi.fn();

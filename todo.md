@@ -303,3 +303,6 @@
 - [x] Remove daily request, daily token, per-minute, and concurrent-request admission limits from API and Playground inference while retaining suspension, availability, and balance controls.
 - [x] Add two server-only TokenRouter credentials to the shared round-robin pool and validate six-key rotation.
 - [x] Add configurable TokenRouter-backed GLM 5.3 across the gateway, catalogue, dashboard, and documentation without exposing its upstream identifier or credentials.
+- [x] Diagnose and fix the GLM 5.3 Playground invalid-parameters error while preserving valid request safeguards.
+- [x] Send a safe 300-message request directly to TokenRouter and align TokenForge message-entry validation only if the provider accepts it.
+- [x] Create a responsive GLM 5.3 detail page with interactive examples and copyable JavaScript, Python, and cURL snippets.

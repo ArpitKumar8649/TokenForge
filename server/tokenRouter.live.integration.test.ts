@@ -78,6 +78,32 @@ describe.runIf(glm53Configured)("TokenRouter GLM 5.3 configuration probe", () =>
       expect(Array.isArray(payload?.choices)).toBe(true);
     }
   }, 65_000);
+
+  it("accepts a direct 300-entry conversational history without TokenForge request translation", async () => {
+    const baseUrl = process.env.TOKENROUTER_BASE_URL!.replace(/\/$/, "");
+    const messages = Array.from({ length: 300 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: index === 298 ? "Reply with exactly: ok" : index % 2 === 0 ? "ping" : "ack",
+    }));
+    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.TOKENROUTER_API_KEY_5!}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: process.env.TOKENROUTER_GLM53_MODEL,
+        messages,
+        max_tokens: 32,
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(45_000),
+    });
+
+    const payload = await response.json().catch(() => null) as { choices?: unknown[] } | null;
+    expect(response.status).toBe(200);
+    expect(Array.isArray(payload?.choices)).toBe(true);
+  }, 50_000);
 });
 
 describe.runIf(claudeFableConfigured)("TokenRouter Claude Fable 5 model probe", () => {
