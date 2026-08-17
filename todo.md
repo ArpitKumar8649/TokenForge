@@ -267,3 +267,5 @@
 - [x] Add Claude Fable 5 as a TokenRouter-backed model while keeping its exact upstream model identifier exclusively in a server-side secret.
 - [x] Apply truthful Claude Fable 5 TokenForge identity guidance to both external API and Playground traffic, subject the route to verified `xhigh` reasoning control, expose it through both OpenAI-compatible and Anthropic-compatible endpoints, add it to all model catalogues, and pin it first in the Playground selector.
 - [x] Update Claude Fable 5 pricing to $10/M input and $50/M output, and set all Claude Opus model pricing to $5/M input and $25/M output while retaining the centralized 1.5× platform charge.
+- [x] Add an administrator-only platform maintenance toggle that blocks all non-administrator inference requests across Playground and API-key endpoints with a consistent overloaded/under-maintenance error.
+- [x] Add an administrator-only two-step, count-confirmed bulk deletion workflow for Discord-unverified accounts that completely removes their account data, records an audit event, permits a fresh signup with the same email, and shows a red post-deletion notice on the next sign-in attempt.

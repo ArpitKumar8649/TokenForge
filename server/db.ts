@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, like, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, like, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createHmac, randomBytes, randomInt } from "node:crypto";
 import {
@@ -44,6 +44,8 @@ const INTRODUCTORY_CREDIT_REFERENCE = "introductory-credit-v1";
 const EMAIL_ALLOWLIST_SETTING_KEY = "email_allowlist";
 const ANNOUNCEMENT_TEXT_SETTING_KEY = "announcement_text";
 const SESSION_VERSION_SETTING_KEY = "auth_session_version";
+const PLATFORM_MAINTENANCE_SETTING_KEY = "platform_maintenance";
+const DISCORD_UNVERIFIED_CLEANUP_NOTICE_KIND = "discord_unverified_cleanup_notice";
 const AFFILIATE_CODE_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 const AFFILIATE_CODE_LENGTH = 4;
 
@@ -51,6 +53,14 @@ export class DeletedAccountIdentityError extends Error {
   constructor() {
     super("This TokenForge account was permanently deleted");
     this.name = "DeletedAccountIdentityError";
+  }
+}
+
+/** A nonblocking, non-reversible marker shown once after an administrator cleans up an unverified Discord account. */
+export class DiscordUnverifiedAccountDeletedError extends Error {
+  constructor() {
+    super("Your previous account was not verified by Discord, so it was deleted by an administrator. You can create a new TokenForge account with this email.");
+    this.name = "DiscordUnverifiedAccountDeletedError";
   }
 }
 
@@ -94,6 +104,52 @@ export async function getAuthSessionVersion() {
   const record = (await db.select({ value: platformSettings.value }).from(platformSettings).where(eq(platformSettings.settingKey, SESSION_VERSION_SETTING_KEY)).limit(1))[0];
   const value = Number.parseInt(record?.value ?? "0", 10);
   return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+export type PlatformMaintenanceConfig = { enabled: boolean; updatedAt: Date | null; updatedByUserId: number | null };
+
+/** Returns the global inference admission state. Model catalogues and administration remain available during maintenance. */
+export async function getPlatformMaintenanceConfig(): Promise<PlatformMaintenanceConfig> {
+  const db = await getDb();
+  if (!db) return { enabled: false, updatedAt: null, updatedByUserId: null };
+  const record = (await db.select().from(platformSettings).where(eq(platformSettings.settingKey, PLATFORM_MAINTENANCE_SETTING_KEY)).limit(1))[0];
+  return { enabled: record?.value === "enabled", updatedAt: record?.updatedAt ?? null, updatedByUserId: record?.updatedByUserId ?? null };
+}
+
+/** Persists the administrator-controlled global inference admission state. */
+export async function setPlatformMaintenanceConfig(enabled: boolean, updatedByUserId: number): Promise<PlatformMaintenanceConfig> {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  await db.insert(platformSettings).values({
+    settingKey: PLATFORM_MAINTENANCE_SETTING_KEY,
+    value: enabled ? "enabled" : "disabled",
+    updatedByUserId,
+  }).onDuplicateKeyUpdate({ set: { value: enabled ? "enabled" : "disabled", updatedByUserId, updatedAt: new Date() } });
+  return getPlatformMaintenanceConfig();
+}
+
+async function consumeDiscordUnverifiedCleanupNotice(emailInput: string) {
+  const db = await getDb();
+  if (!db) return false;
+  const email = normalizeEmail(emailInput);
+  if (!email) return false;
+  const identifierHash = hashDeletedIdentity(DISCORD_UNVERIFIED_CLEANUP_NOTICE_KIND, email);
+  const notice = (await db.select({ id: deletedIdentityTombstones.id }).from(deletedIdentityTombstones)
+    .where(and(eq(deletedIdentityTombstones.kind, DISCORD_UNVERIFIED_CLEANUP_NOTICE_KIND), eq(deletedIdentityTombstones.identifierHash, identifierHash))).limit(1))[0];
+  if (!notice) return false;
+  await db.delete(deletedIdentityTombstones).where(eq(deletedIdentityTombstones.id, notice.id));
+  return true;
+}
+
+async function clearDiscordUnverifiedCleanupNotice(emailInput: string) {
+  const db = await getDb();
+  if (!db) return;
+  const email = normalizeEmail(emailInput);
+  if (!email) return;
+  await db.delete(deletedIdentityTombstones).where(and(
+    eq(deletedIdentityTombstones.kind, DISCORD_UNVERIFIED_CLEANUP_NOTICE_KIND),
+    eq(deletedIdentityTombstones.identifierHash, hashDeletedIdentity(DISCORD_UNVERIFIED_CLEANUP_NOTICE_KIND, email)),
+  ));
 }
 
 /** Advances the global session version so every previously issued browser session becomes invalid. */
@@ -478,6 +534,7 @@ export async function createPasswordUser(input: { email: string; password: strin
     });
     await Promise.all([ensureAccountControl(userId), ensureCreditAccount(userId), getOrCreateReferralCode(userId)]);
     await awardReferralForNewUser(userId, input.referralCode);
+    await clearDiscordUnverifiedCleanupNotice(email);
     return getUserByOpenId(openId);
   } catch (error: any) {
     if (error?.code === "ER_DUP_ENTRY") return null;
@@ -496,7 +553,11 @@ export async function authenticatePasswordUser(emailInput: string, password: str
     .where(eq(users.email, email))
     .limit(1);
   const account = rows[0];
-  if (!account || !(await verifyPassword(password, account.passwordHash))) return null;
+  if (!account) {
+    if (await consumeDiscordUnverifiedCleanupNotice(email)) throw new DiscordUnverifiedAccountDeletedError();
+    return null;
+  }
+  if (!(await verifyPassword(password, account.passwordHash))) return null;
   await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, account.user.id));
   return account.user;
 }
@@ -1282,6 +1343,40 @@ export async function deleteAccountPermanently(userId: number) {
     await tx.delete(auditEvents).where(or(eq(auditEvents.actorUserId, userId), eq(auditEvents.targetUserId, userId)));
     const deleted = await tx.delete(users).where(eq(users.id, userId));
     return deleted[0].affectedRows > 0;
+  });
+}
+
+/** Counts regular user accounts that have not completed the Discord membership check. */
+export async function countDiscordUnverifiedAccounts() {
+  const db = await getDb();
+  if (!db) return 0;
+  const row = (await db.select({ count: sql<number>`count(${users.id})` })
+    .from(users)
+    .leftJoin(accountControls, eq(users.id, accountControls.userId))
+    .where(and(ne(users.openId, ADMIN_SESSION_PRINCIPAL_OPEN_ID), isNull(accountControls.discordVerifiedAt))))[0];
+  return Math.max(0, Number(row?.count ?? 0));
+}
+
+/**
+ * Permanently removes all currently Discord-unverified regular accounts without retaining a recreation block.
+ * Only a one-time HMAC notice marker remains for local-sign-in feedback; it is removed on display or fresh signup.
+ */
+export async function deleteDiscordUnverifiedAccounts() {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  return db.transaction(async tx => {
+    const accounts = await tx.select({ id: users.id, email: users.email }).from(users)
+      .leftJoin(accountControls, eq(users.id, accountControls.userId))
+      .where(and(ne(users.openId, ADMIN_SESSION_PRINCIPAL_OPEN_ID), isNull(accountControls.discordVerifiedAt)));
+    if (!accounts.length) return { deletedCount: 0 };
+    const userIds = accounts.map(account => account.id);
+    const notices = accounts
+      .filter((account): account is { id: number; email: string } => typeof account.email === "string" && Boolean(account.email.trim()))
+      .map(account => ({ kind: DISCORD_UNVERIFIED_CLEANUP_NOTICE_KIND, identifierHash: hashDeletedIdentity(DISCORD_UNVERIFIED_CLEANUP_NOTICE_KIND, normalizeEmail(account.email)) }));
+    if (notices.length) await tx.insert(deletedIdentityTombstones).values(notices).onDuplicateKeyUpdate({ set: { deletedAt: new Date() } });
+    await tx.delete(auditEvents).where(or(inArray(auditEvents.actorUserId, userIds), inArray(auditEvents.targetUserId, userIds)));
+    const deleted = await tx.delete(users).where(inArray(users.id, userIds));
+    return { deletedCount: Number(deleted[0].affectedRows ?? 0) };
   });
 }
 

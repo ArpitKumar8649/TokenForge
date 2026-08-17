@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { randomUUID } from "node:crypto";
 import {
   findActiveApiKey,
+  getPlatformMaintenanceConfig,
   getQuotaStatus,
   getRecentRequestCounts,
   isModelAvailable,
@@ -272,6 +273,9 @@ export function registerAnthropicMessagesGateway(app: Express) {
     if (!secret) return respondError(res, requestId, 401, "authentication_error", "Send a TokenForge key using the x-api-key or Bearer authorization header.");
     const key = await findActiveApiKey(secret);
     if (!key) return respondError(res, requestId, 401, "authentication_error", "The supplied TokenForge key is missing, invalid, or revoked.");
+    if ((await getPlatformMaintenanceConfig()).enabled) {
+      return respondError(res, requestId, 503, "overloaded_error", "TokenForge is under maintenance. Inference requests are temporarily unavailable; retry shortly.");
+    }
 
     let input: TokenForgeChatInput;
     try {

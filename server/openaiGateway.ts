@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import {
   findActiveApiKey,
+  getPlatformMaintenanceConfig,
   getQuotaStatus,
   getModelAvailabilitySnapshot,
   getRecentRequestCounts,
@@ -91,7 +92,7 @@ export function playgroundMessagesForModel(model: TokenForgeModelId, messages: T
   return [{ role: "system", content: systemContent }, ...conversationalMessages];
 }
 
-type PlaygroundFailureCode = "model_not_found" | "model_unavailable" | "invalid_messages" | "account_suspended" | "quota_exceeded" | "insufficient_credits" | "rate_limited" | "provider_unavailable";
+type PlaygroundFailureCode = "model_not_found" | "model_unavailable" | "invalid_messages" | "account_suspended" | "quota_exceeded" | "insufficient_credits" | "rate_limited" | "provider_unavailable" | "platform_maintenance";
 
 export class TokenForgePlaygroundError extends Error {
   constructor(public readonly code: PlaygroundFailureCode, message: string) {
@@ -345,6 +346,9 @@ export async function runPlaygroundCompletion(input: {
   if (!Array.isArray(input.messages) || input.messages.length === 0 || input.messages.length > 100) {
     throw new TokenForgePlaygroundError("invalid_messages", "Send between 1 and 100 conversation messages.");
   }
+  if ((await getPlatformMaintenanceConfig()).enabled) {
+    throw new TokenForgePlaygroundError("platform_maintenance", "TokenForge is under maintenance. Inference requests are temporarily unavailable; retry shortly.");
+  }
   if (!(await isModelAvailable(input.model))) {
     throw new TokenForgePlaygroundError("model_unavailable", "The requested model is currently unavailable in the active TokenForge catalogue.");
   }
@@ -443,6 +447,9 @@ async function streamPlaygroundCompletion(input: {
   res: Response;
 }) {
   const requestId = `tf_pg_${randomUUID().replaceAll("-", "")}`;
+  if ((await getPlatformMaintenanceConfig()).enabled) {
+    throw new TokenForgePlaygroundError("platform_maintenance", "TokenForge is under maintenance. Inference requests are temporarily unavailable; retry shortly.");
+  }
   if (!(await isModelAvailable(input.model))) {
     throw new TokenForgePlaygroundError("model_unavailable", "The requested model is currently unavailable in the active TokenForge catalogue.");
   }
@@ -560,7 +567,7 @@ export function registerPlaygroundGateway(app: Express) {
     } catch (error) {
       if (res.headersSent) return;
       if (error instanceof TokenForgePlaygroundError) {
-        const status = error.code === "model_not_found" ? 404 : error.code === "model_unavailable" || error.code === "provider_unavailable" ? 503 : error.code === "account_suspended" ? 403 : error.code === "insufficient_credits" ? 402 : error.code === "rate_limited" ? 429 : 400;
+        const status = error.code === "model_not_found" ? 404 : error.code === "model_unavailable" || error.code === "provider_unavailable" || error.code === "platform_maintenance" ? 503 : error.code === "account_suspended" ? 403 : error.code === "insufficient_credits" ? 402 : error.code === "rate_limited" ? 429 : 400;
         return errorResponse(res, `tf_pg_${randomUUID().replaceAll("-", "")}`, status, error.message, error.code);
       }
       return errorResponse(res, `tf_pg_${randomUUID().replaceAll("-", "")}`, 503, "The selected provider is temporarily unavailable.", "provider_unavailable");
@@ -582,6 +589,9 @@ export function registerOpenAiGateway(app: Express) {
 
     const key = await findActiveApiKey(secret);
     if (!key) return errorResponse(res, requestId, 401, "The supplied TokenForge key is missing, invalid, or revoked.", "invalid_api_key");
+    if ((await getPlatformMaintenanceConfig()).enabled) {
+      return errorResponse(res, requestId, 503, "TokenForge is under maintenance. Inference requests are temporarily unavailable; retry shortly.", "platform_maintenance");
+    }
 
     const input = (req.body ?? {}) as ChatInput;
     if (!input.model || !isTokenForgeModelId(input.model) || !MODELS.has(input.model)) {

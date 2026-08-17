@@ -34,12 +34,17 @@ import {
   grantAdminAccountCredit,
   getAdminAuditExport,
   getAuthSessionVersion,
+  getPlatformMaintenanceConfig,
   listAdminAuditEvents,
+  countDiscordUnverifiedAccounts,
+  deleteDiscordUnverifiedAccounts,
+  DiscordUnverifiedAccountDeletedError,
   revokeAllTokenForgeSessions,
   getAnnouncementText,
   setAnnouncementText,
   getReferralOverview,
   resetDiscordVerification,
+  setPlatformMaintenanceConfig,
   getOrCreateAdminSessionPrincipal,
   replaceOrcaRouterCredentialPool,
 } from "./db";
@@ -100,10 +105,19 @@ const announcementInput = z.object({ text: z.string().max(500, "Announcements mu
 const orcaRouterCredentialPoolInput = z.object({
   credentials: z.array(z.string().trim().min(20, "Enter a complete OrcaRouter credential").max(512)).length(ORCA_ROUTER_CREDENTIAL_POOL_SIZE, `Provide exactly ${ORCA_ROUTER_CREDENTIAL_POOL_SIZE} OrcaRouter credentials`),
 });
+const discordUnverifiedCleanupInput = z.object({
+  expectedCount: z.number().int().min(0).max(1_000_000),
+  confirmation: z.string().trim().max(128),
+}).superRefine((input, context) => {
+  const phrase = `DELETE ${input.expectedCount} UNVERIFIED DISCORD ACCOUNTS`;
+  if (input.confirmation !== phrase) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["confirmation"], message: `Type ${phrase} to permanently remove these accounts` });
+  }
+});
 
 function playgroundTrpcError(error: TokenForgePlaygroundError) {
   const code = error.code === "model_not_found" ? "NOT_FOUND"
-    : error.code === "model_unavailable" || error.code === "provider_unavailable" ? "SERVICE_UNAVAILABLE"
+    : error.code === "model_unavailable" || error.code === "provider_unavailable" || error.code === "platform_maintenance" ? "SERVICE_UNAVAILABLE"
         : error.code === "invalid_messages" ? "BAD_REQUEST"
           : error.code === "account_suspended" ? "FORBIDDEN"
             : error.code === "insufficient_credits" ? "PAYMENT_REQUIRED"
@@ -152,7 +166,15 @@ export const appRouter = router({
         }
         throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect email or password" });
       }
-      const user = await authenticatePasswordUser(input.email, input.password);
+      let user;
+      try {
+        user = await authenticatePasswordUser(input.email, input.password);
+      } catch (error) {
+        if (error instanceof DiscordUnverifiedAccountDeletedError) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: error.message });
+        }
+        throw error;
+      }
       if (!user) {
         const failedAttempt = await recordFailedPasswordLogin(input.email);
         if (failedAttempt.blocked) {
@@ -302,6 +324,22 @@ export const appRouter = router({
     accountModelUsage: adminProcedure.input(z.object({ userIds: z.array(z.number().int().positive()).min(1).max(10) })).query(({ input }) => getAdminAccountModelUsage(input.userIds)),
     activity: adminProcedure.input(z.object({ limit: z.number().int().min(1).max(100).default(40) }).optional()).query(({ input }) => listAdminAuditEvents(input?.limit ?? 40)),
     auditExport: adminProcedure.query(() => getAdminAuditExport()),
+    platformMaintenance: adminProcedure.query(() => getPlatformMaintenanceConfig()),
+    setPlatformMaintenance: adminProcedure.input(z.object({ enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
+      const maintenance = await setPlatformMaintenanceConfig(input.enabled, ctx.user.id);
+      await writeAuditEvent({ actorUserId: ctx.user.id, action: input.enabled ? "platform.maintenance.enabled" : "platform.maintenance.disabled", entityType: "platform_setting", entityId: "platform_maintenance" });
+      return maintenance;
+    }),
+    discordUnverifiedAccountCleanup: adminProcedure.query(async () => ({ count: await countDiscordUnverifiedAccounts() })),
+    deleteDiscordUnverifiedAccounts: adminProcedure.input(discordUnverifiedCleanupInput).mutation(async ({ ctx, input }) => {
+      const currentCount = await countDiscordUnverifiedAccounts();
+      if (currentCount !== input.expectedCount) {
+        throw new TRPCError({ code: "CONFLICT", message: `The cleanup set changed from ${input.expectedCount} to ${currentCount} accounts. Review the updated count and confirm again.` });
+      }
+      const result = await deleteDiscordUnverifiedAccounts();
+      await writeAuditEvent({ actorUserId: ctx.user.id, action: "account.discord_unverified.bulk_deleted", entityType: "account_cleanup", entityId: "discord_unverified", metadata: { deletedCount: result.deletedCount } });
+      return result;
+    }),
     deleteAccount: adminProcedure.input(permanentAccountDeleteInput).mutation(async ({ ctx, input }) => {
       if (input.userId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "The active administrator account cannot be deleted from the control plane" });
       const deleted = await deleteAccountPermanently(input.userId);

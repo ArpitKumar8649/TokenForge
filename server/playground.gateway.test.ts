@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./db", () => ({
   findActiveApiKey: vi.fn(),
+  getPlatformMaintenanceConfig: vi.fn(),
   getQuotaStatus: vi.fn(),
   getModelAvailabilitySnapshot: vi.fn(),
   getRecentRequestCounts: vi.fn(),
@@ -15,7 +16,7 @@ vi.mock("./db", () => ({
 
 vi.mock("./operationalAlerts", () => ({ raiseOperationalAlert: vi.fn() }));
 
-import { getQuotaStatus, getRecentRequestCounts, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordUsage, reserveCredit, settleReservedCredit } from "./db";
+import { getPlatformMaintenanceConfig, getQuotaStatus, getRecentRequestCounts, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordUsage, reserveCredit, settleReservedCredit } from "./db";
 import { raiseOperationalAlert } from "./operationalAlerts";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, runPlaygroundCompletion, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
@@ -58,6 +59,7 @@ beforeEach(() => {
   process.env.TOKENROUTER_API_KEY_3 = "server-only-tokenrouter-secret-3";
   process.env.TOKENROUTER_MODEL = "qwen/qwen3.8-max-free";
   process.env.TOKENROUTER_CLAUDE_FABLE5_MODEL = "upstream-claude-fable-5-model";
+  vi.mocked(getPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
   vi.mocked(getRecentRequestCounts).mockResolvedValue({ account: 0, ip: 0 });
@@ -79,6 +81,16 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("TokenForge Playground gateway", () => {
+  it("stops before model availability, credits, and provider work when global maintenance is active", async () => {
+    vi.mocked(getPlatformMaintenanceConfig).mockResolvedValueOnce({ enabled: true, updatedAt: new Date("2026-08-17T00:00:00.000Z") });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(runPlaygroundCompletion({ userId: 42, model: "glm-5.2", messages: [{ role: "user", content: "Hello" }], sourceIpHash: "hashed-source-ip" })).rejects.toMatchObject<TokenForgePlaygroundError>({ code: "platform_maintenance" });
+    expect(isModelAvailable).not.toHaveBeenCalled();
+    expect(reserveCredit).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("forwards the approved model only from the server and records metered usage without an API key", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: "A safe implementation keeps upstream credentials on the server." } }],

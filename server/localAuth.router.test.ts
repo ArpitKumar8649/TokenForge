@@ -4,6 +4,12 @@ import type { User } from "../drizzle/schema";
 import type { AuthenticatedUser } from "./_core/sdk";
 
 vi.mock("./db", () => ({
+  DiscordUnverifiedAccountDeletedError: class DiscordUnverifiedAccountDeletedError extends Error {
+    constructor() {
+      super("Your previous account was not verified by Discord, so it was deleted by an administrator. You can create a new TokenForge account with this email.");
+      this.name = "DiscordUnverifiedAccountDeletedError";
+    }
+  },
   authenticatePasswordUser: vi.fn(),
   clearFailedPasswordLogin: vi.fn(),
   createApiKey: vi.fn(),
@@ -19,6 +25,9 @@ vi.mock("./db", () => ({
   deleteAccountPermanently: vi.fn(),
   grantAdminAccountCredit: vi.fn(),
   getAuthSessionVersion: vi.fn(),
+  getPlatformMaintenanceConfig: vi.fn(),
+  countDiscordUnverifiedAccounts: vi.fn(),
+  deleteDiscordUnverifiedAccounts: vi.fn(),
   getUsageLogs: vi.fn(),
   getQuotaStatus: vi.fn(),
   getUsageSummary: vi.fn(),
@@ -33,6 +42,7 @@ vi.mock("./db", () => ({
   rotateApiKey: vi.fn(),
   setAccountControl: vi.fn(),
   setEmailAllowlistConfig: vi.fn(),
+  setPlatformMaintenanceConfig: vi.fn(),
   setModelEnabled: vi.fn(),
   setProviderEnabled: vi.fn(),
   writeAuditEvent: vi.fn(),
@@ -64,11 +74,16 @@ import {
   deleteAccountPermanently,
   grantAdminAccountCredit,
   getAuthSessionVersion,
+  getPlatformMaintenanceConfig,
+  countDiscordUnverifiedAccounts,
+  deleteDiscordUnverifiedAccounts,
+  DiscordUnverifiedAccountDeletedError,
   recordFailedPasswordLogin,
   revokeAllTokenForgeSessions,
   resetDiscordVerification,
   getOrCreateAdminSessionPrincipal,
   setEmailAllowlistConfig,
+  setPlatformMaintenanceConfig,
   setProviderEnabled,
   writeAuditEvent,
 } from "./db";
@@ -112,6 +127,10 @@ beforeEach(() => {
   vi.mocked(clearLegacyAdministratorRoles).mockResolvedValue(true);
   vi.mocked(deleteAccountPermanently).mockResolvedValue(true);
   vi.mocked(getAuthSessionVersion).mockResolvedValue(3);
+  vi.mocked(getPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
+  vi.mocked(setPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
+  vi.mocked(countDiscordUnverifiedAccounts).mockResolvedValue(3);
+  vi.mocked(deleteDiscordUnverifiedAccounts).mockResolvedValue({ deletedCount: 3 });
   vi.mocked(revokeAllTokenForgeSessions).mockResolvedValue(4);
   vi.mocked(resetDiscordVerification).mockResolvedValue({ reset: true });
   vi.mocked(getOrCreateAdminSessionPrincipal).mockResolvedValue({ ...localUser, id: 7, openId: "tf_internal_admin_control_plane", name: "TokenForge Administrator", email: null, loginMethod: "admin_passcode" });
@@ -149,6 +168,16 @@ describe("first-party authentication procedures", () => {
     await expect(appRouter.createCaller(ctx).auth.login({ email: "trial@mailinator.com", password: "secure-passphrase" })).rejects.toMatchObject({ code: "UNAUTHORIZED", message: "Incorrect email or password" });
     expect(authenticatePasswordUser).not.toHaveBeenCalled();
     expect(recordFailedPasswordLogin).toHaveBeenCalledWith("trial@mailinator.com");
+  });
+
+  it("returns the cleanup explanation on a first sign-in attempt after an administrator removes an unverified Discord account", async () => {
+    vi.mocked(authenticatePasswordUser).mockRejectedValueOnce(new DiscordUnverifiedAccountDeletedError());
+    const { ctx } = makeContext();
+    await expect(appRouter.createCaller(ctx).auth.login({ email: "developer@gmail.com", password: "secure-passphrase" })).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+      message: "Your previous account was not verified by Discord, so it was deleted by an administrator. You can create a new TokenForge account with this email.",
+    });
+    expect(recordFailedPasswordLogin).not.toHaveBeenCalled();
   });
 
   it("enforces a configured domain allowlist after the established-provider check", () => {
@@ -404,5 +433,22 @@ describe("protected administrator account directory", () => {
     expect(resetDiscordVerification).toHaveBeenCalledWith(55);
     expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, targetUserId: 55, action: "account.discord_verification.reset", entityType: "account", entityId: "55", metadata: { verificationWasPresent: true } }));
     await expect(appRouter.createCaller(makeContext(admin).ctx).admin.resetDiscordVerification({ userId: admin.id, confirmation: `RESET DISCORD VERIFICATION ${admin.id}` })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("lets an administrator enable global inference maintenance and records the action", async () => {
+    const admin = { ...localUser, id: 1, isAdminSession: true };
+    vi.mocked(setPlatformMaintenanceConfig).mockResolvedValueOnce({ enabled: true, updatedAt: new Date("2026-08-17T00:00:00.000Z") });
+    vi.mocked(getPlatformMaintenanceConfig).mockResolvedValueOnce({ enabled: true, updatedAt: new Date("2026-08-17T00:00:00.000Z") });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.setPlatformMaintenance({ enabled: true })).resolves.toMatchObject({ enabled: true });
+    expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, action: "platform.maintenance.enabled", entityType: "platform_setting" }));
+  });
+
+  it("requires the reviewed current count and typed phrase before bulk-deleting Discord-unverified accounts", async () => {
+    const admin = { ...localUser, id: 1, isAdminSession: true };
+    const caller = appRouter.createCaller(makeContext(admin).ctx);
+    await expect(caller.admin.deleteDiscordUnverifiedAccounts({ expectedCount: 3, confirmation: "DELETE 3 UNVERIFIED DISCORD ACCOUNTS" })).resolves.toEqual({ deletedCount: 3 });
+    expect(deleteDiscordUnverifiedAccounts).toHaveBeenCalledTimes(1);
+    expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, action: "account.discord_unverified.bulk_deleted", metadata: { deletedCount: 3 } }));
+    await expect(caller.admin.deleteDiscordUnverifiedAccounts({ expectedCount: 3, confirmation: "DELETE ALL" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });
