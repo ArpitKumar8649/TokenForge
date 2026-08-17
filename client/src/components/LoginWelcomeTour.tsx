@@ -5,6 +5,10 @@ import { useEffect, useMemo, useState } from "react";
 
 const DISCORD_INVITE_URL = "https://discord.gg/pnsWamDbe";
 export const LOGIN_WELCOME_TOUR_COMPLETED_KEY = "tokenforge_login_welcome_completed";
+export const LOGIN_WELCOME_TOUR_ARTWORK = {
+  fable: "/manus-storage/claude-fable-5-welcome_853894c2.jpg",
+  qwen: "/manus-storage/qwen-3-8-max-welcome_d02dabaf.jpg",
+} as const;
 
 export type LoginWelcomeUser = {
   id: number;
@@ -130,10 +134,10 @@ export function LoginWelcomeTour({ user }: { user: LoginWelcomeUser | null | und
               </DialogHeader>
             </div>
 
-            <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/25 p-4 shadow-inner">
-              <div className="absolute inset-x-0 top-0 h-px bg-white/18" aria-hidden="true" />
-              {activeStep.visual === "fable" && <div className="min-h-36"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.17em] text-[#cdbfff]"><Bot size={14} /> Claude Fable 5</div><div className="mt-5 space-y-2"><div className="h-2 w-4/5 rounded-full bg-white/13" /><div className="h-2 w-full rounded-full bg-white/9" /><div className="h-2 w-2/3 rounded-full bg-[#bda2ff]/28" /></div><div className="mt-5 inline-flex items-center gap-1.5 rounded-full border border-[#bda2ff]/18 bg-[#bda2ff]/9 px-2.5 py-1 text-[10px] font-semibold text-[#e2d9ff]"><Sparkles size={11} /> Thinking available</div></div>}
-              {activeStep.visual === "qwen" && <div className="min-h-36"><div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.17em] text-[#d8ff9c]"><Orbit size={14} /> Qwen 3.8 Max</div><div className="mt-4 rounded-xl border border-[#c9ff73]/16 bg-[#c9ff73]/7 p-3"><p className="font-mono text-[10px] text-[#9ebf70]">REASONING EFFORT</p><p className="mt-1 font-mono text-xl font-bold text-[#e5ffc0]">xhigh</p></div><div className="mt-3 flex items-center gap-2 text-[10px] text-[#9ca99a]"><span className="h-1.5 w-1.5 rounded-full bg-[#c9ff73] shadow-[0_0_10px_#c9ff73]" /> Route available</div></div>}
+            <div className="relative min-h-44 overflow-hidden rounded-2xl border border-white/10 bg-black/25 shadow-inner sm:min-h-52">
+              <div className="absolute inset-x-0 top-0 z-10 h-px bg-white/18" aria-hidden="true" />
+              {activeStep.visual === "fable" && <img src={LOGIN_WELCOME_TOUR_ARTWORK.fable} alt="Claude Fable 5 artwork with a butterfly-inspired letter C" className="absolute inset-0 h-full w-full object-cover object-center" />}
+              {activeStep.visual === "qwen" && <img src={LOGIN_WELCOME_TOUR_ARTWORK.qwen} alt="Qwen 3.8 Max model artwork" className="absolute inset-0 h-full w-full object-cover object-center" />}
               {activeStep.visual === "discord" && <div className="min-h-36"><div className="grid h-11 w-11 place-items-center rounded-xl bg-[#5865f2]/15 text-[#c6ceff]"><MessagesSquare size={20} /></div><p className="mt-4 text-sm font-semibold text-white">TokenForge Discord</p><p className="mt-1 text-[11px] leading-5 text-[#9fa89b]">A direct line for practical support and platform updates.</p><div className="mt-4 flex items-center gap-1.5 text-[10px] font-semibold text-[#bfc7ff]"><Check size={12} /> Ready when you are</div></div>}
             </div>
           </div>
