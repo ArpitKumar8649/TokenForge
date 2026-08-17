@@ -298,3 +298,4 @@
 - [x] Add persisted Giveaway history for administrators and optional recipient-facing announcement notes that accompany each completed verified-account credit grant.
 - [x] Show newly received Giveaway announcements as a recipient-specific dashboard notification after login, while retaining the wallet-history record and a clear dismiss state.
 - [x] Redesign the recipient Giveaway notification with a bold GIVEAWAY ALERT heading, animated rotating perimeter light, and colourful falling-ribbon celebration that respects reduced-motion preferences.
+- [ ] Commit and push all completed TokenForge changes through the latest Giveaway alert update to the configured GitHub repository.
