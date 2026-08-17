@@ -26,7 +26,7 @@ import { useLocation } from "wouter";
 import { Link } from "wouter";
 import { TOKENFORGE_POST_LOGOUT_PATH } from "../../../shared/authNavigation";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
-import { FirstTimeOnboarding } from "./FirstTimeOnboarding";
+import { LoginWelcomeTour } from "./LoginWelcomeTour";
 import { AnnouncementBanner } from "./AnnouncementBanner";
 import { TokenForgeGlyph } from "./TokenForgeGlyph";
 import DiscordVerify from "@/pages/DiscordVerify";
@@ -91,7 +91,10 @@ export default function DashboardLayout({
   }
 
   if (!user.isAdminSession && !user.discordVerifiedAt) {
-    return <DiscordVerify embedded />;
+    return <>
+      <DiscordVerify embedded />
+      <LoginWelcomeTour user={user} />
+    </>;
   }
 
   return (
@@ -105,7 +108,7 @@ export default function DashboardLayout({
       <DashboardLayoutContent setSidebarWidth={setSidebarWidth}>
         {children}
       </DashboardLayoutContent>
-      <FirstTimeOnboarding user={user} />
+      <LoginWelcomeTour user={user} />
     </SidebarProvider>
   );
 }
