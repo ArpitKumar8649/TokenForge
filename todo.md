@@ -306,3 +306,6 @@
 - [x] Diagnose and fix the GLM 5.3 Playground invalid-parameters error while preserving valid request safeguards.
 - [x] Send a safe 300-message request directly to TokenRouter and align TokenForge message-entry validation only if the provider accepts it.
 - [x] Create a responsive GLM 5.3 detail page with interactive examples and copyable JavaScript, Python, and cURL snippets.
+- [x] Directly test the configured TokenRouter Claude Fable 5 and Claude Opus 5 routes with 300 entries and report the exact provider responses before any further implementation change.
+- [x] Verify and remove any remaining Anthropic local message-count restriction, retaining only structural and payload-size safeguards.
+- [x] Add concise GLM 5.3 identity guidance for Playground and API calls and prevent repetitive provider reasoning output from being shown as a misleading thinking summary.
