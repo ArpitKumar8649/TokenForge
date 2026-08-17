@@ -124,6 +124,18 @@ export const TOKENFORGE_MODEL_CATALOGUE = [
     upstreamModelId: "qwen/qwen3.8-max-free",
   },
   {
+    id: "claude-fable-5",
+    displayName: "Claude Fable 5",
+    description: "A capable text model available through TokenForge for reasoning, coding, and streamed chat completions. Its provider identity and technical details are not asserted beyond this configured route.",
+    providerSlug: TOKENROUTER_PROVIDER_SLUG,
+    providerName: "Claude",
+    capabilities: ["reasoning", "thinking", "coding", "streaming"],
+    inputUsdPerMillion: 5,
+    outputUsdPerMillion: 25,
+    pricingSource: "TokenForge provisional configured-route pricing",
+    pricingUrl: "https://tokengate-cqt9ivzs.manus.space/pricing",
+  },
+  {
     id: "glm-5.1",
     displayName: "GLM-5.1",
     description: "A Z.AI general-purpose reasoning and coding model for text chat workloads.",

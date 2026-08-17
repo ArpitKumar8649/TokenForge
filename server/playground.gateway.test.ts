@@ -57,6 +57,7 @@ beforeEach(() => {
   process.env.TOKENROUTER_API_KEY_2 = "server-only-tokenrouter-secret-2";
   process.env.TOKENROUTER_API_KEY_3 = "server-only-tokenrouter-secret-3";
   process.env.TOKENROUTER_MODEL = "qwen/qwen3.8-max-free";
+  process.env.TOKENROUTER_CLAUDE_FABLE5_MODEL = "upstream-claude-fable-5-model";
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
   vi.mocked(getRecentRequestCounts).mockResolvedValue({ account: 0, ip: 0 });
@@ -311,6 +312,39 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-tokenrouter-secret");
   });
 
+  it("routes Claude Fable 5 through its server-only TokenRouter model configuration with xhigh reasoning and a thinking summary", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: "Claude Fable response", reasoning_content: "Provider thinking summary" } }],
+      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runPlaygroundCompletion({
+      userId: 42,
+      model: "claude-fable-5",
+      messages: [{ role: "system", content: "Use short paragraphs." }, { role: "user", content: "Identify the configured route safely." }],
+      sourceIpHash: "hashed-source-ip",
+    });
+
+    expect(result).toMatchObject({ model: "claude-fable-5", content: "Claude Fable response", thinking: "Provider thinking summary" });
+    expect(fetchMock).toHaveBeenCalledWith("https://tokenrouter.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret" }),
+    }));
+    const forwardedPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(forwardedPayload).toMatchObject({ model: "upstream-claude-fable-5-model", reasoning_effort: "xhigh", stream: false });
+    expect(forwardedPayload.messages).toHaveLength(2);
+    expect(forwardedPayload.messages[0]).toMatchObject({ role: "system" });
+    expect(forwardedPayload.messages[0].content).toContain("You are Claude Fable 5, an AI assistant available through TokenForge.");
+    expect(forwardedPayload.messages[0].content).toContain("Use short paragraphs.");
+    expect(forwardedPayload.messages[1]).toEqual({ role: "user", content: "Identify the configured route safely." });
+    expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-tokenrouter-secret");
+
+    const apiMessages = withModelScopedGuidance("claude-fable-5", [{ role: "user", content: "Identify yourself." }]);
+    expect(apiMessages[0]).toEqual(modelScopedGuidance("claude-fable-5"));
+    expect(apiMessages[0].content).toContain("You are Claude Fable 5");
+    expect(apiMessages).not.toContainEqual(playgroundResponseGuidance());
+  });
+
   it("fails over Qwen 3.8 Max to the next TokenRouter credential after a retryable provider response", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Temporary capacity" } }), { status: 503 }))
@@ -335,7 +369,7 @@ describe("TokenForge Playground gateway", () => {
     });
   });
 
-  it("consolidates Qwen 3.8 Max Playground and user instructions into exactly one system message", () => {
+  it("consolidates TokenRouter Playground and user instructions into exactly one system message", () => {
     const messages = playgroundMessagesForModel("qwen3.8-max", [
       { role: "system", content: "Write in short paragraphs." },
       { role: "user", content: "Explain the request path." },
@@ -346,6 +380,16 @@ describe("TokenForge Playground gateway", () => {
     expect(messages[0].content).toContain("selected TokenForge model: qwen3.8-max");
     expect(messages[0].content).toContain("Write in short paragraphs.");
     expect(messages[1]).toEqual({ role: "user", content: "Explain the request path." });
+
+    const fableMessages = playgroundMessagesForModel("claude-fable-5", [
+      { role: "system", content: "Use short paragraphs." },
+      { role: "user", content: "Explain the request path." },
+    ]);
+    expect(fableMessages).toHaveLength(2);
+    expect(fableMessages[0]).toMatchObject({ role: "system" });
+    expect(fableMessages[0].content).toContain("You are Claude Fable 5");
+    expect(fableMessages[0].content).toContain("Use short paragraphs.");
+    expect(fableMessages[1]).toEqual({ role: "user", content: "Explain the request path." });
   });
 
   it("stops before provider execution when the promotional credit reservation is denied", async () => {

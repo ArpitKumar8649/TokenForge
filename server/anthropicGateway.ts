@@ -32,7 +32,7 @@ const activeRequests = new Map<number, number>();
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number };
 type AnthropicRequest = { model?: unknown; messages?: unknown; system?: unknown; tools?: unknown; stream?: unknown; max_tokens?: unknown; temperature?: unknown };
 type AnthropicBlock = { type?: unknown; text?: unknown; id?: unknown; name?: unknown; input?: unknown; tool_use_id?: unknown; content?: unknown; is_error?: unknown };
-const OPENAI_TRANSLATED_MESSAGES_MODELS = new Set(["claude-opus-5", "qwen3.8-27b", "qwen3.8-max"]);
+const OPENAI_TRANSLATED_MESSAGES_MODELS = new Set(["claude-opus-5", "qwen3.8-27b", "qwen3.8-max", "claude-fable-5"]);
 
 export class AnthropicBridgeError extends Error {
   constructor(public readonly status: number, public readonly type: string, message: string) {
@@ -196,6 +196,7 @@ export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChat
     ...(temperature !== undefined ? { temperature } : {}),
     // This bridge policy is deliberately model-scoped and not caller-configurable.
     ...(model === "kimi-k3" ? { reasoning_effort: "max" } : {}),
+    ...(model === "claude-fable-5" ? { reasoning_effort: "xhigh" } : {}),
   };
   if (raw.tools !== undefined) {
     if (!Array.isArray(raw.tools)) throw new AnthropicBridgeError(400, "invalid_request_error", "tools must be an array.");

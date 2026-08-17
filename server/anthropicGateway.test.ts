@@ -41,7 +41,7 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(translated.max_tokens).toBe(2048);
   });
 
-  it("enforces maximum reasoning internally for Kimi K3 without trusting a caller-supplied control", () => {
+  it("enforces model-scoped reasoning internally without trusting caller-supplied controls", () => {
     const translated = translateAnthropicRequest({
       model: "kimi-k3",
       messages: [{ role: "user", content: "Reply with OK." }],
@@ -50,6 +50,7 @@ describe("TokenForge Anthropic Messages bridge", () => {
     } as Parameters<typeof translateAnthropicRequest>[0] & { reasoning_effort: "low" });
 
     expect(translated.reasoning_effort).toBe("max");
+    expect(translateAnthropicRequest({ model: "claude-fable-5", messages: [{ role: "user", content: "Reply with OK." }] }).reasoning_effort).toBe("xhigh");
     expect(translateAnthropicRequest({ model: "gpt-5", messages: [{ role: "user", content: "Reply with OK." }] }).reasoning_effort).toBeUndefined();
   });
 
@@ -75,6 +76,7 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(translateAnthropicRequest({ model: "claude-opus-5", system: "Be concise.", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "claude-opus-5" });
     expect(translateAnthropicRequest({ model: "qwen3.8-27b", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "qwen3.8-27b" });
     expect(translateAnthropicRequest({ model: "qwen3.8-max", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "qwen3.8-max" });
+    expect(translateAnthropicRequest({ model: "claude-fable-5", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "claude-fable-5" });
     expect(() => translateAnthropicRequest({ model: "glm-5.2", messages: [{ role: "user", content: "Hello" }] })).toThrow(AnthropicBridgeError);
     expect(() => translateAnthropicRequest({ model: "kimi-k3", messages: [{ role: "user", content: [{ type: "image", source: {} }] }] })).toThrow("text and tool blocks only");
   });
