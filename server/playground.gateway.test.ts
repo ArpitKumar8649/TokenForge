@@ -425,6 +425,16 @@ describe("TokenForge Playground gateway", () => {
     expect(fableMessages[0].content).toContain("You are Claude Fable 5");
     expect(fableMessages[0].content).toContain("Use short paragraphs.");
     expect(fableMessages[1]).toEqual({ role: "user", content: "Explain the request path." });
+
+    const opusMessages = playgroundMessagesForModel("claude-opus-5", [
+      { role: "system", content: "Use short paragraphs." },
+      { role: "user", content: "Explain the request path." },
+    ]);
+    expect(opusMessages).toHaveLength(2);
+    expect(opusMessages[0]).toMatchObject({ role: "system" });
+    expect(opusMessages[0].content).toContain("configured Claude Opus 5 route");
+    expect(opusMessages[0].content).toContain("Use short paragraphs.");
+    expect(opusMessages[1]).toEqual({ role: "user", content: "Explain the request path." });
   });
 
   it("stops before provider execution when the promotional credit reservation is denied", async () => {

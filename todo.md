@@ -283,3 +283,4 @@
 - [x] Remove the OrcaRouter fifteen-key management panel and Claude Opus 5 routing from TokenForge administration, while retaining the encrypted pool solely for Qwen3.8 27B.
 - [x] Add editable server-only Claude Opus 5 TokenRouter base-URL and upstream-model configuration entries, with validation and regression coverage.
 - [x] Add the supplied fourth server-only TokenRouter credential and extend health-aware round-robin selection, failover telemetry, and regression coverage from three to four slots.
+- [x] Fix the TokenForge Playground cache-only admission rejection for TokenRouter-backed models by consolidating Claude Opus 5 Playground guidance into one system turn, with deterministic and live-provider validation.

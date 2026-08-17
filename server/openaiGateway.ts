@@ -80,7 +80,7 @@ export function playgroundResponseGuidance(): TokenForgeChatMessage {
  */
 export function playgroundMessagesForModel(model: TokenForgeModelId, messages: TokenForgeChatMessage[]) {
   const requiredGuidance = [modelScopedGuidance(model), playgroundResponseGuidance()];
-  if (model !== "qwen3.8-max" && model !== "claude-fable-5") return [...requiredGuidance, ...messages];
+  if (model !== "qwen3.8-max" && model !== "claude-fable-5" && model !== "claude-opus-5") return [...requiredGuidance, ...messages];
 
   const suppliedSystemMessages = messages.filter(message => message.role === "system");
   const conversationalMessages = messages.filter(message => message.role !== "system");

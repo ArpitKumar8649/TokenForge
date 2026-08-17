@@ -84,7 +84,10 @@ describe.runIf(claudeOpus5Configured)("TokenRouter Claude Opus 5 route configura
       },
       body: JSON.stringify({
         model: process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL,
-        messages: [{ role: "user", content: "Reply with exactly: ok" }],
+        messages: [
+          { role: "system", content: "You are an AI assistant available through TokenForge using the configured Claude Opus 5 route. Be concise." },
+          { role: "user", content: "Reply with exactly: ok" },
+        ],
         max_tokens: 32,
         stream: false,
       }),
