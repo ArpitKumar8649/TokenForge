@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AnthropicBridgeError,
   anthropicApiKey,
+  compactTranslatedMessages,
   isNativeTokenRouterMessagesRequest,
   translateAnthropicRequest,
   translateOpenAiMessageResponse,
@@ -163,6 +164,54 @@ describe("TokenForge Anthropic Messages bridge", () => {
       { role: "assistant", content: null, tool_calls: [{ id: "tool_1", type: "function", function: { name: "read_file", arguments: "{\"path\":\"README.md\"}" } }] },
       { role: "tool", tool_call_id: "tool_1", content: "file contents" },
     ]);
+  });
+
+  it("leaves translated TokenRouter Claude history below the early compaction threshold unchanged", () => {
+    const messages = Array.from({ length: 89 }, (_, index) => ({ role: "user", content: `turn-${index}` }));
+
+    expect(compactTranslatedMessages(messages)).toBe(messages);
+  });
+
+  it("compacts TokenRouter Claude history before the 100-entry provider limit while preserving system and latest user context", () => {
+    const messages = [
+      { role: "system", content: "Keep this instruction." },
+      ...Array.from({ length: 89 }, (_, index) => ({ role: "user", content: `turn-${index}` })),
+    ];
+
+    const compacted = compactTranslatedMessages(messages);
+
+    expect(compacted).toHaveLength(62);
+    expect(compacted[0]).toEqual({ role: "system", content: "Keep this instruction." });
+    expect(compacted[1]).toEqual(expect.objectContaining({ role: "user", content: expect.stringContaining("history has been compacted") }));
+    expect(compacted.at(-1)).toEqual({ role: "user", content: "turn-88" });
+    expect(compacted.length).toBeLessThanOrEqual(99);
+  });
+
+  it("does not split a translated assistant tool-call group from any following tool results during compaction", () => {
+    const messages = [
+      { role: "system", content: "Keep this instruction." },
+      ...Array.from({ length: 32 }, (_, index) => ({ role: "user", content: `older-${index}` })),
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{ id: "call_read", type: "function", function: { name: "Read", arguments: "{}" } }],
+      },
+      { role: "tool", tool_call_id: "call_read", content: "first tool output" },
+      { role: "tool", tool_call_id: "call_read", content: "second tool output" },
+      ...Array.from({ length: 55 }, (_, index) => ({ role: "user", content: `recent-${index}` })),
+    ];
+
+    const compacted = compactTranslatedMessages(messages);
+    const toolAssistantIndex = compacted.findIndex(message => message.role === "assistant" && Array.isArray((message as { tool_calls?: unknown }).tool_calls));
+    const toolResultIndexes = compacted
+      .map((message, index) => message.role === "tool" ? index : -1)
+      .filter(index => index >= 0);
+
+    expect(compacted.length).toBeLessThanOrEqual(99);
+    expect(toolAssistantIndex).toBeGreaterThan(0);
+    expect(toolResultIndexes).toHaveLength(2);
+    expect(toolResultIndexes.every(index => index > toolAssistantIndex)).toBe(true);
+    expect(compacted.at(-1)).toEqual({ role: "user", content: "recent-54" });
   });
 
   it("converts an OpenAI-style Cluster tool call into an Anthropic Messages response", () => {

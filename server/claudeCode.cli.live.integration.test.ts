@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { rm } from "node:fs/promises";
 import { eq } from "drizzle-orm";
@@ -16,6 +17,7 @@ import { accountControls, apiKeys, creditAccounts, creditLedger, usageEvents, us
 
 const execFileAsync = promisify(execFile);
 const cliProbeIt = process.env.RUN_TOKENFORGE_CLAUDE_CODE_CLI_PROBE === "true" ? it : it.skip;
+const longHistoryProbeIt = process.env.RUN_TOKENFORGE_CLAUDE_CODE_LONG_HISTORY_PROBE === "true" ? it : it.skip;
 const probeOpenId = `tf_probe_claude_code_cli_${randomUUID().replace(/-/g, "")}`;
 let probeUserId: number | null = null;
 let claudeConfigDir: string | null = null;
@@ -92,4 +94,67 @@ describe("Claude Code CLI TokenForge gateway compatibility", () => {
     expect(parsed.is_error).not.toBe(true);
     expect(parsed.result).toContain("TOKENFORGE_CLAUDE_CODE_OK");
   }, 130_000);
+
+  longHistoryProbeIt("accepts a 100-entry Claude Code-shaped history after TokenForge compaction", async () => {
+    await upsertUser({
+      openId: probeOpenId,
+      name: "Ephemeral Claude Code Long-History Probe",
+      email: null,
+      loginMethod: "probe",
+      role: "user",
+    });
+    const user = await getUserByOpenId(probeOpenId);
+    expect(user).toBeTruthy();
+    probeUserId = user!.id;
+    await ensureAccountControl(probeUserId);
+    await ensureCreditAccount(probeUserId);
+    const temporaryKey = await createApiKey(probeUserId, "ephemeral-claude-code-long-history-probe");
+    const baseUrl = (process.env.TOKENFORGE_CLAUDE_CODE_PROBE_BASE_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
+    const model = process.env.TOKENFORGE_CLAUDE_CODE_PROBE_MODEL ?? "claude-opus-5";
+    const messages: Array<Record<string, unknown>> = [
+      { role: "user", content: [{ type: "text", text: "Start a repository inspection session." }] },
+    ];
+    for (let index = 0; index < 49; index += 1) {
+      messages.push(
+        { role: "assistant", content: [{ type: "text", text: `Completed prior step ${index}.` }] },
+        { role: "user", content: [{ type: "text", text: index === 48 ? "Reply with exactly TOKENFORGE_LONG_HISTORY_OK." : `Continue with step ${index}.` }] },
+      );
+    }
+    messages.push({ role: "system", content: [{ type: "text", text: "Claude Code session metadata: retain the final user instruction." }] });
+    expect(messages).toHaveLength(100);
+
+    const response = await fetch(`${baseUrl}/v1/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": temporaryKey.key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "claude-code-20250219,interleaved-thinking-2025-05-14,context-management-2025-06-27,mid-conversation-system-2026-04-07",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 256,
+        system: [
+          { type: "text", text: "You are running in a Claude Code-compatible repository session." },
+          { type: "text", text: "Follow the final user request exactly." },
+        ],
+        tools: [{ name: "Read", description: "Read a project file", input_schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } }],
+        messages,
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(115_000),
+    });
+
+    const payload = await response.json().catch(() => null) as { type?: unknown; model?: unknown; content?: Array<{ type?: unknown; text?: unknown }> } | null;
+    console.info("[TokenForge 100-entry Claude Code-shaped compaction probe]", {
+      status: response.status,
+      endpointAcceptedRequest: response.ok,
+      rawMessageEntries: messages.length,
+      responseType: payload?.type,
+      returnedModel: payload?.model,
+    });
+    expect(response.ok, `TokenForge /v1/messages rejected the 100-entry Claude Code-shaped history with HTTP ${response.status}: ${JSON.stringify(payload)}`).toBe(true);
+    expect(payload).toMatchObject({ type: "message", model });
+    expect(Array.isArray(payload?.content)).toBe(true);
+  }, 120_000);
 });

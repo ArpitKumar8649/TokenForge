@@ -290,3 +290,4 @@
 - [x] Do not implement a 9Router intermediary because the user elected direct Claude Code reproduction and stock 9Router would collapse TokenForge usage into a static upstream credential.
 - [x] Assess a separate Render deployment for 9Router, including supported persistent storage, per-user TokenForge bearer-token handling, model aliases, and Render-approved operational behavior without sleep-evasion keepalive traffic.
 - [x] Install and run the actual Claude Code CLI against temporary TokenForge API keys and the published `/v1/messages` endpoint; capture its request shape and validate both Claude Fable 5 and Claude Opus 5 successfully.
+- [x] Add automatic entry-aware history compaction for TokenRouter-backed Claude Code translations before the 100-message provider limit, preserving system instructions, format, and complete tool-call/result chains; validate with a real long Claude Code session.
