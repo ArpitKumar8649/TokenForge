@@ -12,6 +12,8 @@ export function getTokenRouterCredentialPool() {
     process.env.TOKENROUTER_API_KEY_2,
     process.env.TOKENROUTER_API_KEY_3,
     process.env.TOKENROUTER_API_KEY_4,
+    process.env.TOKENROUTER_API_KEY_5,
+    process.env.TOKENROUTER_API_KEY_6,
   ]
     .map(credential => credential?.trim())
     .filter((credential): credential is string => Boolean(credential));

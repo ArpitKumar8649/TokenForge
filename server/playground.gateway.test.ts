@@ -56,10 +56,13 @@ beforeEach(() => {
   process.env.TOKENROUTER_API_KEY_2 = "server-only-tokenrouter-secret-2";
   process.env.TOKENROUTER_API_KEY_3 = "server-only-tokenrouter-secret-3";
   process.env.TOKENROUTER_API_KEY_4 = "server-only-tokenrouter-secret-4";
+  process.env.TOKENROUTER_API_KEY_5 = "server-only-tokenrouter-secret-5";
+  process.env.TOKENROUTER_API_KEY_6 = "server-only-tokenrouter-secret-6";
   process.env.TOKENROUTER_MODEL = "qwen/qwen3.8-max-free";
   process.env.TOKENROUTER_CLAUDE_FABLE5_MODEL = "upstream-claude-fable-5-model";
   process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL = "https://opus5-tokenrouter.example";
   process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL = "upstream-claude-opus-5";
+  process.env.TOKENROUTER_GLM53_MODEL = "upstream-glm-5.3-model";
   vi.mocked(getPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
@@ -211,8 +214,8 @@ describe("TokenForge Playground gateway", () => {
       "Bearer server-only-tokenrouter-secret",
       "Bearer server-only-tokenrouter-secret-2",
     ]);
-    const telemetry = getProviderCredentialTelemetry({ [TOKENROUTER_PROVIDER_SLUG]: 4 }).find(item => item.providerSlug === TOKENROUTER_PROVIDER_SLUG)!;
-    expect(telemetry).toMatchObject({ healthySlots: 3, coolingDownSlots: 1, failoverCount: 1 });
+    const telemetry = getProviderCredentialTelemetry({ [TOKENROUTER_PROVIDER_SLUG]: 6 }).find(item => item.providerSlug === TOKENROUTER_PROVIDER_SLUG)!;
+    expect(telemetry).toMatchObject({ healthySlots: 5, coolingDownSlots: 1, failoverCount: 1 });
     expect(JSON.stringify(telemetry)).not.toContain("server-only-tokenrouter-secret");
   });
 
@@ -361,6 +364,30 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-tokenrouter-secret");
   });
 
+  it("routes GLM 5.3 through TokenRouter using only its server-side configured upstream identifier", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: "GLM 5.3 response" } }],
+      usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await runPlaygroundCompletion({
+      userId: 42,
+      model: "glm-5.3",
+      messages: [{ role: "user", content: "Confirm secure model routing." }],
+      sourceIpHash: "hashed-source-ip",
+    });
+
+    expect(result).toMatchObject({ model: "glm-5.3", content: "GLM 5.3 response", usage: { totalTokens: 30 } });
+    expect(fetchMock).toHaveBeenCalledWith("https://tokenrouter.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret" }),
+    }));
+    const forwardedPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(forwardedPayload).toMatchObject({ model: "upstream-glm-5.3-model", stream: false });
+    expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-tokenrouter-secret");
+    expect(JSON.stringify(forwardedPayload)).not.toContain("TOKENROUTER_GLM53_MODEL");
+  });
+
   it("routes Claude Fable 5 through its server-only TokenRouter model configuration with xhigh reasoning and a thinking summary", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: "Claude Fable response", reasoning_content: "Provider thinking summary" } }],
@@ -412,8 +439,8 @@ describe("TokenForge Playground gateway", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "https://tokenrouter.example/v1/chat/completions", expect.objectContaining({
       headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret-2" }),
     }));
-    expect(getProviderCredentialTelemetry({ [TOKENROUTER_PROVIDER_SLUG]: 4 }).find(provider => provider.providerSlug === TOKENROUTER_PROVIDER_SLUG)).toMatchObject({
-      poolSize: 4,
+    expect(getProviderCredentialTelemetry({ [TOKENROUTER_PROVIDER_SLUG]: 6 }).find(provider => provider.providerSlug === TOKENROUTER_PROVIDER_SLUG)).toMatchObject({
+      poolSize: 6,
       failoverCount: 1,
     });
   });

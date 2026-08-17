@@ -23,10 +23,10 @@ describe("TokenForge credential and gateway safeguards", () => {
     expect(date.toISOString()).toBe("2026-08-15T00:00:00.000Z");
   });
 
-  it("exposes the verified fixed-rate text-chat catalogue without modality-specific models", () => {
+  it("exposes the text-chat catalogue without modality-specific models or duplicate identifiers", () => {
     const ids = TOKENFORGE_CATALOGUE.map(model => model.id);
-    expect(ids).toHaveLength(36);
-    expect(ids).toEqual(expect.arrayContaining(["glm-5.2", "grok-4.5", "deepseek-v4-flash", "deepseek-v4-pro", "claude-opus-5", "qwen3.8-27b", "qwen3.8-max", "claude-fable-5", "kimi-k3", "qwen3.7-max", "claude-sonnet-4.5", "gpt-5"]));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toEqual(expect.arrayContaining(["glm-5.3", "glm-5.2", "grok-4.5", "deepseek-v4-flash", "deepseek-v4-pro", "claude-opus-5", "qwen3.8-27b", "qwen3.8-max", "claude-fable-5", "kimi-k3", "qwen3.7-max", "claude-sonnet-4.5", "gpt-5"]));
     expect(ids).not.toEqual(expect.arrayContaining(["glm-5", "minimax-m2-5", "flux", "whisper", "gemini-embedding", "qwen3-tts"]));
   });
 

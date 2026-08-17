@@ -6,9 +6,12 @@ const configured = process.env.RUN_TOKENROUTER_LIVE === "1" && Boolean(
     && process.env.TOKENROUTER_API_KEY_2?.trim()
     && process.env.TOKENROUTER_API_KEY_3?.trim()
     && process.env.TOKENROUTER_API_KEY_4?.trim()
+    && process.env.TOKENROUTER_API_KEY_5?.trim()
+    && process.env.TOKENROUTER_API_KEY_6?.trim()
     && process.env.TOKENROUTER_MODEL?.trim(),
 );
 const claudeFableConfigured = configured && Boolean(process.env.TOKENROUTER_CLAUDE_FABLE5_MODEL?.trim());
+const glm53Configured = configured && Boolean(process.env.TOKENROUTER_GLM53_MODEL?.trim());
 const claudeOpus5Configured = Boolean(
   process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL?.trim()
     && process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL?.trim()
@@ -23,6 +26,8 @@ describe.runIf(configured)("TokenRouter Qwen 3.8 Max credential-pool probe", () 
       process.env.TOKENROUTER_API_KEY_2!,
       process.env.TOKENROUTER_API_KEY_3!,
       process.env.TOKENROUTER_API_KEY_4!,
+      process.env.TOKENROUTER_API_KEY_5!,
+      process.env.TOKENROUTER_API_KEY_6!,
     ];
 
     for (const credential of credentials) {
@@ -46,7 +51,33 @@ describe.runIf(configured)("TokenRouter Qwen 3.8 Max credential-pool probe", () 
       expect(response.status).toBe(200);
       expect(Array.isArray(payload?.choices)).toBe(true);
     }
-  }, 35_000);
+  }, 90_000);
+});
+
+describe.runIf(glm53Configured)("TokenRouter GLM 5.3 configuration probe", () => {
+  it("accepts the configured server-only GLM 5.3 upstream model identifier with both additional credentials", async () => {
+    const baseUrl = process.env.TOKENROUTER_BASE_URL!.replace(/\/$/, "");
+    for (const credential of [process.env.TOKENROUTER_API_KEY_5!, process.env.TOKENROUTER_API_KEY_6!]) {
+      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${credential}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: process.env.TOKENROUTER_GLM53_MODEL,
+          messages: [{ role: "user", content: "Reply with exactly: ok" }],
+          max_tokens: 32,
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      const payload = await response.json().catch(() => null) as { choices?: unknown[] } | null;
+      expect(response.status).toBe(200);
+      expect(Array.isArray(payload?.choices)).toBe(true);
+    }
+  }, 65_000);
 });
 
 describe.runIf(claudeFableConfigured)("TokenRouter Claude Fable 5 model probe", () => {

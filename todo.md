@@ -301,3 +301,5 @@
 - [x] Commit and push all completed TokenForge changes through the latest Giveaway alert update to the configured GitHub repository.
 - [x] Verify the reported over-100 raw-message Claude Code compaction failure and evaluate the proposed validation-order fix without modifying production behavior.
 - [x] Remove daily request, daily token, per-minute, and concurrent-request admission limits from API and Playground inference while retaining suspension, availability, and balance controls.
+- [x] Add two server-only TokenRouter credentials to the shared round-robin pool and validate six-key rotation.
+- [x] Add configurable TokenRouter-backed GLM 5.3 across the gateway, catalogue, dashboard, and documentation without exposing its upstream identifier or credentials.

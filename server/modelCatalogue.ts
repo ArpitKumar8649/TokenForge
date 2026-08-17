@@ -35,6 +35,18 @@ const claude = (id: string, displayName: string, inputUsdPerMillion: number, out
 
 export const TOKENFORGE_MODEL_CATALOGUE = [
   {
+    id: "glm-5.3",
+    displayName: "GLM 5.3",
+    description: "A configurable TokenRouter-backed Z.AI route for advanced reasoning, coding, and streamed text chat.",
+    providerSlug: TOKENROUTER_PROVIDER_SLUG,
+    providerName: "Z.AI",
+    capabilities: ["reasoning", "coding", "streaming"],
+    inputUsdPerMillion: 1.4,
+    outputUsdPerMillion: 4.4,
+    pricingSource: "TokenForge provisional GLM 5.3 configured-route pricing",
+    pricingUrl: "https://tokengate-cqt9ivzs.manus.space/pricing",
+  },
+  {
     id: "glm-5.2",
     displayName: "GLM-5.2",
     description: "A flagship long-horizon model for complex engineering, coding, and extended-context work.",

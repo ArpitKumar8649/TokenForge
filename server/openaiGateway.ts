@@ -267,12 +267,15 @@ async function forwardTokenRouterRequest(input: ChatInput, signal: AbortSignal) 
   const configuredModel = process.env.TOKENROUTER_MODEL?.trim();
   const configuredClaudeFable5Model = process.env.TOKENROUTER_CLAUDE_FABLE5_MODEL?.trim();
   const configuredClaudeOpus5Model = process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL?.trim();
+  const configuredGlm53Model = process.env.TOKENROUTER_GLM53_MODEL?.trim();
   const upstreamModel = input.model === "qwen3.8-max"
     ? configuredModel
     : input.model === "claude-fable-5"
       ? configuredClaudeFable5Model
       : input.model === "claude-opus-5"
         ? configuredClaudeOpus5Model
+        : input.model === "glm-5.3"
+          ? configuredGlm53Model
         : getTokenForgeUpstreamModelId(String(input.model));
   if (!base || !upstreamModel) throw new Error("TokenForge TokenRouter inference is not configured");
   const requestBody = { ...input, model: upstreamModel };
