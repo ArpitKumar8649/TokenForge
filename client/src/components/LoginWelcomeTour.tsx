@@ -10,6 +10,12 @@ export const LOGIN_WELCOME_TOUR_ARTWORK = {
   qwen: "/manus-storage/qwen-3-8-max-welcome_d02dabaf.jpg",
 } as const;
 
+export function loginWelcomeTourArtworkClass(visual: keyof typeof LOGIN_WELCOME_TOUR_ARTWORK) {
+  return visual === "qwen"
+    ? "absolute inset-0 h-full w-full bg-[#f7f5ff] object-contain object-center"
+    : "absolute inset-0 h-full w-full object-cover object-center";
+}
+
 export type LoginWelcomeUser = {
   id: number;
   name?: string | null;
@@ -136,8 +142,8 @@ export function LoginWelcomeTour({ user }: { user: LoginWelcomeUser | null | und
 
             <div className="relative min-h-44 overflow-hidden rounded-2xl border border-white/10 bg-black/25 shadow-inner sm:min-h-52">
               <div className="absolute inset-x-0 top-0 z-10 h-px bg-white/18" aria-hidden="true" />
-              {activeStep.visual === "fable" && <img src={LOGIN_WELCOME_TOUR_ARTWORK.fable} alt="Claude Fable 5 artwork with a butterfly-inspired letter C" className="absolute inset-0 h-full w-full object-cover object-center" />}
-              {activeStep.visual === "qwen" && <img src={LOGIN_WELCOME_TOUR_ARTWORK.qwen} alt="Qwen 3.8 Max model artwork" className="absolute inset-0 h-full w-full object-cover object-center" />}
+              {activeStep.visual === "fable" && <img src={LOGIN_WELCOME_TOUR_ARTWORK.fable} alt="Claude Fable 5 artwork with a butterfly-inspired letter C" className={loginWelcomeTourArtworkClass("fable")} />}
+              {activeStep.visual === "qwen" && <img src={LOGIN_WELCOME_TOUR_ARTWORK.qwen} alt="Qwen 3.8 Max model artwork" className={loginWelcomeTourArtworkClass("qwen")} />}
               {activeStep.visual === "discord" && <div className="min-h-36"><div className="grid h-11 w-11 place-items-center rounded-xl bg-[#5865f2]/15 text-[#c6ceff]"><MessagesSquare size={20} /></div><p className="mt-4 text-sm font-semibold text-white">TokenForge Discord</p><p className="mt-1 text-[11px] leading-5 text-[#9fa89b]">A direct line for practical support and platform updates.</p><div className="mt-4 flex items-center gap-1.5 text-[10px] font-semibold text-[#bfc7ff]"><Check size={12} /> Ready when you are</div></div>}
             </div>
           </div>

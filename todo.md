@@ -272,3 +272,4 @@
 - [x] Add a mandatory, polished three-step welcome modal after every successful registration or sign-in: Claude Fable 5 announcement, Qwen 3.8 Max announcement, then the existing Discord guidance, with Next/Next/Continue progression only and no outside-click or close-control dismissal.
 - [x] Diagnose and fix the Claude Fable 5 `/v1/messages` failure in Claude Code, using native TokenRouter Anthropic Messages forwarding rather than OpenAI translation when the configured upstream route supports it.
 - [x] Replace the Claude Fable 5 and Qwen 3.8 Max welcome-tour skeleton visuals with the user-supplied artwork, displayed as polished half-card imagery in the first two mandatory modal steps.
+- [x] Correct the Qwen 3.8 Max welcome-tour artwork fit so the full top headline and model composition are visible without crop.
