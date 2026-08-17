@@ -25,6 +25,7 @@ vi.mock("./db", () => ({
   deleteAccountPermanently: vi.fn(),
   grantAdminAccountCredit: vi.fn(),
   grantDiscordVerifiedAccountGiveaway: vi.fn(),
+  listCreditGiveawayHistory: vi.fn(),
   countDiscordVerifiedAccounts: vi.fn(),
   getAuthSessionVersion: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
@@ -76,6 +77,7 @@ import {
   deleteAccountPermanently,
   grantAdminAccountCredit,
   grantDiscordVerifiedAccountGiveaway,
+  listCreditGiveawayHistory,
   countDiscordVerifiedAccounts,
   getAuthSessionVersion,
   getPlatformMaintenanceConfig,
@@ -132,6 +134,7 @@ beforeEach(() => {
   vi.mocked(deleteAccountPermanently).mockResolvedValue(true);
   vi.mocked(countDiscordVerifiedAccounts).mockResolvedValue(2);
   vi.mocked(grantDiscordVerifiedAccountGiveaway).mockResolvedValue({ applied: true, recipientCount: 2, amountNanos: 5_000_000_000, totalAmountNanos: 10_000_000_000 });
+  vi.mocked(listCreditGiveawayHistory).mockResolvedValue([]);
   vi.mocked(getAuthSessionVersion).mockResolvedValue(3);
   vi.mocked(getPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
   vi.mocked(setPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
@@ -431,12 +434,21 @@ describe("protected administrator account directory", () => {
 
   it("credits only the reviewed Discord-verified recipient set from a passcode-issued administrator session and records one aggregate audit event", async () => {
     const admin = { ...localUser, id: 1, isAdminSession: true };
-    const input = { amountUsd: 5, expectedRecipientCount: 2, confirmation: "GIVE $5.00 TO 2 VERIFIED ACCOUNTS" };
+    const input = { amountUsd: 5, announcementNote: "Thank you for verifying your TokenForge Discord membership.", expectedRecipientCount: 2, confirmation: "GIVE $5.00 TO 2 VERIFIED ACCOUNTS" };
 
     await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.giveDiscordVerifiedAccountsCredit(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(appRouter.createCaller(makeContext(admin).ctx).admin.giveDiscordVerifiedAccountsCredit(input)).resolves.toEqual({ applied: true, recipientCount: 2, amountNanos: 5_000_000_000, totalAmountNanos: 10_000_000_000 });
-    expect(grantDiscordVerifiedAccountGiveaway).toHaveBeenCalledWith({ amountNanos: 5_000_000_000, expectedRecipientCount: 2 });
-    expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, action: "account.discord_verified.giveaway_credited", entityType: "credit_giveaway", entityId: "discord_verified", metadata: { amountNanos: 5_000_000_000, recipientCount: 2, totalAmountNanos: 10_000_000_000 } }));
+    expect(grantDiscordVerifiedAccountGiveaway).toHaveBeenCalledWith({ actorUserId: 1, amountNanos: 5_000_000_000, announcementNote: "Thank you for verifying your TokenForge Discord membership.", expectedRecipientCount: 2 });
+    expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, action: "account.discord_verified.giveaway_credited", entityType: "credit_giveaway", entityId: "discord_verified", metadata: { amountNanos: 5_000_000_000, recipientCount: 2, totalAmountNanos: 10_000_000_000, hasAnnouncementNote: true } }));
+  });
+
+  it("exposes completed giveaway history only to a passcode-issued administrator", async () => {
+    const admin = { ...localUser, id: 1, isAdminSession: true };
+    const record = { id: "gift123", actorUserId: 1, amountNanos: 5_000_000_000, recipientCount: 2, totalAmountNanos: 10_000_000_000, announcementNote: "Member appreciation", createdAt: new Date("2026-08-17T12:00:00.000Z") };
+    vi.mocked(listCreditGiveawayHistory).mockResolvedValue([record]);
+
+    await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.giveawayHistory()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.giveawayHistory()).resolves.toEqual([record]);
   });
 
   it("redacts giveaway persistence failures rather than exposing raw database details to an administrator browser", async () => {

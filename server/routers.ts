@@ -34,6 +34,7 @@ import {
   deleteAccountPermanently,
   grantAdminAccountCredit,
   grantDiscordVerifiedAccountGiveaway,
+  listCreditGiveawayHistory,
   getAdminAuditExport,
   getAuthSessionVersion,
   getPlatformMaintenanceConfig,
@@ -97,6 +98,7 @@ const adminCreditGrantInput = z.object({
 });
 const discordVerifiedGiveawayInput = z.object({
   amountUsd: z.number().finite().positive().max(100_000).refine(value => Math.round(value * 100) === value * 100, "Use an amount with no more than two decimal places"),
+  announcementNote: z.string().trim().max(256, "Recipient announcement notes must be 256 characters or fewer").optional(),
   expectedRecipientCount: z.number().int().min(0).max(1_000_000),
   confirmation: z.string().trim().max(160),
 }).superRefine((input, context) => {
@@ -343,11 +345,12 @@ export const appRouter = router({
       return maintenance;
     }),
     discordVerifiedGiveawayRecipients: adminProcedure.query(async () => ({ count: await countDiscordVerifiedAccounts() })),
+    giveawayHistory: adminProcedure.query(() => listCreditGiveawayHistory()),
     giveDiscordVerifiedAccountsCredit: adminProcedure.input(discordVerifiedGiveawayInput).mutation(async ({ ctx, input }) => {
       const amountNanos = Math.round(input.amountUsd * 1_000_000_000);
       let result: Awaited<ReturnType<typeof grantDiscordVerifiedAccountGiveaway>>;
       try {
-        result = await grantDiscordVerifiedAccountGiveaway({ amountNanos, expectedRecipientCount: input.expectedRecipientCount });
+        result = await grantDiscordVerifiedAccountGiveaway({ actorUserId: ctx.user.id, amountNanos, expectedRecipientCount: input.expectedRecipientCount, announcementNote: input.announcementNote });
       } catch (error) {
         console.error("[TokenForge giveaway persistence failure]", error);
         throw new TRPCError({
@@ -362,8 +365,8 @@ export const appRouter = router({
         actorUserId: ctx.user.id,
         action: "account.discord_verified.giveaway_credited",
         entityType: "credit_giveaway",
-        entityId: "discord_verified",
-        metadata: { amountNanos: result.amountNanos, recipientCount: result.recipientCount, totalAmountNanos: result.totalAmountNanos },
+        entityId: result.id ?? "discord_verified",
+        metadata: { amountNanos: result.amountNanos, recipientCount: result.recipientCount, totalAmountNanos: result.totalAmountNanos, hasAnnouncementNote: Boolean(input.announcementNote?.trim()) },
       });
       return result;
     }),

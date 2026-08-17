@@ -7,6 +7,7 @@ import {
   apiKeys,
   auditEvents,
   creditAccounts,
+  creditGiveaways,
   creditLedger,
   dailyCheckins,
   dailyUsage,
@@ -1470,12 +1471,13 @@ export async function countDiscordVerifiedAccounts() {
  * Atomically applies one administrator giveaway to every currently Discord-verified regular account.
  * Each recipient receives an immutable wallet-ledger entry; the caller records one aggregate audit event.
  */
-export async function grantDiscordVerifiedAccountGiveaway(input: { amountNanos: number; expectedRecipientCount: number }) {
+export async function grantDiscordVerifiedAccountGiveaway(input: { actorUserId: number; amountNanos: number; expectedRecipientCount: number; announcementNote?: string }) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const amountNanos = Math.max(0, Math.trunc(input.amountNanos));
   if (!amountNanos) throw new Error("Giveaway amount must be positive");
   const expectedRecipientCount = Math.max(0, Math.trunc(input.expectedRecipientCount));
+  const announcementNote = input.announcementNote?.trim() || null;
   return db.transaction(async tx => {
     const recipients = await tx.select({ userId: users.id })
       .from(users)
@@ -1507,15 +1509,32 @@ export async function grantDiscordVerifiedAccountGiveaway(input: { amountNanos: 
       amountNanos,
       balanceAfterNanos: account.balanceNanos,
       referenceId: `discord-giveaway:${giveawayId}:${account.userId}`,
-      note: "Administrator giveaway for Discord-verified accounts",
+      note: announcementNote ?? "Discord-verified account giveaway",
     })));
+    await tx.insert(creditGiveaways).values({
+      id: giveawayId,
+      actorUserId: input.actorUserId,
+      amountNanos,
+      recipientCount: balances.length,
+      totalAmountNanos: amountNanos * balances.length,
+      announcementNote,
+    });
     return {
       applied: true as const,
+      id: giveawayId,
       recipientCount: balances.length,
       amountNanos,
       totalAmountNanos: amountNanos * balances.length,
     };
   });
+}
+
+/** Returns completed giveaway records for the administrator-only operational history. */
+export async function listCreditGiveawayHistory(limit = 40) {
+  const db = await getDb();
+  if (!db) return [];
+  const boundedLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
+  return db.select().from(creditGiveaways).orderBy(desc(creditGiveaways.createdAt)).limit(boundedLimit);
 }
 
 /** Adds a positive administrator credit grant and immutable wallet-ledger record for an existing account. */

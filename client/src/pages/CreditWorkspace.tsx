@@ -208,7 +208,7 @@ export function Profile() {
           const amount = Number(entry.amountNanos);
           const descriptor = ledgerDescriptor(entry.kind);
           const Icon = descriptor.icon;
-          return <article key={entry.id} className={`ledger-row${amount > 0 ? " ledger-row--credit" : ""}`}><span className="ledger-row__icon"><Icon size={16} /></span><div className="ledger-row__copy"><b>{descriptor.title}</b><small>{descriptor.detail} · {new Date(entry.createdAt).toLocaleString()}</small></div><strong>{amount > 0 ? "+" : "−"}{formatCreditNanos(Math.abs(amount))}</strong></article>;
+          return <article key={entry.id} className={`ledger-row${amount > 0 ? " ledger-row--credit" : ""}`}><span className="ledger-row__icon"><Icon size={16} /></span><div className="ledger-row__copy"><b>{descriptor.title}</b><small>{entry.note ?? descriptor.detail} · {new Date(entry.createdAt).toLocaleString()}</small></div><strong>{amount > 0 ? "+" : "−"}{formatCreditNanos(Math.abs(amount))}</strong></article>;
         }) : <div className="ledger-empty"><ArrowDownLeft size={19} /><div><b>Your wallet is ready.</b><span>Introductory credit will appear here the first time the wallet is initialized.</span></div></div>}</div>
       </section>
     </div>

@@ -217,6 +217,21 @@ export const creditLedger = mysqlTable(
   ],
 );
 
+/** One immutable aggregate record for each administrator giveaway, paired with per-recipient ledger entries. */
+export const creditGiveaways = mysqlTable(
+  "credit_giveaways",
+  {
+    id: varchar("id", { length: 32 }).primaryKey(),
+    actorUserId: int("actorUserId").references(() => users.id, { onDelete: "set null" }),
+    amountNanos: bigint("amountNanos", { mode: "number" }).notNull(),
+    recipientCount: int("recipientCount").notNull(),
+    totalAmountNanos: bigint("totalAmountNanos", { mode: "number" }).notNull(),
+    announcementNote: varchar("announcementNote", { length: 256 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [index("credit_giveaways_created_idx").on(table.createdAt)],
+);
+
 /** A unique UTC-day record prevents concurrent requests from receiving more than one daily check-in reward. */
 export const dailyCheckins = mysqlTable(
   "daily_checkins",
@@ -344,6 +359,7 @@ export type UsageEvent = typeof usageEvents.$inferSelect;
 export type DailyUsage = typeof dailyUsage.$inferSelect;
 export type CreditAccount = typeof creditAccounts.$inferSelect;
 export type CreditLedgerEntry = typeof creditLedger.$inferSelect;
+export type CreditGiveaway = typeof creditGiveaways.$inferSelect;
 export type DailyCheckin = typeof dailyCheckins.$inferSelect;
 export type ProviderConfig = typeof providerConfigs.$inferSelect;
 export type OrcaRouterCredentialSlot = typeof orcaRouterCredentialSlots.$inferSelect;
