@@ -5,7 +5,6 @@ vi.mock("./db", () => ({
   getPlatformMaintenanceConfig: vi.fn(),
   getQuotaStatus: vi.fn(),
   getModelAvailabilitySnapshot: vi.fn(),
-  getRecentRequestCounts: vi.fn(),
   isModelAvailable: vi.fn(),
   loadOrcaRouterCredentialSlotCiphertexts: vi.fn(),
   recordUsage: vi.fn(),
@@ -14,10 +13,7 @@ vi.mock("./db", () => ({
   touchApiKey: vi.fn(),
 }));
 
-vi.mock("./operationalAlerts", () => ({ raiseOperationalAlert: vi.fn() }));
-
-import { getPlatformMaintenanceConfig, getQuotaStatus, getRecentRequestCounts, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordUsage, reserveCredit, settleReservedCredit } from "./db";
-import { raiseOperationalAlert } from "./operationalAlerts";
+import { getPlatformMaintenanceConfig, getQuotaStatus, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordUsage, reserveCredit, settleReservedCredit } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, runPlaygroundCompletion, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
@@ -67,7 +63,6 @@ beforeEach(() => {
   vi.mocked(getPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
-  vi.mocked(getRecentRequestCounts).mockResolvedValue({ account: 0, ip: 0 });
   vi.mocked(recordUsage).mockResolvedValue(undefined);
   vi.mocked(reserveCredit).mockResolvedValue({ authorized: true, balanceNanos: 49_990_000_000 });
   vi.mocked(settleReservedCredit).mockImplementation(async ({ finalChargeNanos }) => ({
@@ -86,6 +81,25 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("TokenForge Playground gateway", () => {
+  it("admits simultaneous Playground requests without consulting per-minute counts or concurrent-slot limits", async () => {
+    vi.mocked(getQuotaStatus).mockResolvedValue({ ...availableQuota, maxConcurrentRequests: 0, requestLimit: 0, tokenLimit: 0, remainingRequests: 0, remainingTokens: 0 });
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+      choices: [{ message: { content: "Accepted without a platform request cap." } }],
+      usage: { prompt_tokens: 4, completion_tokens: 6, total_tokens: 10 },
+    }), { status: 200, headers: { "content-type": "application/json" } })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const results = await Promise.all([
+      runPlaygroundCompletion({ userId: 42, model: "glm-5.2", messages: [{ role: "user", content: "First concurrent request" }], sourceIpHash: "same-ip" }),
+      runPlaygroundCompletion({ userId: 42, model: "glm-5.2", messages: [{ role: "user", content: "Second concurrent request" }], sourceIpHash: "same-ip" }),
+    ]);
+
+    expect(results).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(reserveCredit).toHaveBeenCalledTimes(2);
+    expect(recordUsage).toHaveBeenCalledTimes(2);
+  });
+
   it("stops before model availability, credits, and provider work when global maintenance is active", async () => {
     vi.mocked(getPlatformMaintenanceConfig).mockResolvedValueOnce({ enabled: true, updatedAt: new Date("2026-08-17T00:00:00.000Z") });
     const fetchMock = vi.fn();

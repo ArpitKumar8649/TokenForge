@@ -5,14 +5,12 @@ import {
   getPlatformMaintenanceConfig,
   getQuotaStatus,
   getModelAvailabilitySnapshot,
-  getRecentRequestCounts,
   isModelAvailable,
   recordUsage,
   reserveCredit,
   settleReservedCredit,
   touchApiKey,
 } from "./db";
-import { raiseOperationalAlert } from "./operationalAlerts";
 import { selectNextClusterProtocolCredentialWithSlot } from "./clusterProtocolCredentials";
 import { selectNextFxqidianCredentialWithSlot } from "./fxqidianCredentials";
 import { selectNextOrcaRouterCredentialWithSlot } from "./orcaRouterCredentials";
@@ -31,11 +29,7 @@ export const TOKENFORGE_CATALOGUE = TOKENFORGE_MODEL_CATALOGUE.map(model => ({
 }));
 
 const MODELS = new Set<string>(TOKENFORGE_CATALOGUE.map(model => model.id));
-const ACCOUNT_RATE_LIMIT_PER_MINUTE = 20;
-const IP_RATE_LIMIT_PER_MINUTE = 40;
-const RATE_WINDOW_SECONDS = 60;
 const PROVIDER_TIMEOUT_MS = 110_000;
-const activeRequests = new Map<number, number>();
 
 export type TokenForgeChatMessage = { role?: string; content?: unknown };
 type ChatMessage = TokenForgeChatMessage;
@@ -99,7 +93,7 @@ export function playgroundMessagesForModel(model: TokenForgeModelId, messages: T
   return [{ role: "system", content: systemContent }, ...conversationalMessages];
 }
 
-type PlaygroundFailureCode = "model_not_found" | "model_unavailable" | "invalid_messages" | "account_suspended" | "quota_exceeded" | "insufficient_credits" | "rate_limited" | "provider_unavailable" | "platform_maintenance";
+type PlaygroundFailureCode = "model_not_found" | "model_unavailable" | "invalid_messages" | "account_suspended" | "insufficient_credits" | "provider_unavailable" | "platform_maintenance";
 
 export class TokenForgePlaygroundError extends Error {
   constructor(public readonly code: PlaygroundFailureCode, message: string) {
@@ -126,7 +120,7 @@ export function tokenForgeRequestIpHash(req: Pick<Request, "header" | "ip">) {
 }
 
 export function tokenForgeRateHeaders(limit: number, remaining: number) {
-  const reset = Math.ceil(Date.now() / 1000) + RATE_WINDOW_SECONDS;
+  const reset = Math.ceil(Date.now() / 1000) + 60;
   return {
     "x-ratelimit-limit": limit,
     "x-ratelimit-remaining": Math.max(0, remaining),
@@ -160,19 +154,6 @@ function normalizedTokens(usage: Usage, inputEstimate: number) {
   const inputTokens = Number(usage.prompt_tokens ?? usage.input_tokens ?? inputEstimate);
   const outputTokens = Number(usage.completion_tokens ?? usage.output_tokens ?? Math.max(0, Number(usage.total_tokens ?? inputTokens) - inputTokens));
   return { inputTokens, outputTokens };
-}
-
-function acquireRequestSlot(userId: number, maxConcurrentRequests: number) {
-  const inFlight = activeRequests.get(userId) ?? 0;
-  if (inFlight >= maxConcurrentRequests) return false;
-  activeRequests.set(userId, inFlight + 1);
-  return true;
-}
-
-function releaseRequestSlot(userId: number) {
-  const next = (activeRequests.get(userId) ?? 1) - 1;
-  if (next <= 0) activeRequests.delete(userId);
-  else activeRequests.set(userId, next);
 }
 
 type CredentialSelection = { credential: string; slot: number; poolSize: number };
@@ -388,27 +369,13 @@ export async function runPlaygroundCompletion(input: {
   }
 
   const quota = await getQuotaStatus(input.userId);
-  if (!quota) throw new TokenForgePlaygroundError("provider_unavailable", "Quota state is temporarily unavailable. Retry shortly.");
+  if (!quota) throw new TokenForgePlaygroundError("provider_unavailable", "Account status is temporarily unavailable. Retry shortly.");
   if (quota.suspended) throw new TokenForgePlaygroundError("account_suspended", "This account is currently suspended.");
-
-  const recent = await getRecentRequestCounts(input.userId, input.sourceIpHash, new Date(Date.now() - RATE_WINDOW_SECONDS * 1_000));
-  if (recent.account >= ACCOUNT_RATE_LIMIT_PER_MINUTE || recent.ip >= IP_RATE_LIMIT_PER_MINUTE) {
-    void raiseOperationalAlert("rate_circuit", { userId: input.userId, requestId, reason: "Playground per-minute account or source-IP rate threshold exceeded" });
-    if (recent.account >= ACCOUNT_RATE_LIMIT_PER_MINUTE * 2 || recent.ip >= IP_RATE_LIMIT_PER_MINUTE * 2) {
-      void raiseOperationalAlert("suspicious_usage", { userId: input.userId, requestId, reason: "Playground repeated rate-limit behavior exceeded the suspicious-usage threshold" });
-    }
-    throw new TokenForgePlaygroundError("rate_limited", "Rate limit reached. Slow down briefly and retry.");
-  }
 
   const estimatedInputTokens = estimateInputTokens(input.messages);
   const reservedNanos = calculateCreditChargeNanos(input.model, estimatedInputTokens, normalizedBillableMaxOutputTokens(input.maxOutputTokens));
   const reservation = await reserveCredit(input.userId, reservedNanos, requestId);
   if (!reservation.authorized) throw new TokenForgePlaygroundError("insufficient_credits", "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.");
-  if (!acquireRequestSlot(input.userId, quota.maxConcurrentRequests)) {
-    await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Request was not started because the concurrency limit was reached" });
-    void raiseOperationalAlert("rate_circuit", { userId: input.userId, requestId, reason: "Playground per-account concurrent-request circuit breaker triggered" });
-    throw new TokenForgePlaygroundError("rate_limited", "This account has reached its concurrent-request limit. Wait for an active request to finish.");
-  }
 
   const aborter = new AbortController();
   const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
@@ -455,7 +422,6 @@ export async function runPlaygroundCompletion(input: {
     throw new TokenForgePlaygroundError("provider_unavailable", message);
   } finally {
     clearTimeout(timeout);
-    releaseRequestSlot(input.userId);
   }
 }
 
@@ -488,23 +454,13 @@ async function streamPlaygroundCompletion(input: {
     throw new TokenForgePlaygroundError("model_unavailable", "The requested model is currently unavailable in the active TokenForge catalogue.");
   }
   const quota = await getQuotaStatus(input.userId);
-  if (!quota) throw new TokenForgePlaygroundError("provider_unavailable", "Quota state is temporarily unavailable. Retry shortly.");
+  if (!quota) throw new TokenForgePlaygroundError("provider_unavailable", "Account status is temporarily unavailable. Retry shortly.");
   if (quota.suspended) throw new TokenForgePlaygroundError("account_suspended", "This account is currently suspended.");
-
-  const recent = await getRecentRequestCounts(input.userId, input.sourceIpHash, new Date(Date.now() - RATE_WINDOW_SECONDS * 1_000));
-  if (recent.account >= ACCOUNT_RATE_LIMIT_PER_MINUTE || recent.ip >= IP_RATE_LIMIT_PER_MINUTE) {
-    void raiseOperationalAlert("rate_circuit", { userId: input.userId, requestId, reason: "Playground stream per-minute account or source-IP rate threshold exceeded" });
-    throw new TokenForgePlaygroundError("rate_limited", "Rate limit reached. Slow down briefly and retry.");
-  }
 
   const estimatedInputTokens = estimateInputTokens(input.messages);
   const reservedNanos = calculateCreditChargeNanos(input.model, estimatedInputTokens, normalizedBillableMaxOutputTokens(input.maxOutputTokens));
   const reservation = await reserveCredit(input.userId, reservedNanos, requestId);
   if (!reservation.authorized) throw new TokenForgePlaygroundError("insufficient_credits", "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.");
-  if (!acquireRequestSlot(input.userId, quota.maxConcurrentRequests)) {
-    await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Request was not started because the concurrency limit was reached" });
-    throw new TokenForgePlaygroundError("rate_limited", "This account has reached its concurrent-request limit. Wait for an active request to finish.");
-  }
 
   const aborter = new AbortController();
   const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
@@ -535,7 +491,6 @@ async function streamPlaygroundCompletion(input: {
     input.res.setHeader("content-type", "text/event-stream; charset=utf-8");
     input.res.setHeader("cache-control", "no-cache, no-transform");
     input.res.setHeader("connection", "keep-alive");
-    for (const [name, value] of Object.entries(tokenForgeRateHeaders(quota.requestLimit, quota.remainingRequests - 1))) input.res.setHeader(name, String(value));
     input.res.flushHeaders();
 
     const decoder = new TextDecoder();
@@ -568,12 +523,10 @@ async function streamPlaygroundCompletion(input: {
       const settlement = await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos, releaseReason: streamFailed ? "Playground streaming request was cancelled" : undefined });
       await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: streamFailed ? "cancelled" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: input.sourceIpHash });
       input.res.write(`event: tokenforge:usage\ndata: ${JSON.stringify({ requestId, model: input.model, usage: { promptTokens: tokens.inputTokens, completionTokens: tokens.outputTokens, totalTokens: tokens.inputTokens + tokens.outputTokens }, credit: { balanceNanos: settlement.balanceNanos, chargeNanos: settlement.chargedNanos } })}\n\n`);
-      releaseRequestSlot(input.userId);
       input.res.end();
     }
   } catch (error) {
     clearTimeout(timeout);
-    releaseRequestSlot(input.userId);
     if (error instanceof TokenForgePlaygroundError) throw error;
     await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Playground streaming request did not complete" });
     await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: "provider_error", sourceIpHash: input.sourceIpHash });
@@ -601,7 +554,7 @@ export function registerPlaygroundGateway(app: Express) {
     } catch (error) {
       if (res.headersSent) return;
       if (error instanceof TokenForgePlaygroundError) {
-        const status = error.code === "model_not_found" ? 404 : error.code === "model_unavailable" || error.code === "provider_unavailable" || error.code === "platform_maintenance" ? 503 : error.code === "account_suspended" ? 403 : error.code === "insufficient_credits" ? 402 : error.code === "rate_limited" ? 429 : 400;
+        const status = error.code === "model_not_found" ? 404 : error.code === "model_unavailable" || error.code === "provider_unavailable" || error.code === "platform_maintenance" ? 503 : error.code === "account_suspended" ? 403 : error.code === "insufficient_credits" ? 402 : 400;
         return errorResponse(res, `tf_pg_${randomUUID().replaceAll("-", "")}`, status, error.message, error.code);
       }
       return errorResponse(res, `tf_pg_${randomUUID().replaceAll("-", "")}`, 503, "The selected provider is temporarily unavailable.", "provider_unavailable");
@@ -643,27 +596,13 @@ export function registerOpenAiGateway(app: Express) {
 
     const ipHash = tokenForgeRequestIpHash(req);
     const quota = await getQuotaStatus(key.userId);
-    if (!quota) return errorResponse(res, requestId, 503, "Quota state is temporarily unavailable. Retry shortly.", "quota_unavailable");
-    const headers = tokenForgeRateHeaders(ACCOUNT_RATE_LIMIT_PER_MINUTE, ACCOUNT_RATE_LIMIT_PER_MINUTE);
-    if (quota.suspended) return errorResponse(res, requestId, 403, "This account is currently suspended.", "account_suspended", headers);
-
-    const recent = await getRecentRequestCounts(key.userId, ipHash, new Date(Date.now() - RATE_WINDOW_SECONDS * 1_000));
-    if (recent.account >= ACCOUNT_RATE_LIMIT_PER_MINUTE || recent.ip >= IP_RATE_LIMIT_PER_MINUTE) {
-      void raiseOperationalAlert("rate_circuit", { userId: key.userId, requestId, reason: "Per-minute account or source-IP rate threshold exceeded" });
-      if (recent.account >= ACCOUNT_RATE_LIMIT_PER_MINUTE * 2 || recent.ip >= IP_RATE_LIMIT_PER_MINUTE * 2) void raiseOperationalAlert("suspicious_usage", { userId: key.userId, requestId, reason: "Repeated rate-limit behavior exceeded the suspicious-usage threshold" });
-      return errorResponse(res, requestId, 429, "Rate limit reached. Slow down briefly and retry using the supplied rate-limit headers.", "rate_limited", { ...tokenForgeRateHeaders(ACCOUNT_RATE_LIMIT_PER_MINUTE, ACCOUNT_RATE_LIMIT_PER_MINUTE - recent.account), "retry-after": RATE_WINDOW_SECONDS });
-    }
+    if (!quota) return errorResponse(res, requestId, 503, "Account status is temporarily unavailable. Retry shortly.", "account_unavailable");
+    if (quota.suspended) return errorResponse(res, requestId, 403, "This account is currently suspended.", "account_suspended");
 
     const estimatedInputTokens = estimateInputTokens(input.messages);
     const reservedNanos = calculateCreditChargeNanos(input.model as TokenForgeModelId, estimatedInputTokens, normalizedBillableMaxOutputTokens(input.max_tokens));
     const reservation = await reserveCredit(key.userId, reservedNanos, requestId);
-    if (!reservation.authorized) return errorResponse(res, requestId, 402, "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.", "insufficient_credits", headers);
-
-    if (!acquireRequestSlot(key.userId, quota.maxConcurrentRequests)) {
-      await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Request was not started because the concurrency limit was reached" });
-      void raiseOperationalAlert("rate_circuit", { userId: key.userId, requestId, reason: "Per-account concurrent-request circuit breaker triggered" });
-      return errorResponse(res, requestId, 429, "This account has reached its concurrent-request limit. Wait for an active request to finish.", "rate_limited", { ...headers, "retry-after": 5 });
-    }
+    if (!reservation.authorized) return errorResponse(res, requestId, 402, "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.", "insufficient_credits");
 
     const aborter = new AbortController();
     const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
@@ -675,16 +614,14 @@ export function registerOpenAiGateway(app: Express) {
       }, aborter.signal);
     } catch (error) {
       clearTimeout(timeout);
-      releaseRequestSlot(key.userId);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request did not complete" });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
       const message = error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.";
-      return errorResponse(res, requestId, 503, message, "provider_unavailable", headers);
+      return errorResponse(res, requestId, 503, message, "provider_unavailable");
     }
 
     if (!upstream.ok) {
       clearTimeout(timeout);
-      releaseRequestSlot(key.userId);
       const payload = await upstream.json().catch(() => null);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request was not completed" });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
@@ -692,7 +629,7 @@ export function registerOpenAiGateway(app: Express) {
       const message = status === 503 && (upstream.status === 401 || upstream.status === 403)
         ? "The selected provider temporarily denied this request after secure credential failover. Retry shortly or choose another model."
         : upstreamError(payload);
-      return errorResponse(res, requestId, status, message, "provider_unavailable", headers);
+      return errorResponse(res, requestId, status, message, "provider_unavailable");
     }
 
     await touchApiKey(key.id);
@@ -700,20 +637,17 @@ export function registerOpenAiGateway(app: Express) {
       clearTimeout(timeout);
       const payload = await upstream.json().catch(() => null);
       if (!payload) {
-        releaseRequestSlot(key.userId);
         await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider response was invalid" });
         await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash });
-        return errorResponse(res, requestId, 503, "The selected provider returned an invalid response.", "provider_unavailable", headers);
+        return errorResponse(res, requestId, 503, "The selected provider returned an invalid response.", "provider_unavailable");
       }
       const tokens = normalizedTokens(usageFrom(payload), estimatedInputTokens);
       const chargeNanos = calculateCreditChargeNanos(input.model as TokenForgeModelId, tokens.inputTokens, tokens.outputTokens);
       const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: false, status: "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
-      releaseRequestSlot(key.userId);
       res.setHeader("x-request-id", requestId);
       res.setHeader("x-tokenforge-credit-balance", String(settlement.balanceNanos));
       res.setHeader("x-tokenforge-credit-charge", String(settlement.chargedNanos));
-      for (const [name, value] of Object.entries(tokenForgeRateHeaders(quota.requestLimit, quota.remainingRequests - 1))) res.setHeader(name, String(value));
       return res.status(200).json(payload);
     }
 
@@ -722,15 +656,13 @@ export function registerOpenAiGateway(app: Express) {
     res.setHeader("content-type", "text/event-stream; charset=utf-8");
     res.setHeader("cache-control", "no-cache, no-transform");
     res.setHeader("connection", "keep-alive");
-    for (const [name, value] of Object.entries(tokenForgeRateHeaders(quota.requestLimit, quota.remainingRequests - 1))) res.setHeader(name, String(value));
     res.flushHeaders();
 
     const reader = upstream.body?.getReader();
     if (!reader) {
       clearTimeout(timeout);
-      releaseRequestSlot(key.userId);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider returned an empty stream" });
-      return errorResponse(res, requestId, 503, "The selected provider returned an empty stream.", "provider_unavailable", headers);
+      return errorResponse(res, requestId, 503, "The selected provider returned an empty stream.", "provider_unavailable");
     }
 
     const decoder = new TextDecoder();
@@ -762,7 +694,6 @@ export function registerOpenAiGateway(app: Express) {
       const chargeNanos = streamFailed ? 0 : calculateCreditChargeNanos(input.model as TokenForgeModelId, tokens.inputTokens, tokens.outputTokens);
       const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos, releaseReason: streamFailed ? "Streaming request was cancelled" : undefined });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: true, status: streamFailed ? "cancelled" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
-      releaseRequestSlot(key.userId);
       res.end();
     }
   });

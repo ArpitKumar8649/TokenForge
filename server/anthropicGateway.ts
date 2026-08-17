@@ -4,21 +4,18 @@ import {
   findActiveApiKey,
   getPlatformMaintenanceConfig,
   getQuotaStatus,
-  getRecentRequestCounts,
   isModelAvailable,
   recordUsage,
   reserveCredit,
   settleReservedCredit,
   touchApiKey,
 } from "./db";
-import { raiseOperationalAlert } from "./operationalAlerts";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
 import {
   forwardProviderRequest,
   forwardTokenRouterAnthropicMessagesRequest,
   modelScopedGuidance,
   publicProviderFailureStatus,
-  tokenForgeRateHeaders,
   tokenForgeRequestIpHash,
   type TokenForgeChatInput,
   type TokenForgeChatMessage,
@@ -26,14 +23,10 @@ import {
 } from "./openaiGateway";
 import { CLUSTER_PROTOCOL_PROVIDER_SLUG, getTokenForgeProviderSlug, isTokenForgeModelId, type TokenForgeModelId } from "./modelCatalogue";
 
-const RATE_WINDOW_SECONDS = 60;
-const ACCOUNT_RATE_LIMIT_PER_MINUTE = 20;
-const IP_RATE_LIMIT_PER_MINUTE = 40;
 const PROVIDER_TIMEOUT_MS = 110_000;
 const TOKENROUTER_CLAUDE_COMPACTION_TRIGGER = 90;
 const TOKENROUTER_CLAUDE_RECENT_CONTEXT_TARGET = 60;
 const COMPACTED_HISTORY_NOTICE = "[Earlier conversation history has been compacted by TokenForge to fit the provider message-entry limit. Continue from the remaining recent context.]";
-const activeRequests = new Map<number, number>();
 
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number };
 type AnthropicRequest = { model?: unknown; messages?: unknown; system?: unknown; tools?: unknown; stream?: unknown; max_tokens?: unknown; temperature?: unknown; [key: string]: unknown };
@@ -352,19 +345,6 @@ function normalizedTokens(usage: Usage, inputEstimate: number) {
   return { inputTokens, outputTokens };
 }
 
-function reserveSlot(userId: number, limit: number) {
-  const active = activeRequests.get(userId) ?? 0;
-  if (active >= limit) return false;
-  activeRequests.set(userId, active + 1);
-  return true;
-}
-
-function releaseSlot(userId: number) {
-  const next = (activeRequests.get(userId) ?? 1) - 1;
-  if (next <= 0) activeRequests.delete(userId);
-  else activeRequests.set(userId, next);
-}
-
 function toStopReason(reason: unknown) {
   if (reason === "tool_calls") return "tool_use";
   if (reason === "length") return "max_tokens";
@@ -412,23 +392,13 @@ async function handleNativeTokenRouterMessagesRequest(req: Request, res: Respons
 
   const ipHash = tokenForgeRequestIpHash(req);
   const quota = await getQuotaStatus(key.userId);
-  if (!quota) return respondError(res, requestId, 503, "api_error", "Quota state is temporarily unavailable. Retry shortly.");
-  const rateHeaders = tokenForgeRateHeaders(ACCOUNT_RATE_LIMIT_PER_MINUTE, ACCOUNT_RATE_LIMIT_PER_MINUTE);
-  if (quota.suspended) return respondError(res, requestId, 403, "permission_error", "This account is currently suspended.", rateHeaders);
-  const recent = await getRecentRequestCounts(key.userId, ipHash, new Date(Date.now() - RATE_WINDOW_SECONDS * 1_000));
-  if (recent.account >= ACCOUNT_RATE_LIMIT_PER_MINUTE || recent.ip >= IP_RATE_LIMIT_PER_MINUTE) {
-    void raiseOperationalAlert("rate_circuit", { userId: key.userId, requestId, reason: "Native TokenRouter Messages per-minute account or source-IP rate threshold exceeded" });
-    return respondError(res, requestId, 429, "rate_limit_error", "Rate limit reached. Slow down briefly and retry.", { ...tokenForgeRateHeaders(ACCOUNT_RATE_LIMIT_PER_MINUTE, ACCOUNT_RATE_LIMIT_PER_MINUTE - recent.account), "retry-after": RATE_WINDOW_SECONDS });
-  }
+  if (!quota) return respondError(res, requestId, 503, "api_error", "Account status is temporarily unavailable. Retry shortly.");
+  if (quota.suspended) return respondError(res, requestId, 403, "permission_error", "This account is currently suspended.");
 
   const estimatedInputTokens = estimateNativeAnthropicInputTokens(input);
   const reservedNanos = calculateCreditChargeNanos(model, estimatedInputTokens, normalizedBillableMaxOutputTokens(input.max_tokens));
   const reservation = await reserveCredit(key.userId, reservedNanos, requestId);
-  if (!reservation.authorized) return respondError(res, requestId, 402, "permission_error", "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.", rateHeaders);
-  if (!reserveSlot(key.userId, quota.maxConcurrentRequests)) {
-    await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Native TokenRouter Messages request was not started because the concurrency limit was reached" });
-    return respondError(res, requestId, 429, "rate_limit_error", "This account has reached its concurrent-request limit. Wait for an active request to finish.", { ...rateHeaders, "retry-after": 5 });
-  }
+  if (!reservation.authorized) return respondError(res, requestId, 402, "permission_error", "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.");
 
   const aborter = new AbortController();
   const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
@@ -437,21 +407,19 @@ async function handleNativeTokenRouterMessagesRequest(req: Request, res: Respons
     upstream = await forwardTokenRouterAnthropicMessagesRequest(input, aborter.signal, req.header("anthropic-beta")?.trim());
   } catch (error) {
     clearTimeout(timeout);
-    releaseSlot(key.userId);
     await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Native TokenRouter Messages provider request did not complete" });
     await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
-    return respondError(res, requestId, 503, "api_error", error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.", rateHeaders);
+    return respondError(res, requestId, 503, "api_error", error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.");
   }
   if (!upstream.ok) {
     clearTimeout(timeout);
-    releaseSlot(key.userId);
     await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Native TokenRouter Messages provider returned an error" });
     await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
     const status = publicProviderFailureStatus(upstream.status);
     const message = status === 503 && (upstream.status === 401 || upstream.status === 403)
       ? "The selected provider temporarily denied this request after secure credential failover. Retry shortly or choose another model."
       : "The selected provider could not process this request.";
-    return respondError(res, requestId, status, "api_error", message, rateHeaders);
+    return respondError(res, requestId, status, "api_error", message);
   }
   await touchApiKey(key.id);
 
@@ -460,21 +428,18 @@ async function handleNativeTokenRouterMessagesRequest(req: Request, res: Respons
     const payload = await upstream.json().catch(() => null);
     const response = nativeTokenRouterResponse(model, payload);
     if (!response) {
-      releaseSlot(key.userId);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Native TokenRouter Messages provider returned an invalid response" });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash });
-      return respondError(res, requestId, 503, "api_error", "The selected provider returned an invalid response.", rateHeaders);
+      return respondError(res, requestId, 503, "api_error", "The selected provider returned an invalid response.");
     }
     const tokens = normalizedTokens(usageFrom(response), estimatedInputTokens);
     const chargeNanos = calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
     const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos });
     await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
-    releaseSlot(key.userId);
     res.setHeader("request-id", requestId);
     res.setHeader("x-request-id", requestId);
     res.setHeader("x-tokenforge-credit-balance", String(settlement.balanceNanos));
     res.setHeader("x-tokenforge-credit-charge", String(settlement.chargedNanos));
-    for (const [name, value] of Object.entries(tokenForgeRateHeaders(quota.requestLimit, quota.remainingRequests - 1))) res.setHeader(name, String(value));
     return res.status(200).json(response);
   }
 
@@ -484,12 +449,10 @@ async function handleNativeTokenRouterMessagesRequest(req: Request, res: Respons
   res.setHeader("content-type", "text/event-stream; charset=utf-8");
   res.setHeader("cache-control", "no-cache, no-transform");
   res.setHeader("connection", "keep-alive");
-  for (const [name, value] of Object.entries(tokenForgeRateHeaders(quota.requestLimit, quota.remainingRequests - 1))) res.setHeader(name, String(value));
   res.flushHeaders();
   const reader = upstream.body?.getReader();
   if (!reader) {
     clearTimeout(timeout);
-    releaseSlot(key.userId);
     await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Native TokenRouter Messages provider returned an empty stream" });
     return res.end();
   }
@@ -535,7 +498,6 @@ async function handleNativeTokenRouterMessagesRequest(req: Request, res: Respons
     const chargeNanos = failed ? 0 : calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
     const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos, ...(failed ? { releaseReason: "Native TokenRouter Messages stream did not complete" } : {}) });
     await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: true, status: failed ? "provider_error" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
-    releaseSlot(key.userId);
     res.end();
   }
 }
@@ -572,23 +534,13 @@ export function registerAnthropicMessagesGateway(app: Express) {
 
     const ipHash = tokenForgeRequestIpHash(req);
     const quota = await getQuotaStatus(key.userId);
-    if (!quota) return respondError(res, requestId, 503, "api_error", "Quota state is temporarily unavailable. Retry shortly.");
-    const rateHeaders = tokenForgeRateHeaders(ACCOUNT_RATE_LIMIT_PER_MINUTE, ACCOUNT_RATE_LIMIT_PER_MINUTE);
-    if (quota.suspended) return respondError(res, requestId, 403, "permission_error", "This account is currently suspended.", rateHeaders);
-    const recent = await getRecentRequestCounts(key.userId, ipHash, new Date(Date.now() - RATE_WINDOW_SECONDS * 1_000));
-    if (recent.account >= ACCOUNT_RATE_LIMIT_PER_MINUTE || recent.ip >= IP_RATE_LIMIT_PER_MINUTE) {
-      void raiseOperationalAlert("rate_circuit", { userId: key.userId, requestId, reason: "Anthropic Messages per-minute account or source-IP rate threshold exceeded" });
-      return respondError(res, requestId, 429, "rate_limit_error", "Rate limit reached. Slow down briefly and retry.", { ...tokenForgeRateHeaders(ACCOUNT_RATE_LIMIT_PER_MINUTE, ACCOUNT_RATE_LIMIT_PER_MINUTE - recent.account), "retry-after": RATE_WINDOW_SECONDS });
-    }
+    if (!quota) return respondError(res, requestId, 503, "api_error", "Account status is temporarily unavailable. Retry shortly.");
+    if (quota.suspended) return respondError(res, requestId, 403, "permission_error", "This account is currently suspended.");
 
     const estimatedInputTokens = estimateInputTokens(upstreamInput.messages ?? []);
     const reservedNanos = calculateCreditChargeNanos(model, estimatedInputTokens, normalizedBillableMaxOutputTokens(upstreamInput.max_tokens));
     const reservation = await reserveCredit(key.userId, reservedNanos, requestId);
-    if (!reservation.authorized) return respondError(res, requestId, 402, "permission_error", "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.", rateHeaders);
-    if (!reserveSlot(key.userId, quota.maxConcurrentRequests)) {
-      await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages request was not started because the concurrency limit was reached" });
-      return respondError(res, requestId, 429, "rate_limit_error", "This account has reached its concurrent-request limit. Wait for an active request to finish.", { ...rateHeaders, "retry-after": 5 });
-    }
+    if (!reservation.authorized) return respondError(res, requestId, 402, "permission_error", "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.");
 
     const aborter = new AbortController();
     const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
@@ -597,21 +549,19 @@ export function registerAnthropicMessagesGateway(app: Express) {
       upstream = await forwardProviderRequest(model, upstreamInput, aborter.signal);
     } catch (error) {
       clearTimeout(timeout);
-      releaseSlot(key.userId);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages provider request did not complete" });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
-      return respondError(res, requestId, 503, "api_error", error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.", rateHeaders);
+      return respondError(res, requestId, 503, "api_error", error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.");
     }
     if (!upstream.ok) {
       clearTimeout(timeout);
-      releaseSlot(key.userId);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages provider returned an error" });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
       const status = publicProviderFailureStatus(upstream.status);
       const message = status === 503 && (upstream.status === 401 || upstream.status === 403)
         ? "The selected provider temporarily denied this request after secure credential failover. Retry shortly or choose another model."
         : "The selected provider could not process this request.";
-      return respondError(res, requestId, status, "api_error", message, rateHeaders);
+      return respondError(res, requestId, status, "api_error", message);
     }
     await touchApiKey(key.id);
 
@@ -619,10 +569,9 @@ export function registerAnthropicMessagesGateway(app: Express) {
       clearTimeout(timeout);
       const payload = await upstream.json().catch(() => null);
       if (!payload) {
-        releaseSlot(key.userId);
         await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages provider returned an invalid response" });
         await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash });
-        return respondError(res, requestId, 503, "api_error", "The selected provider returned an invalid response.", rateHeaders);
+        return respondError(res, requestId, 503, "api_error", "The selected provider returned an invalid response.");
       }
       try {
         const response = translateOpenAiMessageResponse(model, payload);
@@ -630,18 +579,15 @@ export function registerAnthropicMessagesGateway(app: Express) {
         const chargeNanos = calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
         const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos });
         await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
-        releaseSlot(key.userId);
         res.setHeader("request-id", requestId);
         res.setHeader("x-request-id", requestId);
         res.setHeader("x-tokenforge-credit-balance", String(settlement.balanceNanos));
         res.setHeader("x-tokenforge-credit-charge", String(settlement.chargedNanos));
-        for (const [name, value] of Object.entries(tokenForgeRateHeaders(quota.requestLimit, quota.remainingRequests - 1))) res.setHeader(name, String(value));
         return res.status(200).json(response);
       } catch (error) {
-        releaseSlot(key.userId);
         await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages response translation failed" });
         await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash });
-        return respondError(res, requestId, 503, "api_error", error instanceof Error ? error.message : "The selected provider returned an invalid response.", rateHeaders);
+        return respondError(res, requestId, 503, "api_error", error instanceof Error ? error.message : "The selected provider returned an invalid response.");
       }
     }
 
@@ -651,7 +597,6 @@ export function registerAnthropicMessagesGateway(app: Express) {
     res.setHeader("content-type", "text/event-stream; charset=utf-8");
     res.setHeader("cache-control", "no-cache, no-transform");
     res.setHeader("connection", "keep-alive");
-    for (const [name, value] of Object.entries(tokenForgeRateHeaders(quota.requestLimit, quota.remainingRequests - 1))) res.setHeader(name, String(value));
     res.flushHeaders();
 
     writeSse(res, "message_start", { type: "message_start", message: { id: `msg_${randomUUID().replaceAll("-", "")}`, type: "message", role: "assistant", content: [], model, stop_reason: null, stop_sequence: null, usage: { input_tokens: 0, output_tokens: 0 } } });
@@ -659,7 +604,6 @@ export function registerAnthropicMessagesGateway(app: Express) {
     const reader = upstream.body?.getReader();
     if (!reader) {
       clearTimeout(timeout);
-      releaseSlot(key.userId);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages provider returned an empty stream" });
       return res.end();
     }
@@ -735,7 +679,6 @@ export function registerAnthropicMessagesGateway(app: Express) {
       const chargeNanos = failed ? 0 : calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
       const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos, releaseReason: failed ? "Anthropic Messages stream was cancelled" : undefined });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: true, status: failed ? "cancelled" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
-      releaseSlot(key.userId);
       res.end();
     }
   });

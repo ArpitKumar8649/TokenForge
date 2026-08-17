@@ -299,3 +299,5 @@
 - [x] Show newly received Giveaway announcements as a recipient-specific dashboard notification after login, while retaining the wallet-history record and a clear dismiss state.
 - [x] Redesign the recipient Giveaway notification with a bold GIVEAWAY ALERT heading, animated rotating perimeter light, and colourful falling-ribbon celebration that respects reduced-motion preferences.
 - [x] Commit and push all completed TokenForge changes through the latest Giveaway alert update to the configured GitHub repository.
+- [x] Verify the reported over-100 raw-message Claude Code compaction failure and evaluate the proposed validation-order fix without modifying production behavior.
+- [x] Remove daily request, daily token, per-minute, and concurrent-request admission limits from API and Playground inference while retaining suspension, availability, and balance controls.
