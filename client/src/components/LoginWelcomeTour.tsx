@@ -1,20 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowRight, ArrowUpRight, Bot, Check, MessagesSquare, Orbit, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Bot, MessagesSquare, Orbit, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 const DISCORD_INVITE_URL = "https://discord.gg/pnsWamDbe";
 export const LOGIN_WELCOME_TOUR_COMPLETED_KEY = "tokenforge_login_welcome_completed";
-export const LOGIN_WELCOME_TOUR_ARTWORK = {
-  fable: "/manus-storage/claude-fable-5-welcome_9dff9b9b.jpg",
-  qwen: "/manus-storage/qwen-3-8-max-welcome_2d739293.jpg",
-} as const;
-
-export function loginWelcomeTourArtworkClass(visual: keyof typeof LOGIN_WELCOME_TOUR_ARTWORK) {
-  return visual === "qwen"
-    ? "absolute inset-0 h-full w-full bg-[#f7f5ff] object-contain object-center"
-    : "absolute inset-0 h-full w-full object-cover object-center";
-}
 
 export type LoginWelcomeUser = {
   id: number;
@@ -130,7 +120,7 @@ export function LoginWelcomeTour({ user }: { user: LoginWelcomeUser | null | und
             <span className="font-mono text-[10px] font-bold tracking-[.18em] text-[#98a391]">0{step + 1} / 0{tourSteps.length}</span>
           </div>
 
-          <div className="mt-8 grid gap-7 sm:grid-cols-[1.08fr_.92fr] sm:items-end">
+          <div className="mt-8 max-w-lg">
             <div>
               <div className={`grid h-14 w-14 place-items-center rounded-2xl border ${activeStep.iconClassName}`}><StepIcon size={25} strokeWidth={1.8} /></div>
               <DialogHeader className="mt-6 text-left">
@@ -138,13 +128,6 @@ export function LoginWelcomeTour({ user }: { user: LoginWelcomeUser | null | und
                 <DialogTitle className="mt-2 text-3xl font-bold leading-[1.02] tracking-[-.055em] text-white sm:text-[2.15rem]">{step === 0 ? <>{activeStep.title.split(" is ")[0]} <span style={{ color: activeStep.accent }}>is</span> now live.</> : activeStep.title}</DialogTitle>
                 <DialogDescription className="pt-3 text-sm leading-6 text-[#aeb7a7]">{step === 0 ? `Welcome back, ${firstName}. ` : ""}{activeStep.description}</DialogDescription>
               </DialogHeader>
-            </div>
-
-            <div className="relative min-h-44 overflow-hidden rounded-2xl border border-white/10 bg-black/25 shadow-inner sm:min-h-52">
-              <div className="absolute inset-x-0 top-0 z-10 h-px bg-white/18" aria-hidden="true" />
-              {activeStep.visual === "fable" && <img src={LOGIN_WELCOME_TOUR_ARTWORK.fable} alt="Claude Fable 5 artwork with a butterfly-inspired letter C" className={loginWelcomeTourArtworkClass("fable")} />}
-              {activeStep.visual === "qwen" && <img src={LOGIN_WELCOME_TOUR_ARTWORK.qwen} alt="Qwen 3.8 Max model artwork" className={loginWelcomeTourArtworkClass("qwen")} />}
-              {activeStep.visual === "discord" && <div className="min-h-36"><div className="grid h-11 w-11 place-items-center rounded-xl bg-[#5865f2]/15 text-[#c6ceff]"><MessagesSquare size={20} /></div><p className="mt-4 text-sm font-semibold text-white">TokenForge Discord</p><p className="mt-1 text-[11px] leading-5 text-[#9fa89b]">A direct line for practical support and platform updates.</p><div className="mt-4 flex items-center gap-1.5 text-[10px] font-semibold text-[#bfc7ff]"><Check size={12} /> Ready when you are</div></div>}
             </div>
           </div>
 
