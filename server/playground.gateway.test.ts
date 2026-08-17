@@ -59,6 +59,7 @@ beforeEach(() => {
   process.env.TOKENROUTER_API_KEY = "server-only-tokenrouter-secret";
   process.env.TOKENROUTER_API_KEY_2 = "server-only-tokenrouter-secret-2";
   process.env.TOKENROUTER_API_KEY_3 = "server-only-tokenrouter-secret-3";
+  process.env.TOKENROUTER_API_KEY_4 = "server-only-tokenrouter-secret-4";
   process.env.TOKENROUTER_MODEL = "qwen/qwen3.8-max-free";
   process.env.TOKENROUTER_CLAUDE_FABLE5_MODEL = "upstream-claude-fable-5-model";
   process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL = "https://opus5-tokenrouter.example";
@@ -196,8 +197,8 @@ describe("TokenForge Playground gateway", () => {
       "Bearer server-only-tokenrouter-secret",
       "Bearer server-only-tokenrouter-secret-2",
     ]);
-    const telemetry = getProviderCredentialTelemetry({ [TOKENROUTER_PROVIDER_SLUG]: 3 }).find(item => item.providerSlug === TOKENROUTER_PROVIDER_SLUG)!;
-    expect(telemetry).toMatchObject({ healthySlots: 2, coolingDownSlots: 1, failoverCount: 1 });
+    const telemetry = getProviderCredentialTelemetry({ [TOKENROUTER_PROVIDER_SLUG]: 4 }).find(item => item.providerSlug === TOKENROUTER_PROVIDER_SLUG)!;
+    expect(telemetry).toMatchObject({ healthySlots: 3, coolingDownSlots: 1, failoverCount: 1 });
     expect(JSON.stringify(telemetry)).not.toContain("server-only-tokenrouter-secret");
   });
 
@@ -397,8 +398,8 @@ describe("TokenForge Playground gateway", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "https://tokenrouter.example/v1/chat/completions", expect.objectContaining({
       headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret-2" }),
     }));
-    expect(getProviderCredentialTelemetry({ [TOKENROUTER_PROVIDER_SLUG]: 3 }).find(provider => provider.providerSlug === TOKENROUTER_PROVIDER_SLUG)).toMatchObject({
-      poolSize: 3,
+    expect(getProviderCredentialTelemetry({ [TOKENROUTER_PROVIDER_SLUG]: 4 }).find(provider => provider.providerSlug === TOKENROUTER_PROVIDER_SLUG)).toMatchObject({
+      poolSize: 4,
       failoverCount: 1,
     });
   });

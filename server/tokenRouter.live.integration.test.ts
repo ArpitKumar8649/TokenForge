@@ -5,6 +5,7 @@ const configured = process.env.RUN_TOKENROUTER_LIVE === "1" && Boolean(
     && process.env.TOKENROUTER_API_KEY?.trim()
     && process.env.TOKENROUTER_API_KEY_2?.trim()
     && process.env.TOKENROUTER_API_KEY_3?.trim()
+    && process.env.TOKENROUTER_API_KEY_4?.trim()
     && process.env.TOKENROUTER_MODEL?.trim(),
 );
 const claudeFableConfigured = configured && Boolean(process.env.TOKENROUTER_CLAUDE_FABLE5_MODEL?.trim());
@@ -21,6 +22,7 @@ describe.runIf(configured)("TokenRouter Qwen 3.8 Max credential-pool probe", () 
       process.env.TOKENROUTER_API_KEY!,
       process.env.TOKENROUTER_API_KEY_2!,
       process.env.TOKENROUTER_API_KEY_3!,
+      process.env.TOKENROUTER_API_KEY_4!,
     ];
 
     for (const credential of credentials) {
