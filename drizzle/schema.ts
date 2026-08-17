@@ -232,6 +232,22 @@ export const creditGiveaways = mysqlTable(
   table => [index("credit_giveaways_created_idx").on(table.createdAt)],
 );
 
+/** One recipient receipt per giveaway allows the dashboard to surface and dismiss a personal credit announcement. */
+export const creditGiveawayNotifications = mysqlTable(
+  "credit_giveaway_notifications",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    giveawayId: varchar("giveawayId", { length: 32 }).notNull().references(() => creditGiveaways.id, { onDelete: "cascade" }),
+    userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    dismissedAt: timestamp("dismissedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => [
+    uniqueIndex("credit_giveaway_notifications_giveaway_user_unique_idx").on(table.giveawayId, table.userId),
+    index("credit_giveaway_notifications_user_dismissed_created_idx").on(table.userId, table.dismissedAt, table.createdAt),
+  ],
+);
+
 /** A unique UTC-day record prevents concurrent requests from receiving more than one daily check-in reward. */
 export const dailyCheckins = mysqlTable(
   "daily_checkins",
@@ -360,6 +376,7 @@ export type DailyUsage = typeof dailyUsage.$inferSelect;
 export type CreditAccount = typeof creditAccounts.$inferSelect;
 export type CreditLedgerEntry = typeof creditLedger.$inferSelect;
 export type CreditGiveaway = typeof creditGiveaways.$inferSelect;
+export type CreditGiveawayNotification = typeof creditGiveawayNotifications.$inferSelect;
 export type DailyCheckin = typeof dailyCheckins.$inferSelect;
 export type ProviderConfig = typeof providerConfigs.$inferSelect;
 export type OrcaRouterCredentialSlot = typeof orcaRouterCredentialSlots.$inferSelect;

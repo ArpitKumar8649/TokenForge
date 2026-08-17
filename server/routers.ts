@@ -35,6 +35,8 @@ import {
   grantAdminAccountCredit,
   grantDiscordVerifiedAccountGiveaway,
   listCreditGiveawayHistory,
+  listUnreadCreditGiveawayNotifications,
+  dismissCreditGiveawayNotification,
   getAdminAuditExport,
   getAuthSessionVersion,
   getPlatformMaintenanceConfig,
@@ -268,6 +270,10 @@ export const appRouter = router({
       if (!wallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Credit balance is temporarily unavailable" });
       return wallet;
     }),
+    unreadGiveawayNotifications: verifiedDeveloperProcedure.query(({ ctx }) => listUnreadCreditGiveawayNotifications(ctx.user.id)),
+    dismissGiveawayNotification: verifiedDeveloperProcedure
+      .input(z.object({ notificationId: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => dismissCreditGiveawayNotification({ userId: ctx.user.id, notificationId: input.notificationId })),
     profile: verifiedDeveloperProcedure.query(({ ctx }) => ({
       id: ctx.user.id,
       name: ctx.user.name,

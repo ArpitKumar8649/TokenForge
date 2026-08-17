@@ -26,6 +26,8 @@ vi.mock("./db", () => ({
   grantAdminAccountCredit: vi.fn(),
   grantDiscordVerifiedAccountGiveaway: vi.fn(),
   listCreditGiveawayHistory: vi.fn(),
+  listUnreadCreditGiveawayNotifications: vi.fn(),
+  dismissCreditGiveawayNotification: vi.fn(),
   countDiscordVerifiedAccounts: vi.fn(),
   getAuthSessionVersion: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
@@ -78,6 +80,8 @@ import {
   grantAdminAccountCredit,
   grantDiscordVerifiedAccountGiveaway,
   listCreditGiveawayHistory,
+  listUnreadCreditGiveawayNotifications,
+  dismissCreditGiveawayNotification,
   countDiscordVerifiedAccounts,
   getAuthSessionVersion,
   getPlatformMaintenanceConfig,
@@ -135,6 +139,8 @@ beforeEach(() => {
   vi.mocked(countDiscordVerifiedAccounts).mockResolvedValue(2);
   vi.mocked(grantDiscordVerifiedAccountGiveaway).mockResolvedValue({ applied: true, recipientCount: 2, amountNanos: 5_000_000_000, totalAmountNanos: 10_000_000_000 });
   vi.mocked(listCreditGiveawayHistory).mockResolvedValue([]);
+  vi.mocked(listUnreadCreditGiveawayNotifications).mockResolvedValue([]);
+  vi.mocked(dismissCreditGiveawayNotification).mockResolvedValue(true);
   vi.mocked(getAuthSessionVersion).mockResolvedValue(3);
   vi.mocked(getPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
   vi.mocked(setPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
@@ -322,6 +328,18 @@ describe("first-party authentication procedures", () => {
     await expect(appRouter.createCaller(verified.ctx).developer.apiKeys()).resolves.toEqual([]);
     await expect(appRouter.createCaller(administrator.ctx).developer.apiKeys()).resolves.toEqual([]);
     await expect(appRouter.createCaller(anonymous.ctx).developer.apiKeys()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("returns and dismisses Giveaway notices only for the signed-in verified recipient", async () => {
+    const verified = { ...localUser, discordVerifiedAt: new Date("2026-08-16T00:00:00.000Z") };
+    const notice = { id: 88, giveawayId: "gift123", amountNanos: 20_000_000_000, announcementNote: "Thank you for building with TokenForge.", createdAt: new Date("2026-08-17T12:00:00.000Z") };
+    vi.mocked(listUnreadCreditGiveawayNotifications).mockResolvedValue([notice]);
+
+    await expect(appRouter.createCaller(makeContext(localUser).ctx).developer.unreadGiveawayNotifications()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(appRouter.createCaller(makeContext(verified).ctx).developer.unreadGiveawayNotifications()).resolves.toEqual([notice]);
+    await expect(appRouter.createCaller(makeContext(verified).ctx).developer.dismissGiveawayNotification({ notificationId: 88 })).resolves.toBe(true);
+    expect(listUnreadCreditGiveawayNotifications).toHaveBeenCalledWith(localUser.id);
+    expect(dismissCreditGiveawayNotification).toHaveBeenCalledWith({ userId: localUser.id, notificationId: 88 });
   });
 
   it("returns a Discord verification state without disclosing any Discord account identity", async () => {

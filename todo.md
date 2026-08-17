@@ -296,3 +296,4 @@
 - [x] Investigate the reported deployed Claude Fable 5 Claude Code 100-entry failure; reporter subsequently confirmed the existing compaction path was working, so no further change was required.
 - [x] Fix the administrator Giveaway bulk-credit transaction failing at verified-account scale, protect the browser from raw database error output, and verify whether the attempted $20 giveaway was applied exactly once or rolled back.
 - [x] Add persisted Giveaway history for administrators and optional recipient-facing announcement notes that accompany each completed verified-account credit grant.
+- [x] Show newly received Giveaway announcements as a recipient-specific dashboard notification after login, while retaining the wallet-history record and a clear dismiss state.

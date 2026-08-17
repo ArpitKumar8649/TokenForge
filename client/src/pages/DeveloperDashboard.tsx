@@ -7,7 +7,7 @@ import { trpc } from "@/lib/trpc";
 import { coalesceDailyUsage } from "../../../shared/usageSeries";
 import { markApiKeyRevoked, prependCreatedApiKey } from "../../../shared/apiKeyListCache";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { AlertTriangle, ArrowRight, BarChart3, BookOpen, Check, Clipboard, Code2, Copy, Gift, KeyRound, Loader2, LockKeyhole, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal, Trash2, Users } from "lucide-react";
+import { AlertTriangle, ArrowRight, BarChart3, BookOpen, Check, Clipboard, Code2, Copy, Gift, KeyRound, Loader2, LockKeyhole, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal, Trash2, Users, X } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
@@ -166,12 +166,36 @@ function Overview({ user, loading, usage }: { user: ReturnType<typeof useAuth>["
   </>;
 }
 
+function GiveawayNotificationBanner({ enabled }: { enabled: boolean }) {
+  const notifications = trpc.developer.unreadGiveawayNotifications.useQuery(undefined, { enabled, staleTime: 15_000, refetchOnWindowFocus: false });
+  const utils = trpc.useUtils();
+  const dismiss = trpc.developer.dismissGiveawayNotification.useMutation({
+    onSuccess: () => utils.developer.unreadGiveawayNotifications.invalidate(),
+    onError: () => toast.error("The giveaway notice could not be dismissed. Please try again."),
+  });
+  const notification = notifications.data?.[0];
+  if (!notification) return null;
+  const credit = `$${(notification.amountNanos / 1_000_000_000).toFixed(2)}`;
+  const note = notification.announcementNote || "Thank you for being a Discord-verified TokenForge member. Your giveaway credit is ready to use.";
+  const remaining = Math.max(0, (notifications.data?.length ?? 1) - 1);
+  return <section className="mb-5 flex items-start gap-3 rounded-2xl border border-[#befe6c]/30 bg-[radial-gradient(circle_at_90%_0%,rgba(190,254,108,.15),transparent_44%),#151b12] p-4 shadow-[0_18px_44px_rgba(0,0,0,.16)]" aria-label="New Giveaway credit">
+    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#befe6c]/15 text-[#d8ff9d]"><Gift size={19} /></div>
+    <div className="min-w-0 flex-1">
+      <p className="text-[10px] font-bold uppercase tracking-[.15em] text-[#cfff8d]">New verified-member giveaway</p>
+      <h2 className="mt-1 text-sm font-bold text-white">{credit} has been added to your TokenForge credit balance.</h2>
+      <p className="mt-1 text-xs leading-5 text-[#c5d8ae]">{note}</p>
+      {remaining > 0 && <p className="mt-2 text-[11px] font-medium text-[#d8ff9d]">{remaining} more giveaway {remaining === 1 ? "notice" : "notices"} waiting.</p>}
+    </div>
+    <Button variant="ghost" size="icon" className="shrink-0 text-[#c5d8ae] hover:bg-white/10 hover:text-white" onClick={() => dismiss.mutate({ notificationId: notification.id })} disabled={dismiss.isPending} aria-label="Dismiss giveaway notification"><X size={17} /></Button>
+  </section>;
+}
+
 export default function DeveloperDashboard({ section = "overview", modelId }: { section?: Section; modelId?: string }) {
   const { user, loading } = useAuth();
   const workspaceVerified = Boolean(user?.isAdminSession || user?.discordVerifiedAt);
   const usage = trpc.developer.usage.useQuery(undefined, { enabled: Boolean(user) && workspaceVerified });
   const content = section === "playground" ? <Playground /> : section === "models" ? <DashboardModels /> : section === "model" ? <DashboardModels modelId={modelId} /> : section === "keys" ? <><PageIntro eyebrow="Credentials" title="API keys" subtitle="Create, rotate, or revoke credentials without ever re-exposing a saved secret." /><ApiKeyList /></> : section === "usage" ? <><PageIntro eyebrow="Observability" title="Usage logs" subtitle="A transparent record of request source, model, tokens, and credit cost." /><UsageLogs /></> : section === "profile" ? <><PageIntro eyebrow="Account & rewards" title="Profile" subtitle="Manage your TokenForge identity and claim your daily build credit." /><Profile /></> : section === "referrals" ? <ReferralWorkspace /> : <Overview user={user} loading={loading} usage={usage} />;
-  return <DashboardLayout><div className="dashboard-page-surface"><div className="dashboard-page-content">{content}</div></div></DashboardLayout>;
+  return <DashboardLayout><div className="dashboard-page-surface"><div className="dashboard-page-content"><GiveawayNotificationBanner enabled={Boolean(user) && workspaceVerified} />{content}</div></div></DashboardLayout>;
 }
 
 function ReferralWorkspace() {

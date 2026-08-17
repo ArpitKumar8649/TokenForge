@@ -8,6 +8,7 @@ import {
   auditEvents,
   creditAccounts,
   creditGiveaways,
+  creditGiveawayNotifications,
   creditLedger,
   dailyCheckins,
   dailyUsage,
@@ -1519,6 +1520,10 @@ export async function grantDiscordVerifiedAccountGiveaway(input: { actorUserId: 
       totalAmountNanos: amountNanos * balances.length,
       announcementNote,
     });
+    await tx.insert(creditGiveawayNotifications).values(balances.map(account => ({
+      giveawayId,
+      userId: account.userId,
+    })));
     return {
       applied: true as const,
       id: giveawayId,
@@ -1535,6 +1540,39 @@ export async function listCreditGiveawayHistory(limit = 40) {
   if (!db) return [];
   const boundedLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
   return db.select().from(creditGiveaways).orderBy(desc(creditGiveaways.createdAt)).limit(boundedLimit);
+}
+
+/** Returns personal, unread giveaway announcements. No other recipient's data is exposed. */
+export async function listUnreadCreditGiveawayNotifications(userId: number, limit = 3) {
+  const db = await getDb();
+  if (!db) return [];
+  const boundedLimit = Math.max(1, Math.min(5, Math.trunc(limit)));
+  return db.select({
+    id: creditGiveawayNotifications.id,
+    giveawayId: creditGiveaways.id,
+    amountNanos: creditGiveaways.amountNanos,
+    announcementNote: creditGiveaways.announcementNote,
+    createdAt: creditGiveawayNotifications.createdAt,
+  })
+    .from(creditGiveawayNotifications)
+    .innerJoin(creditGiveaways, eq(creditGiveawayNotifications.giveawayId, creditGiveaways.id))
+    .where(and(eq(creditGiveawayNotifications.userId, userId), isNull(creditGiveawayNotifications.dismissedAt)))
+    .orderBy(desc(creditGiveawayNotifications.createdAt))
+    .limit(boundedLimit);
+}
+
+/** Dismisses one recipient's own giveaway notice without changing the underlying wallet credit. */
+export async function dismissCreditGiveawayNotification(input: { userId: number; notificationId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const result = await db.update(creditGiveawayNotifications)
+    .set({ dismissedAt: new Date() })
+    .where(and(
+      eq(creditGiveawayNotifications.id, input.notificationId),
+      eq(creditGiveawayNotifications.userId, input.userId),
+      isNull(creditGiveawayNotifications.dismissedAt),
+    ));
+  return Number(result[0].affectedRows ?? 0) > 0;
 }
 
 /** Adds a positive administrator credit grant and immutable wallet-ledger record for an existing account. */
