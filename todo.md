@@ -313,3 +313,4 @@
 - [x] Add GLM 5.3 to the Anthropic-compatible `/v1/messages` translation bridge and verify its Playground thinking-display behavior.
 - [x] Diagnose the GLM 5.3 Claude Code `/v1/messages` provider-processing error and report the verified root cause before making changes.
 - [x] Reproduce and compare actual Claude Code CLI behavior for GLM 5.3 and Claude Opus 5 through TokenForge and directly against TokenRouter, then isolate the failing layer before making changes.
+- [x] Preserve and restore GLM 5.3 provider tool-call reasoning state server-side for Claude Code continuations without exposing it or changing Claude Fable 5 and Claude Opus 5 behavior.

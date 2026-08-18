@@ -13,6 +13,7 @@ import {
   dailyCheckins,
   dailyUsage,
   deletedIdentityTombstones,
+  glmToolContinuationStates,
   InsertUser,
   usageEvents,
   users,
@@ -35,6 +36,7 @@ import { getFxqidianCredentialPool } from "./fxqidianCredentials";
 import { getTokenRouterCredentialPool } from "./tokenRouterCredentials";
 import { getProviderCredentialTelemetry } from "./providerCredentialTelemetry";
 import { encryptOrcaRouterCredential } from "./orcaRouterCredentialVault";
+import { decryptGlmToolContinuation, encryptGlmToolContinuation } from "./glmToolContinuationVault";
 import { TOKENFORGE_REFERRAL_REWARD_NANOS, normalizeReferralCode } from "../shared/referrals";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -50,6 +52,9 @@ const PLATFORM_MAINTENANCE_SETTING_KEY = "platform_maintenance";
 const DISCORD_UNVERIFIED_CLEANUP_NOTICE_KIND = "discord_unverified_cleanup_notice";
 const AFFILIATE_CODE_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 const AFFILIATE_CODE_LENGTH = 4;
+const GLM_TOOL_CONTINUATION_TTL_MS = 15 * 60 * 1000;
+
+export type GlmToolContinuationInput = { toolCallId: string; reasoningContent: string };
 
 export class DeletedAccountIdentityError extends Error {
   constructor() {
@@ -440,6 +445,50 @@ export async function getDb() {
     }
   }
   return _db;
+}
+
+/** Persists opaque GLM tool reasoning state briefly, encrypted and scoped to the requesting user. */
+export async function saveGlmToolContinuationStates(userId: number, states: GlmToolContinuationInput[]) {
+  const db = await getDb();
+  if (!db) return;
+  const uniqueStates = new Map<string, string>();
+  for (const state of states) {
+    const toolCallId = state.toolCallId.trim();
+    if (toolCallId && state.reasoningContent) uniqueStates.set(toolCallId, state.reasoningContent);
+  }
+  if (!uniqueStates.size) return;
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + GLM_TOOL_CONTINUATION_TTL_MS);
+  await db.transaction(async tx => {
+    await tx.delete(glmToolContinuationStates).where(lte(glmToolContinuationStates.expiresAt, now));
+    for (const [toolCallId, reasoningContent] of Array.from(uniqueStates.entries())) {
+      const encrypted = encryptGlmToolContinuation(reasoningContent);
+      await tx.insert(glmToolContinuationStates).values({ userId, toolCallId, ...encrypted, expiresAt })
+        .onDuplicateKeyUpdate({ set: { ...encrypted, expiresAt, updatedAt: now } });
+    }
+  });
+}
+
+/** Restores only valid, unexpired GLM state owned by the authenticated user. */
+export async function loadGlmToolContinuationStates(userId: number, toolCallIds: string[]) {
+  const db = await getDb();
+  const ids = Array.from(new Set(toolCallIds.map(value => value.trim()).filter(Boolean)));
+  if (!db || !ids.length) return new Map<string, string>();
+  const records = await db.select().from(glmToolContinuationStates).where(and(
+    eq(glmToolContinuationStates.userId, userId),
+    inArray(glmToolContinuationStates.toolCallId, ids),
+    gte(glmToolContinuationStates.expiresAt, new Date()),
+  ));
+  const restored = new Map<string, string>();
+  for (const record of records) {
+    try {
+      const reasoningContent = decryptGlmToolContinuation(record);
+      if (reasoningContent) restored.set(record.toolCallId, reasoningContent);
+    } catch {
+      // Corrupt provider-only state is ignored and is never surfaced to callers or logs.
+    }
+  }
+  return restored;
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
