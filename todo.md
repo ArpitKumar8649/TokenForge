@@ -342,3 +342,4 @@
 - [x] Add three supplied Cluster Protocol credentials and expand round-robin routing safely across all six keys.
 - [x] Route Claude Fable 5 through a dedicated FXQidian-compatible provider using an isolated model mapping and preserve both API contracts.
 - [x] Research reputable third-party API providers that currently offer free models and summarize their available free-model catalogues and constraints.
+- [x] Replace Claude Fable 5’s FXQidian route with the supplied NVIDIA Integrate provider and validate both OpenAI-compatible and Claude Code Messages requests.

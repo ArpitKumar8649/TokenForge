@@ -41,9 +41,9 @@ beforeEach(() => {
   process.env.FXQIDIAN_BASE_URL = "https://provider.example";
   process.env.FXQIDIAN_API_KEY = "server-only-provider-secret";
   process.env.FXQIDIAN_API_KEY_2 = "server-only-provider-secret-2";
-  process.env.FXQIDIAN_CLAUDE_FABLE5_BASE_URL = "https://fable5-fxqidian.example";
-  process.env.FXQIDIAN_CLAUDE_FABLE5_API_KEY = "server-only-fable5-fxqidian-secret";
-  process.env.FXQIDIAN_CLAUDE_FABLE5_MODEL = "upstream-claude-fable-5-model";
+  process.env.NVIDIA_CLAUDE_FABLE5_BASE_URL = "https://nvidia-fable5.example";
+  process.env.NVIDIA_CLAUDE_FABLE5_API_KEY = "server-only-nvidia-fable5-secret";
+  process.env.NVIDIA_CLAUDE_FABLE5_MODEL = "upstream-claude-fable-5-model";
   process.env.CLUSTER_PROTOCOL_BASE_URL = "https://cluster.example";
   process.env.CLUSTER_PROTOCOL_API_KEY = "server-only-cluster-secret";
   process.env.CLUSTER_PROTOCOL_API_KEY_2 = "server-only-cluster-secret-2";
@@ -451,7 +451,7 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.stringify(forwardedPayload)).not.toContain("TOKENROUTER_GLM53_MODEL");
   });
 
-  it("routes Claude Fable 5 through its dedicated FXQidian-compatible model configuration with xhigh reasoning and a thinking summary", async () => {
+  it("routes Claude Fable 5 through its dedicated NVIDIA-compatible model configuration, strips unsupported reasoning effort, and preserves its thinking summary", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: "Claude Fable response", reasoning_content: "Provider thinking summary" } }],
       usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
@@ -466,17 +466,18 @@ describe("TokenForge Playground gateway", () => {
     });
 
     expect(result).toMatchObject({ model: "claude-fable-5", content: "Claude Fable response", thinking: "Provider thinking summary" });
-    expect(fetchMock).toHaveBeenCalledWith("https://fable5-fxqidian.example/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-fable5-fxqidian-secret" }),
+    expect(fetchMock).toHaveBeenCalledWith("https://nvidia-fable5.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-nvidia-fable5-secret" }),
     }));
     const forwardedPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(forwardedPayload).toMatchObject({ model: "upstream-claude-fable-5-model", reasoning_effort: "xhigh", stream: false });
+    expect(forwardedPayload).toMatchObject({ model: "upstream-claude-fable-5-model", stream: false });
+    expect(forwardedPayload).not.toHaveProperty("reasoning_effort");
     expect(forwardedPayload.messages).toHaveLength(2);
     expect(forwardedPayload.messages[0]).toMatchObject({ role: "system" });
     expect(forwardedPayload.messages[0].content).toContain("You are Claude Fable 5, an AI assistant available through TokenForge.");
     expect(forwardedPayload.messages[0].content).toContain("Use short paragraphs.");
     expect(forwardedPayload.messages[1]).toEqual({ role: "user", content: "Identify the configured route safely." });
-    expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-fable5-fxqidian-secret");
+    expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-nvidia-fable5-secret");
 
     const apiMessages = withModelScopedGuidance("claude-fable-5", [{ role: "user", content: "Identify yourself." }]);
     expect(apiMessages[0]).toEqual(modelScopedGuidance("claude-fable-5"));

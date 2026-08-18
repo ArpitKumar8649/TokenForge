@@ -281,13 +281,16 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
   throw lastError instanceof Error ? lastError : new Error("The selected provider is temporarily unavailable");
 }
 
-/** Claude Fable 5 uses its own OpenAI-compatible FXQidian route, never the shared TokenRouter pool. */
+/** Claude Fable 5 uses its own OpenAI-compatible NVIDIA Integrate route, never the shared TokenRouter pool. */
 async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: AbortSignal) {
-  const base = process.env.FXQIDIAN_CLAUDE_FABLE5_BASE_URL?.replace(/\/$/, "");
-  const secret = process.env.FXQIDIAN_CLAUDE_FABLE5_API_KEY;
-  const upstreamModel = process.env.FXQIDIAN_CLAUDE_FABLE5_MODEL?.trim();
+  const base = process.env.NVIDIA_CLAUDE_FABLE5_BASE_URL?.replace(/\/$/, "");
+  const secret = process.env.NVIDIA_CLAUDE_FABLE5_API_KEY;
+  const upstreamModel = process.env.NVIDIA_CLAUDE_FABLE5_MODEL?.trim();
   if (!base || !secret || !upstreamModel) throw new Error("TokenForge Claude Fable 5 inference is not configured");
-  const requestBody = { ...input, model: upstreamModel };
+  // NVIDIA Integrate does not support this OpenAI-extension field. Returned
+  // reasoning remains available to the existing Playground summary extraction.
+  const { reasoning_effort: _strippedReasoningEffort, ...compatibleInput } = input;
+  const requestBody = { ...compatibleInput, model: upstreamModel };
   return fetch(`${base}/v1/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
