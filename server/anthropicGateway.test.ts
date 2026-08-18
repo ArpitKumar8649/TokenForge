@@ -56,8 +56,8 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(translateAnthropicRequest({ model: "gpt-5", messages: [{ role: "user", content: "Reply with OK." }] }).reasoning_effort).toBeUndefined();
   });
 
-  it("extends only Claude Opus 5 response-start allowance for slow Claude Code tool continuations", () => {
-    expect(providerResponseStartTimeoutMs("claude-opus-5")).toBe(300_000);
+  it("keeps Claude Opus 5 response-start handling inside the public edge deadline", () => {
+    expect(providerResponseStartTimeoutMs("claude-opus-5")).toBe(105_000);
     expect(providerResponseStartTimeoutMs("claude-fable-5")).toBe(110_000);
     expect(providerResponseStartTimeoutMs("qwen-3.8-max")).toBe(110_000);
   });

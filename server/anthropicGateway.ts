@@ -24,7 +24,8 @@ import {
 import { CLUSTER_PROTOCOL_PROVIDER_SLUG, getTokenForgeProviderSlug, isTokenForgeModelId, type TokenForgeModelId } from "./modelCatalogue";
 
 const PROVIDER_TIMEOUT_MS = 110_000;
-export const CLAUDE_OPUS5_RESPONSE_START_TIMEOUT_MS = 300_000;
+/** Finish or retry the first upstream attempt before the 120-second public edge deadline. */
+export const CLAUDE_OPUS5_RESPONSE_START_TIMEOUT_MS = 105_000;
 
 export function providerResponseStartTimeoutMs(model: TokenForgeModelId) {
   return model === "claude-opus-5"

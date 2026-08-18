@@ -257,12 +257,28 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
   const upstreamModel = process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL?.trim();
   if (!base || !secret || !upstreamModel) throw new Error("TokenForge Claude Opus 5 inference is not configured");
   const requestBody = { ...input, model: upstreamModel };
-  return fetch(`${base}/v1/chat/completions`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
-    body: JSON.stringify(requestBody),
-    signal,
-  });
+  const url = `${base}/v1/chat/completions`;
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const responseStartTimeout = AbortSignal.timeout(50_000);
+    const attemptSignal = AbortSignal.any([signal, responseStartTimeout]);
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
+        body: JSON.stringify(requestBody),
+        signal: attemptSignal,
+      });
+      if (response.ok || !retryableProviderStatus(response.status) || attempt === 2) return response;
+      console.warn("[Claude Opus 5 provider retry]", { event: "retryable_response_before_stream", upstreamStatus: response.status, attempt });
+      response.body?.cancel().catch(() => undefined);
+    } catch (error) {
+      lastError = error;
+      if (signal.aborted || !responseStartTimeout.aborted || attempt === 2) throw error;
+      console.warn("[Claude Opus 5 provider retry]", { event: "response_start_timeout_before_stream", attempt });
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("The selected provider is temporarily unavailable");
 }
 
 /** OrcaRouter remains only for the separately configured Qwen3.8 27B route. */

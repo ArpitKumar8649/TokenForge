@@ -15,7 +15,7 @@ const configured = process.env.RUN_TOKENROUTER_LIVE === "1" && Boolean(
 );
 const claudeFableConfigured = configured && Boolean(process.env.TOKENROUTER_CLAUDE_FABLE5_MODEL?.trim());
 const glm53Configured = configured && Boolean(process.env.TOKENROUTER_GLM53_MODEL?.trim());
-const claudeOpus5Configured = Boolean(
+const claudeOpus5Configured = !process.env.CLAUDE_OPUS5_API_KEY?.trim() && Boolean(
   process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL?.trim()
     && process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL?.trim()
     && process.env.TOKENROUTER_API_KEY?.trim(),

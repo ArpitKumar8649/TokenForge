@@ -337,3 +337,4 @@
 - [x] Prevent an in-flight model request from failing credit settlement if its user account is deleted before the provider response completes.
 - [x] Build an isolated temporary Claude Code-to-TokenRouter translation proxy and run repeated Claude Opus 5 CLI tasks to diagnose recurrent API errors without altering production routing.
 - [x] Replace Claude Opus 5 with the supplied isolated FXQidian-compatible provider configuration without affecting Claude Fable 5 or other TokenRouter models.
+- [x] Reproduce the Claude Code high-effort workflow failure on the isolated Claude Opus 5 provider, capture sanitized diagnostics, repair the bridge if feasible, and validate with real workflows.

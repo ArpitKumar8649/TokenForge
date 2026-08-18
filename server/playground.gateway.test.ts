@@ -202,6 +202,23 @@ describe("TokenForge Playground gateway", () => {
     ]);
   });
 
+  it("retries a retryable Claude Opus 5 response once before streaming while retaining its dedicated credential", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "upstream_busy" } }), { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Retry before streaming." }] }, new AbortController().signal);
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
+      "Bearer server-only-opus5-secret",
+      "Bearer server-only-opus5-secret",
+    ]);
+    expect(fetchMock.mock.calls.every(([url]) => url === "https://opus5-tokenrouter.example/v1/chat/completions")).toBe(true);
+  });
+
   it("fails over to the next FXQidian pool slot after a retryable provider response without exposing credentials in telemetry", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "temporarily saturated" } }), { status: 429 }))
