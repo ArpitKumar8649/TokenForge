@@ -318,4 +318,5 @@
 - [x] Add TokenRouter credentials seven through nine as server-only secrets and use the requested interleaved nine-key rotation order.
 - [x] Add GLM 5.3 to the required login modal sequence for authenticated users.
 - [x] Create the same recipient-facing giveaway alert when an administrator grants credit to one individual account.
-- [ ] Prevent stale deleted-user API requests from crashing the gateway during credit-ledger settlement.
+- [x] Prevent stale deleted-user API requests from crashing the gateway during credit-ledger settlement.
+- [x] Allow the FXQidian live credential test enough time to complete its configured ten-second request probe.

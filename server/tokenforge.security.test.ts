@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { hashApiKey, publicApiKey, utcUsageDate } from "./db";
+import { describe, expect, it, vi } from "vitest";
+import { apiKeys, users } from "../drizzle/schema";
+import { deleteAccountPermanently, findActiveApiKey, hashApiKey, publicApiKey, utcUsageDate } from "./db";
 import { TOKENFORGE_CATALOGUE, tokenForgeErrorBody, tokenForgeRateHeaders } from "./openaiGateway";
 
 describe("TokenForge credential and gateway safeguards", () => {
@@ -16,6 +17,42 @@ describe("TokenForge credential and gateway safeguards", () => {
     expect(safe).toMatchObject({ id: 42, prefix: "tf_live_example…", status: "active" });
     expect(safe).not.toHaveProperty("keyHash");
     expect(safe).not.toHaveProperty("userId");
+  });
+
+  it("rejects an active key when the database join finds no owning user", async () => {
+    const limit = vi.fn().mockResolvedValue([]);
+    const where = vi.fn(() => ({ limit }));
+    const innerJoin = vi.fn(() => ({ where }));
+    const from = vi.fn(() => ({ innerJoin }));
+    const database = { select: vi.fn(() => ({ from })) };
+
+    await expect(findActiveApiKey("tf_live_deleted_owner", database as NonNullable<Parameters<typeof findActiveApiKey>[1]>)).resolves.toBeNull();
+    expect(innerJoin).toHaveBeenCalledWith(users, expect.anything());
+  });
+
+  it("deletes active API keys before removing their owning account", async () => {
+    const userLimit = vi.fn().mockResolvedValue([{ id: 55, openId: "tf_local_deleted-owner", email: "deleted-owner@example.com" }]);
+    const userWhere = vi.fn(() => ({ limit: userLimit }));
+    const userFrom = vi.fn(() => ({ where: userWhere }));
+    const identitiesWhere = vi.fn().mockResolvedValue([]);
+    const identitiesFrom = vi.fn(() => ({ where: identitiesWhere }));
+    const select = vi.fn()
+      .mockReturnValueOnce({ from: userFrom })
+      .mockReturnValueOnce({ from: identitiesFrom });
+    const onDuplicateKeyUpdate = vi.fn().mockResolvedValue(undefined);
+    const values = vi.fn(() => ({ onDuplicateKeyUpdate }));
+    const insert = vi.fn(() => ({ values }));
+    const deleteWhere = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce([{ affectedRows: 1 }]);
+    const remove = vi.fn(() => ({ where: deleteWhere }));
+    const transaction = vi.fn(async (callback: (tx: unknown) => unknown) => callback({ select, insert, delete: remove }));
+    const database = { transaction };
+
+    await expect(deleteAccountPermanently(55, database as NonNullable<Parameters<typeof deleteAccountPermanently>[1]>)).resolves.toBe(true);
+    expect(remove).toHaveBeenNthCalledWith(2, apiKeys);
+    expect(remove).toHaveBeenNthCalledWith(3, users);
   });
 
   it("normalizes metering dates to UTC midnight", () => {

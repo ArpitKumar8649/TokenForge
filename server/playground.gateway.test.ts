@@ -231,7 +231,7 @@ describe("TokenForge Playground gateway", () => {
     expect(response.status).toBe(200);
     expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
       "Bearer server-only-tokenrouter-secret",
-      "Bearer server-only-tokenrouter-secret-2",
+      "Bearer server-only-tokenrouter-secret-3",
     ]);
     const telemetry = getProviderCredentialTelemetry({ [TOKENROUTER_PROVIDER_SLUG]: 6 }).find(item => item.providerSlug === TOKENROUTER_PROVIDER_SLUG)!;
     expect(telemetry).toMatchObject({ healthySlots: 5, coolingDownSlots: 1, failoverCount: 1 });
@@ -474,7 +474,7 @@ describe("TokenForge Playground gateway", () => {
       headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret" }),
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "https://tokenrouter.example/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret-2" }),
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret-3" }),
     }));
     expect(getProviderCredentialTelemetry({ [TOKENROUTER_PROVIDER_SLUG]: 6 }).find(provider => provider.providerSlug === TOKENROUTER_PROVIDER_SLUG)).toMatchObject({
       poolSize: 6,

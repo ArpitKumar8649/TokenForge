@@ -19,5 +19,5 @@ describe("fxqidian provider credential", () => {
 
     expect(modelIds).toContain("glm-5.2");
     expect(modelIds).toContain("grok-4.5");
-  });
+  }, 15_000);
 });

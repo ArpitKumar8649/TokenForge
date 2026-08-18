@@ -67,6 +67,8 @@ export class DiscordUnverifiedAccountDeletedError extends Error {
 }
 
 export type ApiKeyRecord = typeof apiKeys.$inferSelect;
+type ApiKeyLookupDatabase = Pick<NonNullable<Awaited<ReturnType<typeof getDb>>>, "select">;
+type AccountDeletionDatabase = Pick<NonNullable<Awaited<ReturnType<typeof getDb>>>, "transaction">;
 export type EmailAllowlistConfig = { entries: string[]; updatedAt: Date; updatedByUserId: number | null };
 export type OrcaRouterCredentialSlotSummary = { slot: number; fingerprintSuffix: string; lastValidatedAt: Date; updatedAt: Date; updatedByUserId: number | null };
 export type AdminEmailProviderCount = { provider: string; accountCount: number };
@@ -837,16 +839,17 @@ export async function rotateApiKey(userId: number, apiKeyId: number, label: stri
   return createApiKey(userId, label);
 }
 
-export async function findActiveApiKey(plainTextKey: string) {
-  const db = await getDb();
+export async function findActiveApiKey(plainTextKey: string, database?: ApiKeyLookupDatabase | null) {
+  const db = database ?? await getDb();
   if (!db) return null;
   const hash = hashApiKey(plainTextKey);
   const rows = await db
-    .select()
+    .select({ apiKey: apiKeys })
     .from(apiKeys)
+    .innerJoin(users, eq(apiKeys.userId, users.id))
     .where(and(eq(apiKeys.keyHash, hash), eq(apiKeys.status, "active")))
     .limit(1);
-  return rows[0] ?? null;
+  return rows[0]?.apiKey ?? null;
 }
 
 export async function touchApiKey(apiKeyId: number) {
@@ -1330,8 +1333,8 @@ export async function getAdminOverview() {
 }
 
 /** Deletes a user and every account-owned TokenForge record, retaining only non-reversible hashed identity tombstones. */
-export async function deleteAccountPermanently(userId: number) {
-  const db = await getDb();
+export async function deleteAccountPermanently(userId: number, database?: AccountDeletionDatabase | null) {
+  const db = database ?? await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   return db.transaction(async tx => {
     const user = (await tx.select().from(users).where(eq(users.id, userId)).limit(1))[0];
@@ -1344,6 +1347,7 @@ export async function deleteAccountPermanently(userId: number) {
     ];
     await tx.insert(deletedIdentityTombstones).values(tombstones).onDuplicateKeyUpdate({ set: { deletedAt: new Date() } });
     await tx.delete(auditEvents).where(or(eq(auditEvents.actorUserId, userId), eq(auditEvents.targetUserId, userId)));
+    await tx.delete(apiKeys).where(eq(apiKeys.userId, userId));
     const deleted = await tx.delete(users).where(eq(users.id, userId));
     return deleted[0].affectedRows > 0;
   });
