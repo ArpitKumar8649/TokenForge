@@ -340,3 +340,4 @@
 - [x] Reproduce the Claude Code high-effort workflow failure on the isolated Claude Opus 5 provider, capture sanitized diagnostics, repair the bridge if feasible, and validate with real workflows.
 - [x] Diagnose and repair Kimi K3 Claude Code compatibility through the existing `/v1/messages` proxy and validate it with a real CLI workflow.
 - [x] Add three supplied Cluster Protocol credentials and expand round-robin routing safely across all six keys.
+- [x] Route Claude Fable 5 through a dedicated FXQidian-compatible provider using an isolated model mapping and preserve both API contracts.
