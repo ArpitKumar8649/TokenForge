@@ -284,26 +284,6 @@ export const dailyUsage = mysqlTable(
   ],
 );
 
-/** Provider-only GLM 5.3 tool-call state, encrypted and automatically expired. */
-export const glmToolContinuationStates = mysqlTable(
-  "glm_tool_continuation_states",
-  {
-    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-    userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
-    toolCallId: varchar("toolCallId", { length: 128 }).notNull(),
-    ciphertext: text("ciphertext").notNull(),
-    iv: varchar("iv", { length: 32 }).notNull(),
-    authTag: varchar("authTag", { length: 32 }).notNull(),
-    expiresAt: timestamp("expiresAt").notNull(),
-    createdAt: timestamp("createdAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-  },
-  table => [
-    uniqueIndex("glm_tool_continuation_user_tool_unique_idx").on(table.userId, table.toolCallId),
-    index("glm_tool_continuation_expires_idx").on(table.expiresAt),
-  ],
-);
-
 export const providerConfigs = mysqlTable("provider_configs", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
   slug: varchar("slug", { length: 64 }).notNull().unique(),
@@ -393,7 +373,6 @@ export type ApiKey = typeof apiKeys.$inferSelect;
 export type AccountControl = typeof accountControls.$inferSelect;
 export type UsageEvent = typeof usageEvents.$inferSelect;
 export type DailyUsage = typeof dailyUsage.$inferSelect;
-export type GlmToolContinuationState = typeof glmToolContinuationStates.$inferSelect;
 export type CreditAccount = typeof creditAccounts.$inferSelect;
 export type CreditLedgerEntry = typeof creditLedger.$inferSelect;
 export type CreditGiveaway = typeof creditGiveaways.$inferSelect;

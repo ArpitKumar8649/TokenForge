@@ -513,23 +513,6 @@ describe("TokenForge Playground gateway", () => {
     expect(opusMessages[0].content).toContain("You are Claude Opus 5 from TokenForge.");
     expect(opusMessages[0].content).toContain("Use short paragraphs.");
     expect(opusMessages[1]).toEqual({ role: "user", content: "Explain the request path." });
-
-    const glmMessages = playgroundMessagesForModel("glm-5.3", [
-      { role: "system", content: "Use short paragraphs." },
-      { role: "user", content: "Say hello." },
-    ]);
-    expect(glmMessages).toHaveLength(2);
-    expect(glmMessages[0]).toMatchObject({ role: "system" });
-    expect(glmMessages[0].content).toContain("You are GLM 5.3, available through TokenForge.");
-    expect(glmMessages[0].content).toContain("coherent, user-facing final answers only");
-    expect(glmMessages[0].content).toContain("mixed-language gibberish");
-    expect(glmMessages[0].content).toContain("Use short paragraphs.");
-    expect(glmMessages[1]).toEqual({ role: "user", content: "Say hello." });
-
-    const glmApiMessages = withModelScopedGuidance("glm-5.3", [{ role: "user", content: "Say hello." }]);
-    expect(glmApiMessages).toHaveLength(2);
-    expect(glmApiMessages[0].content).toContain("You are GLM 5.3, available through TokenForge.");
-    expect(glmApiMessages[0].content).toContain("one or two sentences");
   });
 
   it("stops before provider execution when the promotional credit reservation is denied", async () => {

@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AnthropicBridgeError,
   anthropicApiKey,
-  extractGlmToolContinuationStates,
   isNativeTokenRouterMessagesRequest,
-  restoreGlmToolContinuationStates,
   translateAnthropicRequest,
   translateOpenAiMessageResponse,
 } from "./anthropicGateway";
@@ -166,34 +164,6 @@ describe("TokenForge Anthropic Messages bridge", () => {
       { role: "assistant", content: null, tool_calls: [{ id: "tool_1", type: "function", function: { name: "read_file", arguments: "{\"path\":\"README.md\"}" } }] },
       { role: "tool", tool_call_id: "tool_1", content: "file contents" },
     ]);
-  });
-
-  it("captures GLM provider tool continuation state without exposing it in the Anthropic response converter", () => {
-    const states = extractGlmToolContinuationStates({
-      choices: [{ message: {
-        reasoning_content: "provider-only reasoning continuation",
-        tool_calls: [{ id: "call_glm_1", function: { name: "Bash", arguments: "{}" } }],
-      } }],
-    });
-
-    expect(states).toEqual([{ toolCallId: "call_glm_1", reasoningContent: "provider-only reasoning continuation" }]);
-    expect(translateOpenAiMessageResponse("glm-5.3", {
-      choices: [{ finish_reason: "tool_calls", message: {
-        reasoning_content: "provider-only reasoning continuation",
-        tool_calls: [{ id: "call_glm_1", function: { name: "Bash", arguments: "{}" } }],
-      } }],
-    })).toMatchObject({ content: [{ type: "tool_use", id: "call_glm_1", name: "Bash" }] });
-  });
-
-  it("restores known provider state only for GLM 5.3 tool calls and leaves Claude models unchanged", () => {
-    const messages = [{ role: "assistant", content: null, tool_calls: [{ id: "call_glm_1", type: "function", function: { name: "Bash", arguments: "{}" } }] }];
-    const states = new Map([["call_glm_1", "opaque-provider-state"]]);
-
-    expect(restoreGlmToolContinuationStates("glm-5.3", messages, states)).toEqual([
-      expect.objectContaining({ role: "assistant", reasoning_content: "opaque-provider-state" }),
-    ]);
-    expect(restoreGlmToolContinuationStates("claude-opus-5", messages, states)).toBe(messages);
-    expect(restoreGlmToolContinuationStates("claude-fable-5", messages, states)).toBe(messages);
   });
 
   it("forwards a 300-entry Claude history without compaction or a raw-entry refusal", () => {

@@ -5,10 +5,8 @@ import {
   getPlatformMaintenanceConfig,
   getQuotaStatus,
   isModelAvailable,
-  loadGlmToolContinuationStates,
   recordUsage,
   reserveCredit,
-  saveGlmToolContinuationStates,
   settleReservedCredit,
   touchApiKey,
 } from "./db";
@@ -300,38 +298,6 @@ export function translateOpenAiMessageResponse(model: string, payload: unknown) 
   return { id: typeof response.id === "string" ? response.id : `msg_${randomUUID().replaceAll("-", "")}`, type: "message", role: "assistant", model, content, stop_reason: toStopReason(choice.finish_reason), stop_sequence: null, usage: { input_tokens: tokens.inputTokens, output_tokens: tokens.outputTokens } };
 }
 
-type ProviderToolCall = { id?: unknown; function?: { name?: unknown; arguments?: unknown } };
-type ProviderMessageWithReasoning = { reasoning_content?: unknown; tool_calls?: ProviderToolCall[] };
-
-/** Extracts opaque GLM state without placing it in the outward Anthropic response. */
-export function extractGlmToolContinuationStates(payload: unknown) {
-  const message = (payload as { choices?: Array<{ message?: ProviderMessageWithReasoning }> })?.choices?.[0]?.message;
-  const reasoningContent = message?.reasoning_content;
-  if (typeof reasoningContent !== "string" || !reasoningContent) return [];
-  return (message.tool_calls ?? []).flatMap(toolCall => typeof toolCall.id === "string"
-    ? [{ toolCallId: toolCall.id, reasoningContent }]
-    : []);
-}
-
-export function toolCallIdsFromMessages(messages: TokenForgeChatMessage[]) {
-  return messages.flatMap(message => {
-    const toolCalls = (message as TokenForgeChatMessage & { tool_calls?: ProviderToolCall[] }).tool_calls;
-    return (toolCalls ?? []).flatMap(toolCall => typeof toolCall.id === "string" ? [toolCall.id] : []);
-  });
-}
-
-/** Restores state only for GLM 5.3; all other translated models retain their exact prior request shape. */
-export function restoreGlmToolContinuationStates(model: TokenForgeModelId, messages: TokenForgeChatMessage[], states: Map<string, string>) {
-  if (model !== "glm-5.3" || !states.size) return messages;
-  return messages.map(message => {
-    const toolCalls = (message as TokenForgeChatMessage & { tool_calls?: ProviderToolCall[] }).tool_calls;
-    const reasoningContent = (toolCalls ?? [])
-      .map(toolCall => typeof toolCall.id === "string" ? states.get(toolCall.id) : undefined)
-      .find((value): value is string => typeof value === "string" && value.length > 0);
-    return reasoningContent ? { ...message, reasoning_content: reasoningContent } : message;
-  });
-}
-
 function writeSse(res: Response, event: string, payload: unknown) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
 }
@@ -486,12 +452,9 @@ export function registerAnthropicMessagesGateway(app: Express) {
     }
     const model = input.model as TokenForgeModelId;
     const translatedMessages = input.messages ?? [];
-    const glmContinuationStates = model === "glm-5.3"
-      ? await loadGlmToolContinuationStates(key.userId, toolCallIdsFromMessages(translatedMessages))
-      : new Map<string, string>();
     const upstreamInput: TokenForgeChatInput = {
       ...input,
-      messages: withModelScopedGuidance(model, restoreGlmToolContinuationStates(model, translatedMessages, glmContinuationStates)),
+      messages: withModelScopedGuidance(model, translatedMessages),
     };
     if (!(await isModelAvailable(model))) return respondError(res, requestId, 503, "api_error", "The requested model is temporarily unavailable. Retry shortly or choose another available model.");
 
@@ -537,7 +500,6 @@ export function registerAnthropicMessagesGateway(app: Express) {
         return respondError(res, requestId, 503, "api_error", "The selected provider returned an invalid response.");
       }
       try {
-        if (model === "glm-5.3") await saveGlmToolContinuationStates(key.userId, extractGlmToolContinuationStates(payload));
         const response = translateOpenAiMessageResponse(model, payload);
         const tokens = normalizedTokens(usageFrom(payload), estimatedInputTokens);
         const chargeNanos = calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
@@ -579,8 +541,6 @@ export function registerAnthropicMessagesGateway(app: Express) {
     let textIndex: number | null = null;
     let nextIndex = 0;
     const toolIndexes = new Map<number, number>();
-    const upstreamToolCallIds = new Map<number, string>();
-    let providerReasoningContent = "";
     const finish = (reason: string = "end_turn") => {
       if (stopped) return;
       stopped = true;
@@ -603,7 +563,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
           const serialized = line.slice(5).trim();
           if (!serialized) continue;
           if (serialized === "[DONE]") { finish(); continue; }
-          let event: { choices?: Array<{ delta?: { content?: unknown; reasoning_content?: unknown; tool_calls?: Array<{ index?: unknown; id?: unknown; function?: { name?: unknown; arguments?: unknown } }> }; finish_reason?: unknown }>; usage?: Usage; error?: unknown };
+          let event: { choices?: Array<{ delta?: { content?: unknown; tool_calls?: Array<{ index?: unknown; id?: unknown; function?: { name?: unknown; arguments?: unknown } }> }; finish_reason?: unknown }>; usage?: Usage; error?: unknown };
           try { event = JSON.parse(serialized); } catch { continue; }
           if (event.error) {
             failed = true;
@@ -614,7 +574,6 @@ export function registerAnthropicMessagesGateway(app: Express) {
           usage = { ...usage, ...usageFrom(event) };
           const choice = event.choices?.[0];
           const delta = choice?.delta;
-          if (typeof delta?.reasoning_content === "string") providerReasoningContent += delta.reasoning_content;
           if (typeof delta?.content === "string" && delta.content) {
             if (textIndex === null) {
               textIndex = nextIndex++;
@@ -628,7 +587,6 @@ export function registerAnthropicMessagesGateway(app: Express) {
             if (outputIndex === undefined && typeof toolCall.id === "string" && typeof toolCall.function?.name === "string") {
               outputIndex = nextIndex++;
               toolIndexes.set(upstreamIndex, outputIndex);
-              upstreamToolCallIds.set(upstreamIndex, toolCall.id);
               writeSse(res, "content_block_start", { type: "content_block_start", index: outputIndex, content_block: { type: "tool_use", id: toolCall.id, name: toolCall.function.name, input: {} } });
             }
             if (outputIndex !== undefined && typeof toolCall.function?.arguments === "string" && toolCall.function.arguments) {
@@ -643,9 +601,6 @@ export function registerAnthropicMessagesGateway(app: Express) {
       failed = true;
     } finally {
       clearTimeout(timeout);
-      if (!failed && model === "glm-5.3" && providerReasoningContent) {
-        await saveGlmToolContinuationStates(key.userId, Array.from(upstreamToolCallIds.values()).map(toolCallId => ({ toolCallId, reasoningContent: providerReasoningContent })));
-      }
       const tokens = normalizedTokens(usage, estimatedInputTokens);
       const chargeNanos = failed ? 0 : calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
       const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos, releaseReason: failed ? "Anthropic Messages stream was cancelled" : undefined });
