@@ -18,6 +18,7 @@ import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 import { invalidateOrcaRouterCredentialPool, resetOrcaRouterSlotRequestCounts } from "./orcaRouterCredentials";
+import { resetNvidiaClaudeFable5CredentialRotation } from "./nvidiaClaudeFable5Credentials";
 import { resetTokenRouterCredentialRotation } from "./tokenRouterCredentials";
 import { getProviderCredentialTelemetry, resetProviderCredentialTelemetry } from "./providerCredentialTelemetry";
 import { CLAUDE_OPUS5_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG } from "./modelCatalogue";
@@ -43,6 +44,10 @@ beforeEach(() => {
   process.env.FXQIDIAN_API_KEY_2 = "server-only-provider-secret-2";
   process.env.NVIDIA_CLAUDE_FABLE5_BASE_URL = "https://nvidia-fable5.example";
   process.env.NVIDIA_CLAUDE_FABLE5_API_KEY = "server-only-nvidia-fable5-secret";
+  process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_2 = "server-only-nvidia-fable5-secret-2";
+  process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_3 = "server-only-nvidia-fable5-secret-3";
+  process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_4 = "server-only-nvidia-fable5-secret-4";
+  process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_5 = "server-only-nvidia-fable5-secret-5";
   process.env.NVIDIA_CLAUDE_FABLE5_MODEL = "upstream-claude-fable-5-model";
   process.env.CLUSTER_PROTOCOL_BASE_URL = "https://cluster.example";
   process.env.CLUSTER_PROTOCOL_API_KEY = "server-only-cluster-secret";
@@ -83,6 +88,7 @@ beforeEach(() => {
   resetFxqidianCredentialRotation();
   invalidateOrcaRouterCredentialPool();
   resetOrcaRouterSlotRequestCounts();
+  resetNvidiaClaudeFable5CredentialRotation();
   resetTokenRouterCredentialRotation();
   resetProviderCredentialTelemetry();
 });
@@ -483,6 +489,26 @@ describe("TokenForge Playground gateway", () => {
     expect(apiMessages[0]).toEqual(modelScopedGuidance("claude-fable-5"));
     expect(apiMessages[0].content).toContain("You are Claude Fable 5");
     expect(apiMessages).not.toContainEqual(playgroundResponseGuidance());
+  });
+
+  it("fails over Claude Fable 5 to the next NVIDIA credential after a retryable provider response", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Temporary capacity" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await forwardProviderRequest("claude-fable-5", {
+      model: "claude-fable-5",
+      messages: [{ role: "user", content: "Retry safely." }],
+    }, new AbortController().signal);
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://nvidia-fable5.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-nvidia-fable5-secret" }),
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "https://nvidia-fable5.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-nvidia-fable5-secret-2" }),
+    }));
   });
 
   it("fails over Qwen 3.8 Max to the next TokenRouter credential after a retryable provider response", async () => {

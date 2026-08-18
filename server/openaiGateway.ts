@@ -15,6 +15,7 @@ import { selectNextClusterProtocolCredentialWithSlot } from "./clusterProtocolCr
 import { selectNextFxqidianCredentialWithSlot } from "./fxqidianCredentials";
 import { selectNextOrcaRouterCredentialWithSlot } from "./orcaRouterCredentials";
 import { selectNextTokenRouterCredentialWithSlot } from "./tokenRouterCredentials";
+import { selectNextNvidiaClaudeFable5CredentialWithSlot } from "./nvidiaClaudeFable5Credentials";
 import { isCredentialSlotEligible, recordCredentialFailover, recordCredentialFailure, recordCredentialSuccess, type CredentialTelemetryProvider } from "./providerCredentialTelemetry";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, getTokenForgeProviderSlug, getTokenForgeUpstreamModelId, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, type TokenForgeModelId } from "./modelCatalogue";
@@ -284,19 +285,37 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
 /** Claude Fable 5 uses its own OpenAI-compatible NVIDIA Integrate route, never the shared TokenRouter pool. */
 async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: AbortSignal) {
   const base = process.env.NVIDIA_CLAUDE_FABLE5_BASE_URL?.replace(/\/$/, "");
-  const secret = process.env.NVIDIA_CLAUDE_FABLE5_API_KEY;
   const upstreamModel = process.env.NVIDIA_CLAUDE_FABLE5_MODEL?.trim();
-  if (!base || !secret || !upstreamModel) throw new Error("TokenForge Claude Fable 5 inference is not configured");
+  if (!base || !upstreamModel) throw new Error("TokenForge Claude Fable 5 inference is not configured");
   // NVIDIA Integrate does not support this OpenAI-extension field. Returned
   // reasoning remains available to the existing Playground summary extraction.
   const { reasoning_effort: _strippedReasoningEffort, ...compatibleInput } = input;
   const requestBody = { ...compatibleInput, model: upstreamModel };
-  return fetch(`${base}/v1/chat/completions`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
-    body: JSON.stringify(requestBody),
-    signal,
-  });
+  const url = `${base}/v1/chat/completions`;
+  const first = selectNextNvidiaClaudeFable5CredentialWithSlot();
+  if (!first) throw new Error("TokenForge Claude Fable 5 inference is not configured");
+  let candidate = first;
+  let lastResponse: globalThis.Response | null = null;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < candidate.poolSize; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${candidate.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
+        body: JSON.stringify(requestBody),
+        signal,
+      });
+      lastResponse = response;
+      if (response.ok || !retryableProviderStatus(response.status)) return response;
+      response.body?.cancel().catch(() => undefined);
+    } catch (error) {
+      lastError = error;
+      if (signal.aborted) throw error;
+    }
+    if (attempt < candidate.poolSize - 1) candidate = selectNextNvidiaClaudeFable5CredentialWithSlot() ?? candidate;
+  }
+  if (lastResponse) return lastResponse;
+  throw lastError instanceof Error ? lastError : new Error("The selected provider is temporarily unavailable");
 }
 
 /** OrcaRouter remains only for the separately configured Qwen3.8 27B route. */
