@@ -314,3 +314,8 @@
 - [x] Roll back the later GLM 5.3 continuation-state and enhanced response-guidance changes while retaining the original GLM endpoint and catalogue entry.
 - [x] Update the GLM 5.3 server-side TokenRouter mapping to qwen/qwen3.8-max-free and validate a lightweight direct completion.
 - [x] Validate the restored `/v1/messages` bridge for GLM 5.3 with Claude Code and retain deterministic Claude Fable 5 and Claude Opus 5 translation coverage.
+- [x] Restart and verify the TokenForge development server after the reported outage.
+- [x] Add TokenRouter credentials seven through nine as server-only secrets and use the requested interleaved nine-key rotation order.
+- [x] Add GLM 5.3 to the required login modal sequence for authenticated users.
+- [x] Create the same recipient-facing giveaway alert when an administrator grants credit to one individual account.
+- [ ] Prevent stale deleted-user API requests from crashing the gateway during credit-ledger settlement.

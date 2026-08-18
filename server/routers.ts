@@ -396,7 +396,7 @@ export const appRouter = router({
     addAccountCredit: adminProcedure.input(adminCreditGrantInput).mutation(async ({ ctx, input }) => {
       if (input.userId === ctx.user.id) throw new TRPCError({ code: "BAD_REQUEST", message: "Administrator session credit cannot be adjusted from the control plane" });
       const amountNanos = Math.round(input.amountUsd * 1_000_000_000);
-      const result = await grantAdminAccountCredit({ userId: input.userId, amountNanos });
+      const result = await grantAdminAccountCredit({ userId: input.userId, amountNanos, actorUserId: ctx.user.id });
       if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "This account no longer exists" });
       await writeAuditEvent({ actorUserId: ctx.user.id, targetUserId: input.userId, action: "account.credit_granted", entityType: "account", entityId: String(input.userId), metadata: { amountNanos: result.amountNanos } });
       return result;

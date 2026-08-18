@@ -446,7 +446,7 @@ describe("protected administrator account directory", () => {
     await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.addAccountCredit({ userId: 55, amountUsd: 50 })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(appRouter.createCaller(makeContext(admin).ctx).admin.addAccountCredit({ userId: admin.id, amountUsd: 50 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(appRouter.createCaller(makeContext(admin).ctx).admin.addAccountCredit({ userId: 55, amountUsd: 50 })).resolves.toEqual({ amountNanos: 50_000_000_000, balanceNanos: 60_000_000_000 });
-    expect(grantAdminAccountCredit).toHaveBeenCalledWith({ userId: 55, amountNanos: 50_000_000_000 });
+    expect(grantAdminAccountCredit).toHaveBeenCalledWith({ actorUserId: 1, userId: 55, amountNanos: 50_000_000_000 });
     expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, targetUserId: 55, action: "account.credit_granted", entityType: "account", entityId: "55", metadata: { amountNanos: 50_000_000_000 } }));
   });
 

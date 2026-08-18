@@ -8,6 +8,9 @@ const configured = process.env.RUN_TOKENROUTER_LIVE === "1" && Boolean(
     && process.env.TOKENROUTER_API_KEY_4?.trim()
     && process.env.TOKENROUTER_API_KEY_5?.trim()
     && process.env.TOKENROUTER_API_KEY_6?.trim()
+    && process.env.TOKENROUTER_API_KEY_7?.trim()
+    && process.env.TOKENROUTER_API_KEY_8?.trim()
+    && process.env.TOKENROUTER_API_KEY_9?.trim()
     && process.env.TOKENROUTER_MODEL?.trim(),
 );
 const claudeFableConfigured = configured && Boolean(process.env.TOKENROUTER_CLAUDE_FABLE5_MODEL?.trim());
@@ -23,11 +26,14 @@ describe.runIf(configured)("TokenRouter Qwen 3.8 Max credential-pool probe", () 
     const baseUrl = process.env.TOKENROUTER_BASE_URL!.replace(/\/$/, "");
     const credentials = [
       process.env.TOKENROUTER_API_KEY!,
-      process.env.TOKENROUTER_API_KEY_2!,
       process.env.TOKENROUTER_API_KEY_3!,
-      process.env.TOKENROUTER_API_KEY_4!,
       process.env.TOKENROUTER_API_KEY_5!,
+      process.env.TOKENROUTER_API_KEY_7!,
+      process.env.TOKENROUTER_API_KEY_9!,
+      process.env.TOKENROUTER_API_KEY_2!,
+      process.env.TOKENROUTER_API_KEY_4!,
       process.env.TOKENROUTER_API_KEY_6!,
+      process.env.TOKENROUTER_API_KEY_8!,
     ];
 
     for (const credential of credentials) {
@@ -52,6 +58,25 @@ describe.runIf(configured)("TokenRouter Qwen 3.8 Max credential-pool probe", () 
       expect(Array.isArray(payload?.choices)).toBe(true);
     }
   }, 90_000);
+});
+
+describe.runIf(configured)("TokenRouter newly added credential authentication probe", () => {
+  it("authenticates each newly added credential against the provider model list", async () => {
+    const baseUrl = process.env.TOKENROUTER_BASE_URL!.replace(/\/$/, "");
+    const credentials = [
+      process.env.TOKENROUTER_API_KEY_7!,
+      process.env.TOKENROUTER_API_KEY_8!,
+      process.env.TOKENROUTER_API_KEY_9!,
+    ];
+
+    for (const credential of credentials) {
+      const response = await fetch(`${baseUrl}/v1/models`, {
+        headers: { Authorization: `Bearer ${credential}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      expect(response.status).toBe(200);
+    }
+  }, 50_000);
 });
 
 describe.runIf(glm53Configured)("TokenRouter GLM 5.3 configuration probe", () => {

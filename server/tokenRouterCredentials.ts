@@ -9,11 +9,14 @@ let rotationIndex = 0;
 export function getTokenRouterCredentialPool() {
   return [
     process.env.TOKENROUTER_API_KEY,
-    process.env.TOKENROUTER_API_KEY_2,
     process.env.TOKENROUTER_API_KEY_3,
-    process.env.TOKENROUTER_API_KEY_4,
     process.env.TOKENROUTER_API_KEY_5,
+    process.env.TOKENROUTER_API_KEY_7,
+    process.env.TOKENROUTER_API_KEY_9,
+    process.env.TOKENROUTER_API_KEY_2,
+    process.env.TOKENROUTER_API_KEY_4,
     process.env.TOKENROUTER_API_KEY_6,
+    process.env.TOKENROUTER_API_KEY_8,
   ]
     .map(credential => credential?.trim())
     .filter((credential): credential is string => Boolean(credential));

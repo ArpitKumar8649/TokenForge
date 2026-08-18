@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loginWelcomeSessionMarker, shouldShowLoginWelcomeTour } from "../client/src/components/LoginWelcomeTour";
+import { LOGIN_WELCOME_TOUR_STEPS, loginWelcomeSessionMarker, shouldShowLoginWelcomeTour } from "../client/src/components/LoginWelcomeTour";
 
 describe("LoginWelcomeTour session behavior", () => {
   it("opens once for a newly authenticated login session and not again after completion", () => {
@@ -33,5 +33,11 @@ describe("LoginWelcomeTour session behavior", () => {
 
     expect(laterLogin).not.toBe(firstLogin);
     expect(shouldShowLoginWelcomeTour(laterLogin, firstLogin)).toBe(true);
+  });
+
+  it("includes the GLM 5.3 announcement before the required Discord verification step", () => {
+    const titles = LOGIN_WELCOME_TOUR_STEPS.map(step => step.title);
+    expect(titles).toContain("GLM 5.3 is available.");
+    expect(titles.indexOf("GLM 5.3 is available.")).toBeLessThan(titles.indexOf("Join the TokenForge Discord."));
   });
 });

@@ -22,7 +22,7 @@ export function shouldShowLoginWelcomeTour(marker: string, completedMarker: stri
   return Boolean(marker) && completedMarker !== marker;
 }
 
-const tourSteps = [
+export const LOGIN_WELCOME_TOUR_STEPS = [
   {
     eyebrow: "NEW IN THE FORGE",
     title: "Claude Fable 5 is now live.",
@@ -42,6 +42,16 @@ const tourSteps = [
     accent: "#c9ff73",
     iconClassName: "border-[#c9ff73]/30 bg-[#c9ff73]/10 text-[#d8ff9c] shadow-[0_0_0_8px_rgba(201,255,115,.05)]",
     visual: "qwen",
+  },
+  {
+    eyebrow: "NEW IN THE FORGE",
+    title: "GLM 5.3 is available.",
+    description: "Explore a fast new route for focused coding, everyday chat, and OpenAI- or Anthropic-compatible requests through TokenForge.",
+    detail: "Chat Completions · Messages · Streaming · Coding",
+    icon: Bot,
+    accent: "#79e2ff",
+    iconClassName: "border-[#79e2ff]/30 bg-[#79e2ff]/10 text-[#b6f0ff] shadow-[0_0_0_8px_rgba(121,226,255,.05)]",
+    visual: "glm",
   },
   {
     eyebrow: "STAY CONNECTED",
@@ -77,9 +87,9 @@ export function LoginWelcomeTour({ user }: { user: LoginWelcomeUser | null | und
 
   if (!user) return null;
 
-  const activeStep = tourSteps[step];
+  const activeStep = LOGIN_WELCOME_TOUR_STEPS[step];
   const StepIcon = activeStep.icon;
-  const isFinalStep = step === tourSteps.length - 1;
+  const isFinalStep = step === LOGIN_WELCOME_TOUR_STEPS.length - 1;
   const firstName = user.name?.trim().split(" ")[0] || "developer";
 
   const completeTour = () => {
@@ -107,17 +117,17 @@ export function LoginWelcomeTour({ user }: { user: LoginWelcomeUser | null | und
         className="overflow-hidden border-white/10 bg-[#10130f] p-0 text-[#eef3e9] shadow-[0_32px_120px_rgba(0,0,0,.72)] sm:max-w-xl"
       >
         <div className="absolute inset-0 opacity-90" aria-hidden="true">
-          <div className={`absolute -right-14 -top-10 h-60 w-60 rounded-full blur-3xl ${activeStep.visual === "fable" ? "bg-[#9d79f5]/25" : activeStep.visual === "qwen" ? "bg-[#c9ff73]/16" : "bg-[#6172df]/22"}`} />
+          <div className={`absolute -right-14 -top-10 h-60 w-60 rounded-full blur-3xl ${activeStep.visual === "fable" ? "bg-[#9d79f5]/25" : activeStep.visual === "qwen" ? "bg-[#c9ff73]/16" : activeStep.visual === "glm" ? "bg-[#79e2ff]/16" : "bg-[#6172df]/22"}`} />
           <div className="absolute -bottom-24 -left-24 h-60 w-60 rounded-full bg-[#fe8e89]/9 blur-3xl" />
           <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,.03)_48%,transparent_100%)]" />
         </div>
 
         <div className="relative p-5 sm:p-8">
           <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2" aria-label={`Step ${step + 1} of ${tourSteps.length}`}>
-              {tourSteps.map((tourStep, index) => <span key={tourStep.title} className={`h-1.5 rounded-full transition-all duration-200 ${index === step ? "w-9" : index < step ? "w-4 bg-[#c9ff73]" : "w-4 bg-white/14"}`} style={index === step ? { backgroundColor: activeStep.accent } : undefined} />)}
+            <div className="flex items-center gap-2" aria-label={`Step ${step + 1} of ${LOGIN_WELCOME_TOUR_STEPS.length}`}>
+              {LOGIN_WELCOME_TOUR_STEPS.map((tourStep, index) => <span key={tourStep.title} className={`h-1.5 rounded-full transition-all duration-200 ${index === step ? "w-9" : index < step ? "w-4 bg-[#c9ff73]" : "w-4 bg-white/14"}`} style={index === step ? { backgroundColor: activeStep.accent } : undefined} />)}
             </div>
-            <span className="font-mono text-[10px] font-bold tracking-[.18em] text-[#98a391]">0{step + 1} / 0{tourSteps.length}</span>
+            <span className="font-mono text-[10px] font-bold tracking-[.18em] text-[#98a391]">0{step + 1} / 0{LOGIN_WELCOME_TOUR_STEPS.length}</span>
           </div>
 
           <div className="mt-8 max-w-lg">

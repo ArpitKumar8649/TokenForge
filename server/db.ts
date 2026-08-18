@@ -1576,7 +1576,7 @@ export async function dismissCreditGiveawayNotification(input: { userId: number;
 }
 
 /** Adds a positive administrator credit grant and immutable wallet-ledger record for an existing account. */
-export async function grantAdminAccountCredit(input: { userId: number; amountNanos: number }) {
+export async function grantAdminAccountCredit(input: { userId: number; amountNanos: number; actorUserId: number }) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const amountNanos = Math.max(0, Math.trunc(input.amountNanos));
@@ -1585,6 +1585,8 @@ export async function grantAdminAccountCredit(input: { userId: number; amountNan
   if (!user) return null;
   await ensureCreditAccount(input.userId);
   return db.transaction(async tx => {
+    const giveawayId = randomBytes(12).toString("hex");
+    const announcementNote = "An administrator added credits to your TokenForge account.";
     await tx.update(creditAccounts).set({ balanceNanos: sql`${creditAccounts.balanceNanos} + ${amountNanos}` }).where(eq(creditAccounts.userId, input.userId));
     const account = (await tx.select({ balanceNanos: creditAccounts.balanceNanos }).from(creditAccounts).where(eq(creditAccounts.userId, input.userId)).limit(1))[0];
     const balanceNanos = account?.balanceNanos ?? amountNanos;
@@ -1593,9 +1595,18 @@ export async function grantAdminAccountCredit(input: { userId: number; amountNan
       kind: "manual_adjustment",
       amountNanos,
       balanceAfterNanos: balanceNanos,
-      referenceId: `admin-credit:${randomBytes(12).toString("hex")}`,
-      note: "Administrator credit grant",
+      referenceId: `admin-credit:${giveawayId}:${input.userId}`,
+      note: announcementNote,
     });
+    await tx.insert(creditGiveaways).values({
+      id: giveawayId,
+      actorUserId: input.actorUserId,
+      amountNanos,
+      recipientCount: 1,
+      totalAmountNanos: amountNanos,
+      announcementNote,
+    });
+    await tx.insert(creditGiveawayNotifications).values({ giveawayId, userId: input.userId });
     return { amountNanos, balanceNanos };
   });
 }
