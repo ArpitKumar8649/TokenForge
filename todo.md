@@ -344,3 +344,4 @@
 - [x] Research reputable third-party API providers that currently offer free models and summarize their available free-model catalogues and constraints.
 - [x] Replace Claude Fable 5’s FXQidian route with the supplied NVIDIA Integrate provider and validate both OpenAI-compatible and Claude Code Messages requests.
 - [x] Add the four supplied server-only NVIDIA Integrate credentials for Claude Fable 5, rotate the full pool safely, validate every slot, and publish the updated routing.
+- [x] Update the server-only GLM 5.3 upstream model identifier and validate the new provider configuration.
