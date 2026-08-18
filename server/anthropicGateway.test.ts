@@ -3,6 +3,7 @@ import {
   AnthropicBridgeError,
   anthropicApiKey,
   isNativeTokenRouterMessagesRequest,
+  providerResponseStartTimeoutMs,
   translateAnthropicRequest,
   translateOpenAiMessageResponse,
 } from "./anthropicGateway";
@@ -53,6 +54,12 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(translated.reasoning_effort).toBe("max");
     expect(translateAnthropicRequest({ model: "claude-fable-5", messages: [{ role: "user", content: "Reply with OK." }], reasoning_effort: "low" } as Parameters<typeof translateAnthropicRequest>[0] & { reasoning_effort: "low" }).reasoning_effort).toBe("xhigh");
     expect(translateAnthropicRequest({ model: "gpt-5", messages: [{ role: "user", content: "Reply with OK." }] }).reasoning_effort).toBeUndefined();
+  });
+
+  it("extends only Claude Opus 5 response-start allowance for slow Claude Code tool continuations", () => {
+    expect(providerResponseStartTimeoutMs("claude-opus-5")).toBe(300_000);
+    expect(providerResponseStartTimeoutMs("claude-fable-5")).toBe(110_000);
+    expect(providerResponseStartTimeoutMs("qwen-3.8-max")).toBe(110_000);
   });
 
   it("normalizes Claude Code tool and instruction turns for Kimi K3 into supported user and assistant roles", () => {

@@ -331,3 +331,7 @@
 - [x] Make the remaining direct TokenRouter route diagnostic record transient upstream 5xx outcomes without failing unrelated application validation.
 - [x] Diagnose and reduce Claude Opus 5 stale-key authentication failures and transient API errors during Claude Code sessions.
 - [x] Raise the bounded gateway JSON request limit and return a clear structured error for oversized Claude Code histories.
+- [x] Reproduce and diagnose the reported sequential Claude Code Claude Opus 5 API error with controlled gateway telemetry.
+- [x] Increase the bounded Claude Opus 5 Messages response-start timeout to support slow tool continuations without a premature gateway abort.
+- [x] Compare matched direct TokenRouter and TokenForge Claude Opus 5 sequential tool-call probes to isolate the failure source.
+- [x] Prevent an in-flight model request from failing credit settlement if its user account is deleted before the provider response completes.

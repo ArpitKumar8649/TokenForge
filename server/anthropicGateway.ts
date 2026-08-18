@@ -24,6 +24,13 @@ import {
 import { CLUSTER_PROTOCOL_PROVIDER_SLUG, getTokenForgeProviderSlug, isTokenForgeModelId, type TokenForgeModelId } from "./modelCatalogue";
 
 const PROVIDER_TIMEOUT_MS = 110_000;
+export const CLAUDE_OPUS5_RESPONSE_START_TIMEOUT_MS = 300_000;
+
+export function providerResponseStartTimeoutMs(model: TokenForgeModelId) {
+  return model === "claude-opus-5"
+    ? CLAUDE_OPUS5_RESPONSE_START_TIMEOUT_MS
+    : PROVIDER_TIMEOUT_MS;
+}
 
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number };
 type AnthropicRequest = { model?: unknown; messages?: unknown; system?: unknown; tools?: unknown; stream?: unknown; max_tokens?: unknown; temperature?: unknown; [key: string]: unknown };
@@ -330,7 +337,7 @@ async function handleNativeTokenRouterMessagesRequest(req: Request, res: Respons
   if (!reservation.authorized) return respondError(res, requestId, 402, "permission_error", "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.");
 
   const aborter = new AbortController();
-  const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
+  const timeout = setTimeout(() => aborter.abort(), providerResponseStartTimeoutMs(model));
   let upstream: globalThis.Response;
   try {
     upstream = await forwardTokenRouterAnthropicMessagesRequest(input, aborter.signal, req.header("anthropic-beta")?.trim());
@@ -469,7 +476,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
     if (!reservation.authorized) return respondError(res, requestId, 402, "permission_error", "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.");
 
     const aborter = new AbortController();
-    const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
+    const timeout = setTimeout(() => aborter.abort(), providerResponseStartTimeoutMs(model));
     let upstream: globalThis.Response;
     try {
       upstream = await forwardProviderRequest(model, upstreamInput, aborter.signal);

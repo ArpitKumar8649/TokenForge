@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { apiKeys, users } from "../drizzle/schema";
-import { deleteAccountPermanently, DISCORD_UNVERIFIED_CLEANUP_NOTICE_KIND, findActiveApiKey, hashApiKey, publicApiKey, utcUsageDate } from "./db";
+import { deleteAccountPermanently, DISCORD_UNVERIFIED_CLEANUP_NOTICE_KIND, findActiveApiKey, hashApiKey, publicApiKey, settleReservedCredit, utcUsageDate } from "./db";
 import { TOKENFORGE_CATALOGUE, tokenForgeErrorBody, tokenForgeRateHeaders } from "./openaiGateway";
 
 describe("TokenForge credential and gateway safeguards", () => {
@@ -28,6 +28,38 @@ describe("TokenForge credential and gateway safeguards", () => {
 
     await expect(findActiveApiKey("tf_live_deleted_owner", database as NonNullable<Parameters<typeof findActiveApiKey>[1]>)).resolves.toBeNull();
     expect(innerJoin).toHaveBeenCalledWith(users, expect.anything());
+  });
+
+  it("silently skips credit settlement when the in-flight request's user was deleted", async () => {
+    const limit = vi.fn().mockResolvedValue([]);
+    const where = vi.fn(() => ({ limit }));
+    const from = vi.fn(() => ({ where }));
+    const transaction = vi.fn();
+    const database = { select: vi.fn(() => ({ from })), transaction };
+
+    await expect(settleReservedCredit({
+      userId: 55,
+      requestId: "deleted-account-request",
+      reservedNanos: 1_500_000_000,
+      finalChargeNanos: 500_000_000,
+    }, database as NonNullable<Parameters<typeof settleReservedCredit>[1]>)).resolves.toEqual({ balanceNanos: 0, chargedNanos: 0 });
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("treats a deletion that wins after the settlement check as a harmless no-op", async () => {
+    const limit = vi.fn().mockResolvedValue([{ id: 55 }]);
+    const where = vi.fn(() => ({ limit }));
+    const from = vi.fn(() => ({ where }));
+    const transaction = vi.fn().mockRejectedValue({ cause: { code: "ER_NO_REFERENCED_ROW_2" } });
+    const database = { select: vi.fn(() => ({ from })), transaction };
+
+    await expect(settleReservedCredit({
+      userId: 55,
+      requestId: "settlement-race-request",
+      reservedNanos: 1_500_000_000,
+      finalChargeNanos: 500_000_000,
+    }, database as NonNullable<Parameters<typeof settleReservedCredit>[1]>)).resolves.toEqual({ balanceNanos: 0, chargedNanos: 0 });
+    expect(transaction).toHaveBeenCalledOnce();
   });
 
   it("deletes active API keys before removing their owning account", async () => {

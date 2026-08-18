@@ -69,6 +69,7 @@ export class DiscordUnverifiedAccountDeletedError extends Error {
 export type ApiKeyRecord = typeof apiKeys.$inferSelect;
 type ApiKeyLookupDatabase = Pick<NonNullable<Awaited<ReturnType<typeof getDb>>>, "select">;
 type AccountDeletionDatabase = Pick<NonNullable<Awaited<ReturnType<typeof getDb>>>, "transaction">;
+type CreditSettlementDatabase = Pick<NonNullable<Awaited<ReturnType<typeof getDb>>>, "select" | "transaction">;
 export type EmailAllowlistConfig = { entries: string[]; updatedAt: Date; updatedByUserId: number | null };
 export type OrcaRouterCredentialSlotSummary = { slot: number; fingerprintSuffix: string; lastValidatedAt: Date; updatedAt: Date; updatedByUserId: number | null };
 export type AdminEmailProviderCount = { provider: string; accountCount: number };
@@ -334,30 +335,60 @@ export async function reserveCredit(userId: number, amountNanos: number, request
   });
 }
 
-export async function settleReservedCredit(input: { userId: number; requestId: string; reservedNanos: number; finalChargeNanos: number; releaseReason?: string }) {
-  const db = await getDb();
+function isMissingUserForeignKeyViolation(error: unknown) {
+  let current = error;
+  for (let depth = 0; current && depth < 4; depth += 1) {
+    if (typeof current !== "object") return false;
+    const databaseError = current as { code?: unknown; cause?: unknown };
+    if (databaseError.code === "ER_NO_REFERENCED_ROW" || databaseError.code === "ER_NO_REFERENCED_ROW_2") return true;
+    current = databaseError.cause;
+  }
+  return false;
+}
+
+/**
+ * Finalizes a prior inference-credit reservation. If an administrator deletes the account while
+ * the upstream model call is still in flight, the reservation has no remaining owner and is
+ * deliberately treated as settled with no charge rather than recreating or mutating the account.
+ */
+export async function settleReservedCredit(input: { userId: number; requestId: string; reservedNanos: number; finalChargeNanos: number; releaseReason?: string }, database?: CreditSettlementDatabase) {
+  const db = database ?? await getDb();
   if (!db) return { balanceNanos: 0, chargedNanos: 0 };
+  const user = (await db.select({ id: users.id }).from(users).where(eq(users.id, input.userId)).limit(1))[0];
+  if (!user) return { balanceNanos: 0, chargedNanos: 0 };
   const reserved = Math.max(0, Math.trunc(input.reservedNanos));
   const chargedNanos = Math.min(reserved, Math.max(0, Math.trunc(input.finalChargeNanos)));
   const refund = reserved - chargedNanos;
   if (refund === 0) {
-    const account = await ensureCreditAccount(input.userId);
-    return { balanceNanos: account?.balanceNanos ?? 0, chargedNanos };
+    try {
+      const account = await ensureCreditAccount(input.userId);
+      return { balanceNanos: account?.balanceNanos ?? 0, chargedNanos };
+    } catch (error) {
+      // The account can be removed after the initial existence check and before initialization.
+      if (isMissingUserForeignKeyViolation(error)) return { balanceNanos: 0, chargedNanos: 0 };
+      throw error;
+    }
   }
-  return db.transaction(async tx => {
-    await tx.update(creditAccounts).set({ balanceNanos: sql`${creditAccounts.balanceNanos} + ${refund}` }).where(eq(creditAccounts.userId, input.userId));
-    const account = (await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, input.userId)).limit(1))[0];
-    const balanceNanos = account?.balanceNanos ?? 0;
-    await tx.insert(creditLedger).values({
-      userId: input.userId,
-      kind: "manual_adjustment",
-      amountNanos: refund,
-      balanceAfterNanos: balanceNanos,
-      referenceId: `settlement:${input.requestId}`,
-      note: input.releaseReason ?? "Unused reservation returned after metered completion",
+  try {
+    return await db.transaction(async tx => {
+      await tx.update(creditAccounts).set({ balanceNanos: sql`${creditAccounts.balanceNanos} + ${refund}` }).where(eq(creditAccounts.userId, input.userId));
+      const account = (await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, input.userId)).limit(1))[0];
+      const balanceNanos = account?.balanceNanos ?? 0;
+      await tx.insert(creditLedger).values({
+        userId: input.userId,
+        kind: "manual_adjustment",
+        amountNanos: refund,
+        balanceAfterNanos: balanceNanos,
+        referenceId: `settlement:${input.requestId}`,
+        note: input.releaseReason ?? "Unused reservation returned after metered completion",
+      });
+      return { balanceNanos, chargedNanos };
     });
-    return { balanceNanos, chargedNanos };
-  });
+  } catch (error) {
+    // Account deletion can win the race after the check above but before the ledger insert.
+    if (isMissingUserForeignKeyViolation(error)) return { balanceNanos: 0, chargedNanos: 0 };
+    throw error;
+  }
 }
 
 export async function getCreditProfile(userId: number, now = new Date()) {
