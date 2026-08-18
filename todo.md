@@ -320,3 +320,8 @@
 - [x] Create the same recipient-facing giveaway alert when an administrator grants credit to one individual account.
 - [x] Prevent stale deleted-user API requests from crashing the gateway during credit-ledger settlement.
 - [x] Allow the FXQidian live credential test enough time to complete its configured ten-second request probe.
+- [x] Diagnose and correct the administrator dashboard live-data fetch error.
+- [x] Permanently delete all currently Discord-unverified accounts and their associated API keys and account data.
+- [x] Fix the Discord-unverified cleanup notice identifier so its transaction can commit successfully.
+- [x] Exclude the internal administrator control-plane principal from Discord-unverified user cleanup counts and deletion.
+- [x] Make TokenRouter live probes record upstream request timeouts without failing unrelated deterministic validation.

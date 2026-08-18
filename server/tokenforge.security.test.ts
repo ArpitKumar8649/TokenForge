@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { apiKeys, users } from "../drizzle/schema";
-import { deleteAccountPermanently, findActiveApiKey, hashApiKey, publicApiKey, utcUsageDate } from "./db";
+import { deleteAccountPermanently, DISCORD_UNVERIFIED_CLEANUP_NOTICE_KIND, findActiveApiKey, hashApiKey, publicApiKey, utcUsageDate } from "./db";
 import { TOKENFORGE_CATALOGUE, tokenForgeErrorBody, tokenForgeRateHeaders } from "./openaiGateway";
 
 describe("TokenForge credential and gateway safeguards", () => {
@@ -53,6 +53,11 @@ describe("TokenForge credential and gateway safeguards", () => {
     await expect(deleteAccountPermanently(55, database as NonNullable<Parameters<typeof deleteAccountPermanently>[1]>)).resolves.toBe(true);
     expect(remove).toHaveBeenNthCalledWith(2, apiKeys);
     expect(remove).toHaveBeenNthCalledWith(3, users);
+  });
+
+  it("keeps the Discord-unverified cleanup notice kind within its persisted column bound", () => {
+    expect(DISCORD_UNVERIFIED_CLEANUP_NOTICE_KIND).toHaveLength(26);
+    expect(DISCORD_UNVERIFIED_CLEANUP_NOTICE_KIND.length).toBeLessThanOrEqual(32);
   });
 
   it("normalizes metering dates to UTC midnight", () => {

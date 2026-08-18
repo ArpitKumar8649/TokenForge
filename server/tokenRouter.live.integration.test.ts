@@ -21,6 +21,21 @@ const claudeOpus5Configured = Boolean(
     && process.env.TOKENROUTER_API_KEY?.trim(),
 );
 
+type ProbeOutcome = { slot: number; status: number; error: string | null };
+
+async function recordDiagnosticProbe(slot: number, request: () => Promise<Response>): Promise<ProbeOutcome> {
+  try {
+    const response = await request();
+    const payload = await response.json().catch(() => null) as { error?: { message?: unknown }; message?: unknown } | null;
+    const error = typeof payload?.error?.message === "string"
+      ? payload.error.message
+      : typeof payload?.message === "string" ? payload.message : null;
+    return { slot, status: response.status, error };
+  } catch (error) {
+    return { slot, status: 0, error: error instanceof Error ? error.message : "Upstream request failed" };
+  }
+}
+
 describe.runIf(configured)("TokenRouter Qwen 3.8 Max credential-pool probe", () => {
   it("accepts each configured credential with the provider’s highest supported reasoning-effort request", async () => {
     const baseUrl = process.env.TOKENROUTER_BASE_URL!.replace(/\/$/, "");
@@ -189,10 +204,10 @@ describe.runIf(claudeOpus5Configured)("TokenRouter Claude Opus 5 route configura
       process.env.TOKENROUTER_API_KEY_3!,
       process.env.TOKENROUTER_API_KEY_4!,
     ];
-    const outcomes: Array<{ slot: number; status: number; error: string | null }> = [];
+    const outcomes: ProbeOutcome[] = [];
 
     for (const [index, credential] of credentials.entries()) {
-      const response = await fetch(`${baseUrl}/v1/messages`, {
+      outcomes.push(await recordDiagnosticProbe(index + 1, () => fetch(`${baseUrl}/v1/messages`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${credential}`,
@@ -208,18 +223,12 @@ describe.runIf(claudeOpus5Configured)("TokenRouter Claude Opus 5 route configura
           stream: false,
         }),
         signal: AbortSignal.timeout(30_000),
-      });
-      const payload = await response.json().catch(() => null) as { error?: { message?: unknown } } | null;
-      outcomes.push({
-        slot: index + 1,
-        status: response.status,
-        error: typeof payload?.error?.message === "string" ? payload.error.message : null,
-      });
+      })));
     }
 
     console.info("[TokenRouter Claude Opus 5 native Messages probe]", outcomes);
     expect(outcomes).toHaveLength(credentials.length);
-  }, 120_000);
+  }, 135_000);
 
   it("records Claude Code-style OpenAI tool-call compatibility across the shared credential pool", async () => {
     const baseUrl = process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL!.replace(/\/$/, "");
@@ -229,10 +238,10 @@ describe.runIf(claudeOpus5Configured)("TokenRouter Claude Opus 5 route configura
       process.env.TOKENROUTER_API_KEY_3!,
       process.env.TOKENROUTER_API_KEY_4!,
     ];
-    const outcomes: Array<{ slot: number; status: number; error: string | null }> = [];
+    const outcomes: ProbeOutcome[] = [];
 
     for (const [index, credential] of credentials.entries()) {
-      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      outcomes.push(await recordDiagnosticProbe(index + 1, () => fetch(`${baseUrl}/v1/chat/completions`, {
         method: "POST",
         headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -246,17 +255,12 @@ describe.runIf(claudeOpus5Configured)("TokenRouter Claude Opus 5 route configura
           stream: false,
         }),
         signal: AbortSignal.timeout(30_000),
-      });
-      const payload = await response.json().catch(() => null) as { error?: { message?: unknown }; message?: unknown } | null;
-      const error = typeof payload?.error?.message === "string"
-        ? payload.error.message
-        : typeof payload?.message === "string" ? payload.message : null;
-      outcomes.push({ slot: index + 1, status: response.status, error });
+      })));
     }
 
     console.info("[TokenRouter Claude Opus 5 Chat Completions tools probe]", outcomes);
     expect(outcomes).toHaveLength(credentials.length);
-  }, 120_000);
+  }, 135_000);
 
   it("records exact translated Claude Code payload compatibility across the shared credential pool", async () => {
     const baseUrl = process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL!.replace(/\/$/, "");
@@ -279,25 +283,20 @@ describe.runIf(claudeOpus5Configured)("TokenRouter Claude Opus 5 route configura
       model: process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL,
       messages: withModelScopedGuidance("claude-opus-5", translated.messages ?? []),
     };
-    const outcomes: Array<{ slot: number; status: number; error: string | null }> = [];
+    const outcomes: ProbeOutcome[] = [];
 
     for (const [index, credential] of credentials.entries()) {
-      const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      outcomes.push(await recordDiagnosticProbe(index + 1, () => fetch(`${baseUrl}/v1/chat/completions`, {
         method: "POST",
         headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(30_000),
-      });
-      const responsePayload = await response.json().catch(() => null) as { error?: { message?: unknown }; message?: unknown } | null;
-      const error = typeof responsePayload?.error?.message === "string"
-        ? responsePayload.error.message
-        : typeof responsePayload?.message === "string" ? responsePayload.message : null;
-      outcomes.push({ slot: index + 1, status: response.status, error });
+      })));
     }
 
     console.info("[TokenRouter Claude Opus 5 exact translated payload probe]", outcomes);
     expect(outcomes).toHaveLength(credentials.length);
-  }, 120_000);
+  }, 135_000);
 });
 import { translateAnthropicRequest } from "./anthropicGateway";
 import { withModelScopedGuidance } from "./openaiGateway";
