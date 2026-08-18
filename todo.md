@@ -335,3 +335,4 @@
 - [x] Increase the bounded Claude Opus 5 Messages response-start timeout to support slow tool continuations without a premature gateway abort.
 - [x] Compare matched direct TokenRouter and TokenForge Claude Opus 5 sequential tool-call probes to isolate the failure source.
 - [x] Prevent an in-flight model request from failing credit settlement if its user account is deleted before the provider response completes.
+- [x] Build an isolated temporary Claude Code-to-TokenRouter translation proxy and run repeated Claude Opus 5 CLI tasks to diagnose recurrent API errors without altering production routing.
