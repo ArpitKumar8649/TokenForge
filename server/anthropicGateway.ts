@@ -24,9 +24,6 @@ import {
 import { CLUSTER_PROTOCOL_PROVIDER_SLUG, getTokenForgeProviderSlug, isTokenForgeModelId, type TokenForgeModelId } from "./modelCatalogue";
 
 const PROVIDER_TIMEOUT_MS = 110_000;
-const TOKENROUTER_CLAUDE_COMPACTION_TRIGGER = 90;
-const TOKENROUTER_CLAUDE_RECENT_CONTEXT_TARGET = 60;
-const COMPACTED_HISTORY_NOTICE = "[Earlier conversation history has been compacted by TokenForge to fit the provider message-entry limit. Continue from the remaining recent context.]";
 
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number };
 type AnthropicRequest = { model?: unknown; messages?: unknown; system?: unknown; tools?: unknown; stream?: unknown; max_tokens?: unknown; temperature?: unknown; [key: string]: unknown };
@@ -130,74 +127,6 @@ export function prepareNativeClaudeFableMessagesRequest(raw: AnthropicRequest) {
 
 function estimateNativeAnthropicInputTokens(input: NativeTokenRouterMessagesInput) {
   return Math.ceil(JSON.stringify({ system: input.system, messages: input.messages, tools: input.tools }).length / 4) + 4;
-}
-
-function isToolCallAssistant(message: TokenForgeChatMessage) {
-  return message.role === "assistant" && Array.isArray((message as { tool_calls?: unknown }).tool_calls);
-}
-
-/**
- * The translator emits one assistant tool-call entry followed by one entry per
- * tool result. Treat that contiguous sequence as an indivisible history group.
- */
-function translatedMessageGroups(messages: TokenForgeChatMessage[]) {
-  const groups: TokenForgeChatMessage[][] = [];
-  for (let index = 0; index < messages.length;) {
-    if (!isToolCallAssistant(messages[index]!)) {
-      groups.push([messages[index]!]);
-      index += 1;
-      continue;
-    }
-
-    let end = index + 1;
-    while (end < messages.length && messages[end]?.role === "tool") end += 1;
-    groups.push(messages.slice(index, end));
-    index = end;
-  }
-  return groups;
-}
-
-/**
- * TokenRouter accepts at most 100 Chat Completions entries. Compact early so
- * extended Claude Code tool sessions retain their newest complete turns rather
- * than reaching that upstream count limit. Guidance contributes a system entry
- * if the translated request did not already contain one, so reserve that slot.
- */
-export function compactTranslatedMessages(messages: TokenForgeChatMessage[], limit = 99): TokenForgeChatMessage[] {
-  const requestedLimit = Math.max(1, Math.floor(limit));
-  const leadingSystem = messages[0]?.role === "system" ? messages[0] : undefined;
-  const preGuidanceLimit = leadingSystem ? requestedLimit : Math.max(1, requestedLimit - 1);
-  if (messages.length < Math.min(TOKENROUTER_CLAUDE_COMPACTION_TRIGGER, preGuidanceLimit + 1)) return messages;
-
-  const conversationalMessages = leadingSystem ? messages.slice(1) : messages.slice();
-  const fixedEntryCount = (leadingSystem ? 1 : 0) + 1;
-  const recentCapacity = Math.max(0, preGuidanceLimit - fixedEntryCount);
-  const recentTarget = Math.min(TOKENROUTER_CLAUDE_RECENT_CONTEXT_TARGET, recentCapacity);
-  const retainedGroups: TokenForgeChatMessage[][] = [];
-  let retainedCount = 0;
-
-  for (const group of translatedMessageGroups(conversationalMessages).reverse()) {
-    if (retainedCount + group.length > recentTarget) {
-      // Preserve an oversized newest tool-call/result group when it still fits
-      // inside the hard provider cap. This keeps the active Claude Code tool
-      // transaction complete rather than orphaning its result messages.
-      if (retainedCount === 0 && group.length <= recentCapacity) {
-        retainedGroups.unshift(group);
-        retainedCount += group.length;
-      }
-      break;
-    }
-    retainedGroups.unshift(group);
-    retainedCount += group.length;
-  }
-
-  const retained = retainedGroups.flat();
-  if (retained.length === conversationalMessages.length) return messages;
-  return [
-    ...(leadingSystem ? [leadingSystem] : []),
-    { role: "user", content: COMPACTED_HISTORY_NOTICE },
-    ...retained,
-  ];
 }
 
 export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChatInput {
@@ -523,12 +452,9 @@ export function registerAnthropicMessagesGateway(app: Express) {
     }
     const model = input.model as TokenForgeModelId;
     const translatedMessages = input.messages ?? [];
-    const messages = model === "claude-fable-5" || model === "claude-opus-5"
-      ? compactTranslatedMessages(translatedMessages, 99)
-      : translatedMessages;
     const upstreamInput: TokenForgeChatInput = {
       ...input,
-      messages: withModelScopedGuidance(model, messages),
+      messages: withModelScopedGuidance(model, translatedMessages),
     };
     if (!(await isModelAvailable(model))) return respondError(res, requestId, 503, "api_error", "The requested model is temporarily unavailable. Retry shortly or choose another available model.");
 

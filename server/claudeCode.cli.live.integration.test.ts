@@ -95,7 +95,7 @@ describe("Claude Code CLI TokenForge gateway compatibility", () => {
     expect(parsed.result).toContain("TOKENFORGE_CLAUDE_CODE_OK");
   }, 130_000);
 
-  longHistoryProbeIt("accepts a 100-entry Claude Code-shaped history after TokenForge compaction", async () => {
+  longHistoryProbeIt("accepts a 100-entry Claude Code-shaped history with full-history forwarding", async () => {
     await upsertUser({
       openId: probeOpenId,
       name: "Ephemeral Claude Code Long-History Probe",
@@ -146,7 +146,7 @@ describe("Claude Code CLI TokenForge gateway compatibility", () => {
     });
 
     const payload = await response.json().catch(() => null) as { type?: unknown; model?: unknown; content?: Array<{ type?: unknown; text?: unknown }> } | null;
-    console.info("[TokenForge 100-entry Claude Code-shaped compaction probe]", {
+    console.info("[TokenForge 100-entry Claude Code-shaped full-history probe]", {
       status: response.status,
       endpointAcceptedRequest: response.ok,
       rawMessageEntries: messages.length,

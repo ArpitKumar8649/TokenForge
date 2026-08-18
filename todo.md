@@ -309,3 +309,4 @@
 - [x] Directly test the configured TokenRouter Claude Fable 5 and Claude Opus 5 routes with 300 entries and report the exact provider responses before any further implementation change.
 - [x] Verify and remove any remaining Anthropic local message-count restriction, retaining only structural and payload-size safeguards.
 - [x] Add concise GLM 5.3 identity guidance for Playground and API calls and prevent repetitive provider reasoning output from being shown as a misleading thinking summary.
+- [x] Remove automatic history compaction from the TokenRouter-backed Claude Messages bridge and update full-history forwarding coverage.

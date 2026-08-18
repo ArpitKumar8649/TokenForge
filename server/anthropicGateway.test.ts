@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   AnthropicBridgeError,
   anthropicApiKey,
-  compactTranslatedMessages,
   isNativeTokenRouterMessagesRequest,
   translateAnthropicRequest,
   translateOpenAiMessageResponse,
@@ -166,64 +165,15 @@ describe("TokenForge Anthropic Messages bridge", () => {
     ]);
   });
 
-  it("leaves translated TokenRouter Claude history below the early compaction threshold unchanged", () => {
-    const messages = Array.from({ length: 89 }, (_, index) => ({ role: "user", content: `turn-${index}` }));
-
-    expect(compactTranslatedMessages(messages)).toBe(messages);
-  });
-
-  it("accepts a 300-entry Claude history and compacts the translated provider payload without a raw-entry refusal", () => {
+  it("forwards a 300-entry Claude history without compaction or a raw-entry refusal", () => {
     const translated = translateAnthropicRequest({
       model: "claude-opus-5",
       messages: Array.from({ length: 300 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", content: `turn-${index}` })),
     });
-    const compacted = compactTranslatedMessages(translated.messages ?? []);
 
     expect(translated.messages).toHaveLength(300);
-    expect(compacted.length).toBeLessThanOrEqual(99);
-    expect(compacted.at(-1)).toEqual({ role: "assistant", content: "turn-299" });
-  });
-
-  it("compacts TokenRouter Claude history before the 100-entry provider limit while preserving system and latest user context", () => {
-    const messages = [
-      { role: "system", content: "Keep this instruction." },
-      ...Array.from({ length: 89 }, (_, index) => ({ role: "user", content: `turn-${index}` })),
-    ];
-
-    const compacted = compactTranslatedMessages(messages);
-
-    expect(compacted).toHaveLength(62);
-    expect(compacted[0]).toEqual({ role: "system", content: "Keep this instruction." });
-    expect(compacted[1]).toEqual(expect.objectContaining({ role: "user", content: expect.stringContaining("history has been compacted") }));
-    expect(compacted.at(-1)).toEqual({ role: "user", content: "turn-88" });
-    expect(compacted.length).toBeLessThanOrEqual(99);
-  });
-
-  it("does not split a translated assistant tool-call group from any following tool results during compaction", () => {
-    const messages = [
-      { role: "system", content: "Keep this instruction." },
-      ...Array.from({ length: 32 }, (_, index) => ({ role: "user", content: `older-${index}` })),
-      {
-        role: "assistant",
-        content: null,
-        tool_calls: [{ id: "call_read", type: "function", function: { name: "Read", arguments: "{}" } }],
-      },
-      { role: "tool", tool_call_id: "call_read", content: "first tool output" },
-      { role: "tool", tool_call_id: "call_read", content: "second tool output" },
-      ...Array.from({ length: 55 }, (_, index) => ({ role: "user", content: `recent-${index}` })),
-    ];
-
-    const compacted = compactTranslatedMessages(messages);
-    const toolAssistantIndex = compacted.findIndex(message => message.role === "assistant" && Array.isArray((message as { tool_calls?: unknown }).tool_calls));
-    const toolResultIndexes = compacted
-      .map((message, index) => message.role === "tool" ? index : -1)
-      .filter(index => index >= 0);
-
-    expect(compacted.length).toBeLessThanOrEqual(99);
-    expect(toolAssistantIndex).toBeGreaterThan(0);
-    expect(toolResultIndexes).toHaveLength(2);
-    expect(toolResultIndexes.every(index => index > toolAssistantIndex)).toBe(true);
-    expect(compacted.at(-1)).toEqual({ role: "user", content: "recent-54" });
+    expect(translated.messages?.at(-1)).toEqual({ role: "assistant", content: "turn-299" });
+    expect(translated.messages?.some(message => typeof message.content === "string" && message.content.includes("compacted by TokenForge"))).toBe(false);
   });
 
   it("converts an OpenAI-style Cluster tool call into an Anthropic Messages response", () => {
