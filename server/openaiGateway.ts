@@ -250,6 +250,21 @@ async function forwardTokenHarborRequest(input: ChatInput, signal: AbortSignal) 
   }
 }
 
+/** Claude Opus 5 uses an isolated OpenAI-compatible upstream credential, never the shared TokenRouter pool. */
+async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: AbortSignal) {
+  const base = process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL?.replace(/\/$/, "");
+  const secret = process.env.CLAUDE_OPUS5_API_KEY;
+  const upstreamModel = process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL?.trim();
+  if (!base || !secret || !upstreamModel) throw new Error("TokenForge Claude Opus 5 inference is not configured");
+  const requestBody = { ...input, model: upstreamModel };
+  return fetch(`${base}/v1/chat/completions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
+    body: JSON.stringify(requestBody),
+    signal,
+  });
+}
+
 /** OrcaRouter remains only for the separately configured Qwen3.8 27B route. */
 async function forwardOrcaRouterRequest(input: ChatInput, signal: AbortSignal) {
   const base = process.env.CLAUDE_OPUS5_BASE_URL?.replace(/\/$/, "");
@@ -267,21 +282,17 @@ async function forwardOrcaRouterRequest(input: ChatInput, signal: AbortSignal) {
 }
 
 async function forwardTokenRouterRequest(input: ChatInput, signal: AbortSignal) {
-  const base = (input.model === "claude-opus-5"
-    ? process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL || process.env.TOKENROUTER_BASE_URL
-    : process.env.TOKENROUTER_BASE_URL)?.replace(/\/$/, "");
+  if (input.model === "claude-opus-5") return forwardDedicatedClaudeOpus5Request(input, signal);
+  const base = process.env.TOKENROUTER_BASE_URL?.replace(/\/$/, "");
   const configuredModel = process.env.TOKENROUTER_MODEL?.trim();
   const configuredClaudeFable5Model = process.env.TOKENROUTER_CLAUDE_FABLE5_MODEL?.trim();
-  const configuredClaudeOpus5Model = process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL?.trim();
   const configuredGlm53Model = process.env.TOKENROUTER_GLM53_MODEL?.trim();
   const upstreamModel = input.model === "qwen3.8-max"
     ? configuredModel
     : input.model === "claude-fable-5"
       ? configuredClaudeFable5Model
-      : input.model === "claude-opus-5"
-        ? configuredClaudeOpus5Model
-        : input.model === "glm-5.3"
-          ? configuredGlm53Model
+      : input.model === "glm-5.3"
+        ? configuredGlm53Model
         : getTokenForgeUpstreamModelId(String(input.model));
   if (!base || !upstreamModel) throw new Error("TokenForge TokenRouter inference is not configured");
   const requestBody = { ...input, model: upstreamModel };

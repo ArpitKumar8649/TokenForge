@@ -220,22 +220,18 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.stringify(telemetry)).not.toContain("server-only-provider-secret");
   });
 
-  it("fails over from a TokenRouter capacity response to the next shared credential slot for Claude Opus 5", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "free capacity is limited" } }), { status: 429 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
+  it("routes Claude Opus 5 through its isolated provider credential rather than the shared TokenRouter pool", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Fail over safely." }] }, new AbortController().signal);
+    const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Route independently." }] }, new AbortController().signal);
 
     expect(response.status).toBe(200);
-    expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
-      "Bearer server-only-tokenrouter-secret",
-      "Bearer server-only-tokenrouter-secret-3",
-    ]);
-    const telemetry = getProviderCredentialTelemetry({ [TOKENROUTER_PROVIDER_SLUG]: 6 }).find(item => item.providerSlug === TOKENROUTER_PROVIDER_SLUG)!;
-    expect(telemetry).toMatchObject({ healthySlots: 5, coolingDownSlots: 1, failoverCount: 1 });
-    expect(JSON.stringify(telemetry)).not.toContain("server-only-tokenrouter-secret");
+    expect(fetchMock).toHaveBeenCalledWith("https://opus5-tokenrouter.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-opus5-secret" }),
+      body: expect.stringContaining('"model":"upstream-claude-opus-5"'),
+    }));
+    expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toContain("server-only-tokenrouter-secret");
   });
 
   it("routes a verified Cluster Protocol model through its server-only credential and preserves metering", async () => {
@@ -324,13 +320,14 @@ describe("TokenForge Playground gateway", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith("https://opus5-tokenrouter.example/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret" }),
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-opus5-secret" }),
       body: expect.stringContaining('"model":"upstream-claude-opus-5"'),
     }));
     const playgroundPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(playgroundPayload.messages[0].content).toContain("You are Claude Opus 5 from TokenForge.");
     expect(playgroundPayload.messages[0].content).toContain("unsupported training and knowledge claims");
     expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toContain("server-only-provider-secret");
+    expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toContain("server-only-tokenrouter-secret");
 
     const apiMessages = withModelScopedGuidance("claude-opus-5", [{ role: "user", content: "Identify yourself." }]);
     expect(apiMessages[0]).toEqual(modelScopedGuidance("claude-opus-5"));
