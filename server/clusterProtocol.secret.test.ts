@@ -17,9 +17,15 @@ describe("Cluster Protocol provider configuration", () => {
     expect(response.ok, `Cluster Protocol model catalogue request failed with HTTP ${response.status}`).toBe(true);
   }, 20_000);
 
-  it("authenticates each additional server-only credential against the lightweight model catalogue", async () => {
+  it("authenticates every additional server-only credential against the lightweight model catalogue", async () => {
     const baseUrl = process.env.CLUSTER_PROTOCOL_BASE_URL?.replace(/\/$/, "");
-    const additionalCredentials = [process.env.CLUSTER_PROTOCOL_API_KEY_2, process.env.CLUSTER_PROTOCOL_API_KEY_3];
+    const additionalCredentials = [
+      process.env.CLUSTER_PROTOCOL_API_KEY_2,
+      process.env.CLUSTER_PROTOCOL_API_KEY_3,
+      process.env.CLUSTER_PROTOCOL_API_KEY_4,
+      process.env.CLUSTER_PROTOCOL_API_KEY_5,
+      process.env.CLUSTER_PROTOCOL_API_KEY_6,
+    ];
     expect(baseUrl).toBeTruthy();
     expect(additionalCredentials.every(Boolean)).toBe(true);
 

@@ -45,6 +45,9 @@ beforeEach(() => {
   process.env.CLUSTER_PROTOCOL_API_KEY = "server-only-cluster-secret";
   process.env.CLUSTER_PROTOCOL_API_KEY_2 = "server-only-cluster-secret-2";
   process.env.CLUSTER_PROTOCOL_API_KEY_3 = "server-only-cluster-secret-3";
+  process.env.CLUSTER_PROTOCOL_API_KEY_4 = "server-only-cluster-secret-4";
+  process.env.CLUSTER_PROTOCOL_API_KEY_5 = "server-only-cluster-secret-5";
+  process.env.CLUSTER_PROTOCOL_API_KEY_6 = "server-only-cluster-secret-6";
   process.env.TOKENHARBOR_BASE_URL = "https://tokenharbor.example";
   process.env.TOKENHARBOR_API_KEY = "server-only-tokenharbor-secret";
   process.env.CLAUDE_OPUS5_BASE_URL = "https://opus5.example";
@@ -284,11 +287,17 @@ describe("TokenForge Playground gateway", () => {
     await forwardProviderRequest("kimi-k3", { model: "kimi-k3", messages: [{ role: "user", content: "Rotate safely." }] }, signal);
     await forwardProviderRequest("kimi-k3", { model: "kimi-k3", messages: [{ role: "user", content: "Rotate safely." }] }, signal);
     await forwardProviderRequest("kimi-k3", { model: "kimi-k3", messages: [{ role: "user", content: "Rotate safely." }] }, signal);
+    await forwardProviderRequest("kimi-k3", { model: "kimi-k3", messages: [{ role: "user", content: "Rotate safely." }] }, signal);
+    await forwardProviderRequest("kimi-k3", { model: "kimi-k3", messages: [{ role: "user", content: "Rotate safely." }] }, signal);
+    await forwardProviderRequest("kimi-k3", { model: "kimi-k3", messages: [{ role: "user", content: "Rotate safely." }] }, signal);
 
     expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
       "Bearer server-only-cluster-secret",
       "Bearer server-only-cluster-secret-2",
       "Bearer server-only-cluster-secret-3",
+      "Bearer server-only-cluster-secret-4",
+      "Bearer server-only-cluster-secret-5",
+      "Bearer server-only-cluster-secret-6",
       "Bearer server-only-cluster-secret",
     ]);
   });

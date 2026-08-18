@@ -16,6 +16,9 @@ describe("Cluster Protocol Kimi K3 completion authorization", () => {
       process.env.CLUSTER_PROTOCOL_API_KEY,
       process.env.CLUSTER_PROTOCOL_API_KEY_2,
       process.env.CLUSTER_PROTOCOL_API_KEY_3,
+      process.env.CLUSTER_PROTOCOL_API_KEY_4,
+      process.env.CLUSTER_PROTOCOL_API_KEY_5,
+      process.env.CLUSTER_PROTOCOL_API_KEY_6,
     ];
 
     expect(baseUrl).toBeTruthy();

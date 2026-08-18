@@ -2,6 +2,9 @@ type CredentialEnvironment = {
   CLUSTER_PROTOCOL_API_KEY?: string;
   CLUSTER_PROTOCOL_API_KEY_2?: string;
   CLUSTER_PROTOCOL_API_KEY_3?: string;
+  CLUSTER_PROTOCOL_API_KEY_4?: string;
+  CLUSTER_PROTOCOL_API_KEY_5?: string;
+  CLUSTER_PROTOCOL_API_KEY_6?: string;
 };
 
 let nextClusterProtocolCredentialIndex = 0;
@@ -13,6 +16,9 @@ function runtimeCredentialEnvironment(): CredentialEnvironment {
     CLUSTER_PROTOCOL_API_KEY: process.env["CLUSTER_PROTOCOL_API_KEY"],
     CLUSTER_PROTOCOL_API_KEY_2: process.env["CLUSTER_PROTOCOL_API_KEY_2"],
     CLUSTER_PROTOCOL_API_KEY_3: process.env["CLUSTER_PROTOCOL_API_KEY_3"],
+    CLUSTER_PROTOCOL_API_KEY_4: process.env["CLUSTER_PROTOCOL_API_KEY_4"],
+    CLUSTER_PROTOCOL_API_KEY_5: process.env["CLUSTER_PROTOCOL_API_KEY_5"],
+    CLUSTER_PROTOCOL_API_KEY_6: process.env["CLUSTER_PROTOCOL_API_KEY_6"],
   };
 }
 
@@ -21,6 +27,9 @@ export function getClusterProtocolCredentialPool(environment: CredentialEnvironm
     environment.CLUSTER_PROTOCOL_API_KEY,
     environment.CLUSTER_PROTOCOL_API_KEY_2,
     environment.CLUSTER_PROTOCOL_API_KEY_3,
+    environment.CLUSTER_PROTOCOL_API_KEY_4,
+    environment.CLUSTER_PROTOCOL_API_KEY_5,
+    environment.CLUSTER_PROTOCOL_API_KEY_6,
   ].filter((credential): credential is string => Boolean(credential?.trim()));
 }
 
