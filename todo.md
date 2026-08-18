@@ -325,3 +325,7 @@
 - [x] Fix the Discord-unverified cleanup notice identifier so its transaction can commit successfully.
 - [x] Exclude the internal administrator control-plane principal from Discord-unverified user cleanup counts and deletion.
 - [x] Make TokenRouter live probes record upstream request timeouts without failing unrelated deterministic validation.
+- [x] Fix the repeated administrator live-data loading failure during scrolling and section navigation.
+- [x] Remove manual password sign-in and sign-up from the public authentication flow, retaining GitHub OAuth only.
+- [x] Require GitHub OAuth accounts to be at least 14 days old before TokenForge account access is created.
+- [x] Make the remaining direct TokenRouter route diagnostic record transient upstream 5xx outcomes without failing unrelated application validation.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appOrigin, buildGitHubAuthorizationUrl, selectVerifiedGitHubEmail } from "./githubOAuth";
+import { appOrigin, buildGitHubAuthorizationUrl, isGitHubAccountOldEnough, MINIMUM_GITHUB_ACCOUNT_AGE_MS, selectVerifiedGitHubEmail } from "./githubOAuth";
 
 describe("GitHub OAuth flow primitives", () => {
   it("creates a PKCE authorization request without exposing a client secret", () => {
@@ -31,5 +31,13 @@ describe("GitHub OAuth flow primitives", () => {
     ])).toBe("primary@example.com");
     expect(selectVerifiedGitHubEmail(null, [{ email: "unverified@example.com", primary: true, verified: false }])).toBeNull();
     expect(selectVerifiedGitHubEmail("profile-only@example.com", [])).toBeNull();
+  });
+
+  it("requires a GitHub account to be at least fourteen days old", () => {
+    const now = Date.parse("2026-08-18T00:00:00.000Z");
+    expect(isGitHubAccountOldEnough(new Date(now - MINIMUM_GITHUB_ACCOUNT_AGE_MS).toISOString(), now)).toBe(true);
+    expect(isGitHubAccountOldEnough(new Date(now - MINIMUM_GITHUB_ACCOUNT_AGE_MS + 1).toISOString(), now)).toBe(false);
+    expect(isGitHubAccountOldEnough("not-a-date", now)).toBe(false);
+    expect(isGitHubAccountOldEnough(null, now)).toBe(false);
   });
 });

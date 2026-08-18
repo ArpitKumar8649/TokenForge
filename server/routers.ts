@@ -19,9 +19,7 @@ import {
   setModelEnabled,
   setProviderEnabled,
   writeAuditEvent,
-  authenticatePasswordUser,
   clearFailedPasswordLogin,
-  createPasswordUser,
   getPasswordLoginThrottle,
   recordFailedPasswordLogin,
   claimDailyCheckin,
@@ -43,7 +41,6 @@ import {
   listAdminAuditEvents,
   countDiscordUnverifiedAccounts,
   deleteDiscordUnverifiedAccounts,
-  DiscordUnverifiedAccountDeletedError,
   revokeAllTokenForgeSessions,
   getAnnouncementText,
   setAnnouncementText,
@@ -57,7 +54,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router, verifiedDeveloperProcedure } from "./_core/trpc";
-import { configuredEmailAllowlist, isPermanentEmailAddress, PASSWORD_MIN_LENGTH } from "./localAuth";
+import { configuredEmailAllowlist } from "./localAuth";
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG, type TokenForgeModelId } from "./modelCatalogue";
 import { runPlaygroundCompletion, TokenForgePlaygroundError, tokenForgeRequestIpHash } from "./openaiGateway";
 import { verifyAdminPasscode } from "./adminPasscode";
@@ -69,14 +66,6 @@ const apiKeyLabel = z
   .min(1, "Choose a label for this key")
   .max(100, "Key labels must be 100 characters or fewer");
 
-const localCredentials = z.object({
-  email: z.string().trim().email("Enter a valid email address").max(320),
-  password: z.string().min(PASSWORD_MIN_LENGTH, `Use at least ${PASSWORD_MIN_LENGTH} characters`).max(256),
-});
-const registrationInput = localCredentials.extend({
-  name: z.string().trim().min(1).max(120).optional(),
-  referralCode: z.string().trim().max(100).optional(),
-});
 const LOCAL_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const playgroundMessage = z.object({
   role: z.enum(["user", "assistant", "system"]),
@@ -141,12 +130,6 @@ function playgroundTrpcError(error: TokenForgePlaygroundError) {
   return new TRPCError({ code, message: error.message });
 }
 
-async function startLocalSession(ctx: { req: any; res: any }, user: { openId: string; name: string | null }) {
-  const sessionVersion = await getAuthSessionVersion();
-  const token = await sdk.createSessionToken(user.openId, { expiresInMs: LOCAL_SESSION_MAX_AGE_MS, name: user.name ?? "TokenForge developer", sessionVersion });
-  ctx.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(ctx.req), maxAge: LOCAL_SESSION_MAX_AGE_MS });
-}
-
 function adminUnlockThrottleIdentifier(req: Parameters<typeof tokenForgeRequestIpHash>[0]) {
   return `admin-unlock-ip-${tokenForgeRequestIpHash(req)}@tokenforge.internal`;
 }
@@ -159,49 +142,6 @@ export const appRouter = router({
   }),
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
-    register: publicProcedure.input(registrationInput).mutation(async ({ ctx, input }) => {
-      const emailPolicy = await getEmailAllowlistConfig();
-      if (!isPermanentEmailAddress(input.email, emailPolicy?.entries)) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: `Use an accepted mailbox provider to create a TokenForge account. Accepted providers include ${ESTABLISHED_EMAIL_DOMAIN_GUIDANCE}.` });
-      }
-      const user = await createPasswordUser(input);
-      if (!user) throw new TRPCError({ code: "CONFLICT", message: "An account already exists for this email" });
-      await startLocalSession(ctx, user);
-      return { user };
-    }),
-    login: publicProcedure.input(localCredentials).mutation(async ({ ctx, input }) => {
-      const throttle = await getPasswordLoginThrottle(input.email);
-      if (throttle.blocked) {
-        throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: `Too many sign-in attempts. Try again in ${throttle.retryAfterSeconds} seconds.` });
-      }
-      const emailPolicy = await getEmailAllowlistConfig();
-      if (!isPermanentEmailAddress(input.email, emailPolicy?.entries)) {
-        const failedAttempt = await recordFailedPasswordLogin(input.email);
-        if (failedAttempt.blocked) {
-          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: `Too many sign-in attempts. Try again in ${failedAttempt.retryAfterSeconds} seconds.` });
-        }
-        throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect email or password" });
-      }
-      let user;
-      try {
-        user = await authenticatePasswordUser(input.email, input.password);
-      } catch (error) {
-        if (error instanceof DiscordUnverifiedAccountDeletedError) {
-          throw new TRPCError({ code: "UNAUTHORIZED", message: error.message });
-        }
-        throw error;
-      }
-      if (!user) {
-        const failedAttempt = await recordFailedPasswordLogin(input.email);
-        if (failedAttempt.blocked) {
-          throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: `Too many sign-in attempts. Try again in ${failedAttempt.retryAfterSeconds} seconds.` });
-        }
-        throw new TRPCError({ code: "UNAUTHORIZED", message: "Incorrect email or password" });
-      }
-      await clearFailedPasswordLogin(input.email);
-      await startLocalSession(ctx, user);
-      return { user };
-    }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });

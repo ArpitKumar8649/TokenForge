@@ -1246,7 +1246,7 @@ export async function getAdminAccountModelUsage(userIds: number[]) {
 
 export type GitHubIdentityInput = { providerUserId: string; email: string; name: string | null; referralCode?: string };
 
-/** Resolves GitHub by immutable provider subject. An existing matching email is never auto-linked. */
+/** Resolves GitHub by immutable provider subject, securely linking a legacy local account only after GitHub returns the same verified email. */
 export async function resolveGitHubIdentity(input: GitHubIdentityInput) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
@@ -1261,8 +1261,26 @@ export async function resolveGitHubIdentity(input: GitHubIdentityInput) {
   }
 
   const email = normalizeEmail(input.email);
-  const existingEmail = (await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1))[0];
-  if (existingEmail) return { kind: "link_required" as const };
+  const existingEmail = (await db.select().from(users).where(eq(users.email, email)).limit(1))[0];
+  if (existingEmail) {
+    try {
+      const linkedUser = await db.transaction(async tx => {
+        const existingGitHubIdentity = (await tx.select().from(oauthIdentities).where(and(eq(oauthIdentities.userId, existingEmail.id), eq(oauthIdentities.provider, provider))).limit(1))[0];
+        if (existingGitHubIdentity && existingGitHubIdentity.providerUserId !== input.providerUserId) return null;
+        if (!existingGitHubIdentity) await tx.insert(oauthIdentities).values({ userId: existingEmail.id, provider, providerUserId: input.providerUserId });
+        const lastSignedIn = new Date();
+        await tx.update(users).set({ loginMethod: "github", lastSignedIn }).where(eq(users.id, existingEmail.id));
+        return { ...existingEmail, loginMethod: "github", lastSignedIn };
+      });
+      if (linkedUser) return { kind: "resolved" as const, user: linkedUser };
+      return { kind: "link_required" as const };
+    } catch (error: any) {
+      if (error?.code !== "ER_DUP_ENTRY") throw error;
+      const concurrentIdentity = (await db.select({ user: users }).from(oauthIdentities).innerJoin(users, eq(oauthIdentities.userId, users.id)).where(and(eq(oauthIdentities.provider, provider), eq(oauthIdentities.providerUserId, input.providerUserId))).limit(1))[0]?.user;
+      if (concurrentIdentity) return { kind: "resolved" as const, user: concurrentIdentity };
+      return { kind: "link_required" as const };
+    }
+  }
 
   try {
     const userId = await db.transaction(async tx => {

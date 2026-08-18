@@ -16,9 +16,10 @@ const GITHUB_VERIFIER_COOKIE = "tf_github_oauth_verifier";
 const GITHUB_REFERRAL_COOKIE = "tf_github_oauth_ref";
 const LOCAL_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const TOKENFORGE_DEFAULT_PUBLIC_ORIGIN = "https://tokengate-cqt9ivzs.manus.space";
+export const MINIMUM_GITHUB_ACCOUNT_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
 type GitHubEmail = { email: string; primary: boolean; verified: boolean };
-type GitHubProfile = { id: number; login: string; name: string | null; email: string | null };
+type GitHubProfile = { id: number; login: string; name: string | null; email: string | null; created_at: string | null };
 
 function getQueryParam(req: Request, key: string): string | undefined {
   const value = req.query[key];
@@ -85,6 +86,13 @@ export function selectVerifiedGitHubEmail(_profileEmail: string | null, emails: 
   return verifiedPrimary ?? emails.find(email => email.verified)?.email ?? null;
 }
 
+/** GitHub supplies this profile timestamp; this server-side check cannot be bypassed by browser state. */
+export function isGitHubAccountOldEnough(createdAt: string | null | undefined, now = Date.now()) {
+  if (!createdAt) return false;
+  const createdAtMs = new Date(createdAt).getTime();
+  return Number.isFinite(createdAtMs) && createdAtMs <= now - MINIMUM_GITHUB_ACCOUNT_AGE_MS;
+}
+
 async function exchangeCode(input: { code: string; verifier: string; redirectUri: string }) {
   const clientId = process.env.GITHUB_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GITHUB_OAUTH_CLIENT_SECRET;
@@ -107,8 +115,8 @@ async function getGitHubIdentity(accessToken: string) {
   const emailsResponse = await fetch(`${GITHUB_API_URL}/user/emails`, { headers });
   const emails = emailsResponse.ok ? await emailsResponse.json() as GitHubEmail[] : [];
   const email = selectVerifiedGitHubEmail(profile.email, emails);
-  if (!profile.id || !email) throw new Error("GitHub did not provide a verified email address");
-  return { providerUserId: String(profile.id), email, name: profile.name?.trim() || profile.login?.trim() || null };
+  if (!profile.id || !email || !profile.created_at) throw new Error("GitHub did not provide the verified identity details required by TokenForge");
+  return { providerUserId: String(profile.id), email, name: profile.name?.trim() || profile.login?.trim() || null, accountCreatedAt: profile.created_at };
 }
 
 export function registerGitHubOAuthRoutes(app: Express) {
@@ -144,6 +152,10 @@ export function registerGitHubOAuthRoutes(app: Express) {
     try {
       const accessToken = await exchangeCode({ code, verifier, redirectUri: callbackUrl(req) });
       const identity = await getGitHubIdentity(accessToken);
+      if (!isGitHubAccountOldEnough(identity.accountCreatedAt)) {
+        res.redirect(302, "/signin?github=account-too-new");
+        return;
+      }
       const emailPolicy = await getEmailAllowlistConfig();
       if (!isPermanentEmailAddress(identity.email, emailPolicy?.entries)) {
         res.redirect(302, "/signin?github=email-not-allowed");

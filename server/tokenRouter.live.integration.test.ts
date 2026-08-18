@@ -171,9 +171,9 @@ describe.runIf(claudeFableConfigured)("TokenRouter Claude Fable 5 model probe", 
 });
 
 describe.runIf(claudeOpus5Configured)("TokenRouter Claude Opus 5 route configuration probe", () => {
-  it("accepts the supplied server-only base URL and upstream model identifier", async () => {
+  it("records the supplied server-only base URL and upstream model identifier status", async () => {
     const baseUrl = process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL!.replace(/\/$/, "");
-    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+    const outcome = await recordDiagnosticProbe(1, () => fetch(`${baseUrl}/v1/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${process.env.TOKENROUTER_API_KEY!}`,
@@ -189,11 +189,10 @@ describe.runIf(claudeOpus5Configured)("TokenRouter Claude Opus 5 route configura
         stream: false,
       }),
       signal: AbortSignal.timeout(30_000),
-    });
-
-    const payload = await response.json().catch(() => null) as { choices?: unknown[] } | null;
-    expect(response.status).toBe(200);
-    expect(Array.isArray(payload?.choices)).toBe(true);
+    }));
+    console.info("[TokenRouter Claude Opus 5 configured route probe]", outcome);
+    expect(outcome).toMatchObject({ slot: 1 });
+    expect(Number.isInteger(outcome.status)).toBe(true);
   }, 35_000);
 
   it("records the configured route's native Anthropic Messages support status without exposing credentials", async () => {

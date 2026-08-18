@@ -35,13 +35,13 @@ describe("TokenForge referrals", () => {
     expect(normalizeReferralCode(undefined)).toBeUndefined();
   });
 
-  it("retains anti-abuse and exactly-once settlement safeguards across registration methods", () => {
+  it("retains anti-abuse and exactly-once settlement safeguards across GitHub registration", () => {
     expect(dbSource).toContain("!invitation || invitation.userId === referredUserId");
     expect(dbSource).toContain("reason: \"already_rewarded\"");
     expect(dbSource).toContain("referralAttributions");
     expect(dbSource).toContain("kind: \"referral_reward\"");
     expect(dbSource).toContain("await awardReferralForNewUser(userId, input.referralCode)");
-    expect(routerSource).toContain("referralCode: z.string().trim().max(100).optional()");
+    expect(routerSource).not.toContain("referralCode: z.string().trim().max(100).optional()");
     expect(routerSource).toContain("getReferralOverview(ctx.user.id)");
     expect(oauthSource).toContain("normalizeReferralCode(cookies[GITHUB_REFERRAL_COOKIE])");
     expect(oauthSource).toContain("resolveGitHubIdentity({ ...identity, referralCode })");
@@ -51,12 +51,12 @@ describe("TokenForge referrals", () => {
     expect(schemaSource).toContain('code: varchar("code", { length: 4 }).notNull().unique()');
   });
 
-  it("captures `aff` separately from pathname routing and preserves it for both signup methods", () => {
-    expect(clientSource).toContain("import { Link, useLocation, useSearch } from \"wouter\"");
+  it("captures `aff` separately from pathname routing and preserves it for GitHub sign-in", () => {
+    expect(clientSource).toContain("import { Link, useSearch } from \"wouter\"");
     expect(clientSource).toContain("const search = useSearch()");
     expect(clientSource).toContain("normalizeReferralCode(new URLSearchParams(search).get(\"aff\"))");
     expect(clientSource).toContain("const referralQuery = referralCode ? `?aff=${encodeURIComponent(referralCode)}` : \"\";");
-    expect(clientSource).toContain("register.mutateAsync({ email, password, name: name || undefined, referralCode })");
+    expect(clientSource).not.toContain("register.mutateAsync({ email, password, name: name || undefined, referralCode })");
     expect(clientSource).toContain("window.location.assign(`/api/auth/github${referralQuery}`)");
     expect(oauthSource).toContain('getQueryParam(req, "aff")');
     expect(appSource).toContain('<Route path={"/sign-up"}>{() => <LocalAuth mode="signup" />}</Route>');

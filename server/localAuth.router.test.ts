@@ -152,94 +152,12 @@ beforeEach(() => {
   vi.mocked(verifyAdminPasscode).mockReturnValue(false);
 });
 
-describe("first-party authentication procedures", () => {
-  it("returns a conflict without setting a session for a duplicate registration", async () => {
-    vi.mocked(createPasswordUser).mockResolvedValue(null);
-    const { ctx, cookies } = makeContext();
-
-    await expect(appRouter.createCaller(ctx).auth.register({ email: "dev@gmail.com", password: "secure-passphrase" })).rejects.toMatchObject({ code: "CONFLICT" });
-    expect(cookies).toEqual([]);
-  });
-
-  it("issues the existing signed-session cookie after a valid local registration", async () => {
-    vi.mocked(createPasswordUser).mockResolvedValue(localUser);
-    const { ctx, cookies } = makeContext();
-
-    await expect(appRouter.createCaller(ctx).auth.register({ email: "dev@gmail.com", password: "secure-passphrase" })).resolves.toEqual({ user: localUser });
-    expect(cookies).toHaveLength(1);
-    expect(cookies[0]).toMatchObject({ name: COOKIE_NAME, value: "tf-local-session", options: { httpOnly: true } });
-  });
-
-  it("rejects an unlisted registration address before creating an account", async () => {
-    const { ctx } = makeContext();
-
-    await expect(appRouter.createCaller(ctx).auth.register({ email: "trial@custom-domain.example", password: "secure-passphrase" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("accepted mailbox provider") });
-    expect(createPasswordUser).not.toHaveBeenCalled();
-  });
-
-  it("keeps disposable-address sign-in failures generic and rate-accounted", async () => {
-    const { ctx } = makeContext();
-
-    await expect(appRouter.createCaller(ctx).auth.login({ email: "trial@mailinator.com", password: "secure-passphrase" })).rejects.toMatchObject({ code: "UNAUTHORIZED", message: "Incorrect email or password" });
-    expect(authenticatePasswordUser).not.toHaveBeenCalled();
-    expect(recordFailedPasswordLogin).toHaveBeenCalledWith("trial@mailinator.com");
-  });
-
-  it("returns the cleanup explanation on a first sign-in attempt after an administrator removes an unverified Discord account", async () => {
-    vi.mocked(authenticatePasswordUser).mockRejectedValueOnce(new DiscordUnverifiedAccountDeletedError());
-    const { ctx } = makeContext();
-    await expect(appRouter.createCaller(ctx).auth.login({ email: "developer@gmail.com", password: "secure-passphrase" })).rejects.toMatchObject({
-      code: "UNAUTHORIZED",
-      message: "Your previous account was not verified by Discord, so it was deleted by an administrator. You can create a new TokenForge account with this email.",
-    });
-    expect(recordFailedPasswordLogin).not.toHaveBeenCalled();
-  });
-
-  it("enforces a configured domain allowlist after the established-provider check", () => {
-    const previous = process.env.TOKENFORGE_EMAIL_ALLOWLIST;
-    process.env.TOKENFORGE_EMAIL_ALLOWLIST = "gmail.com, yahoo.com";
-    try {
-      expect(isPermanentEmailAddress("developer@gmail.com")).toBe(true);
-      expect(isPermanentEmailAddress("approved@yahoo.com")).toBe(true);
-      expect(isPermanentEmailAddress("developer@unlisted.test")).toBe(false);
-      expect(isPermanentEmailAddress("trial@mailinator.com")).toBe(false);
-    } finally {
-      if (previous === undefined) delete process.env.TOKENFORGE_EMAIL_ALLOWLIST;
-      else process.env.TOKENFORGE_EMAIL_ALLOWLIST = previous;
-    }
-  });
-
-  it("accepts established international mailbox domains and rejects arbitrary custom domains by default", () => {
-    const previous = process.env.TOKENFORGE_EMAIL_ALLOWLIST;
-    delete process.env.TOKENFORGE_EMAIL_ALLOWLIST;
-    try {
-      for (const email of [
-        "developer@qq.com",
-        "developer@163.com",
-        "developer@naver.com",
-        "developer@yandex.com",
-        "developer@gmx.de",
-        "developer@web.de",
-        "developer@proton.me",
-        "developer@tuta.com",
-        "developer@gmail.com",
-        "developer@outlook.com",
-      ]) {
-        expect(isPermanentEmailAddress(email)).toBe(true);
-      }
-      expect(isPermanentEmailAddress("developer@company.example")).toBe(false);
-    } finally {
-      if (previous === undefined) delete process.env.TOKENFORGE_EMAIL_ALLOWLIST;
-      else process.env.TOKENFORGE_EMAIL_ALLOWLIST = previous;
-    }
-  });
-
-  it("applies a persisted administrator allowlist ahead of the environment fallback", async () => {
-    vi.mocked(getEmailAllowlistConfig).mockResolvedValue({ entries: ["qq.com"], updatedAt: new Date(), updatedByUserId: 1 });
-    vi.mocked(createPasswordUser).mockResolvedValue(localUser);
-    const { ctx } = makeContext();
-    await expect(appRouter.createCaller(ctx).auth.register({ email: "developer@qq.com", password: "secure-passphrase" })).resolves.toEqual({ user: localUser });
-    await expect(appRouter.createCaller(ctx).auth.register({ email: "developer@gmail.com", password: "secure-passphrase" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+describe("GitHub-only authentication and developer protections", () => {
+  it("does not expose manual password registration or login procedures", () => {
+    const procedures = Object.keys(appRouter._def.procedures);
+    expect(procedures).not.toContain("auth.register");
+    expect(procedures).not.toContain("auth.login");
+    expect(procedures).toContain("auth.logout");
   });
 
   it("records the provider-wide model cascade when an administrator pauses a provider", async () => {
@@ -288,33 +206,6 @@ describe("first-party authentication procedures", () => {
 
     await expect(caller.admin.signOut()).resolves.toEqual({ success: true });
     expect(ctx.res.clearCookie).toHaveBeenCalledWith(COOKIE_NAME, expect.objectContaining({ httpOnly: true, path: "/" }));
-  });
-
-  it("returns a generic unauthorized error for an incorrect password and records the failure", async () => {
-    vi.mocked(authenticatePasswordUser).mockResolvedValue(null);
-    const { ctx } = makeContext();
-
-    await expect(appRouter.createCaller(ctx).auth.login({ email: "dev@example.com", password: "secure-passphrase" })).rejects.toMatchObject({ code: "UNAUTHORIZED", message: "Incorrect email or password" });
-    expect(recordFailedPasswordLogin).toHaveBeenCalledWith("dev@example.com");
-  });
-
-  it("transitions consecutive failed sign-ins from generic rejection to retry guidance at the configured boundary", async () => {
-    vi.mocked(authenticatePasswordUser).mockResolvedValue(null);
-    const now = new Date("2026-08-14T00:00:00.000Z");
-    let state: LoginAttemptState | null = null;
-    vi.mocked(recordFailedPasswordLogin).mockImplementation(async () => {
-      state = nextFailedLoginState(state, now);
-      const retryAfter = retryAfterSeconds(state.blockedUntil, now);
-      return { blocked: retryAfter > 0, retryAfterSeconds: retryAfter };
-    });
-    const { ctx } = makeContext();
-    const caller = appRouter.createCaller(ctx);
-
-    for (let attempt = 0; attempt < LOGIN_FAILURE_LIMIT - 1; attempt += 1) {
-      await expect(caller.auth.login({ email: "dev@example.com", password: "secure-passphrase" })).rejects.toMatchObject({ code: "UNAUTHORIZED", message: "Incorrect email or password" });
-    }
-    await expect(caller.auth.login({ email: "dev@example.com", password: "secure-passphrase" })).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS", message: "Too many sign-in attempts. Try again in 900 seconds." });
-    expect(recordFailedPasswordLogin).toHaveBeenCalledTimes(LOGIN_FAILURE_LIMIT);
   });
 
   it("requires Discord verification for developer data while preserving the administrator recovery bypass", async () => {
