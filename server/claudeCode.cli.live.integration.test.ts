@@ -19,6 +19,7 @@ const execFileAsync = promisify(execFile);
 const cliProbeIt = process.env.RUN_TOKENFORGE_CLAUDE_CODE_CLI_PROBE === "true" ? it : it.skip;
 const longHistoryProbeIt = process.env.RUN_TOKENFORGE_CLAUDE_CODE_LONG_HISTORY_PROBE === "true" ? it : it.skip;
 const glmToolProbeIt = process.env.RUN_TOKENFORGE_GLM53_CLAUDE_CODE_TOOL_PROBE === "true" ? it : it.skip;
+const glmQualityProbeIt = process.env.RUN_TOKENFORGE_GLM53_CLAUDE_CODE_QUALITY_PROBE === "true" ? it : it.skip;
 const probeOpenId = `tf_probe_claude_code_cli_${randomUUID().replace(/-/g, "")}`;
 let probeUserId: number | null = null;
 let claudeConfigDir: string | null = null;
@@ -115,7 +116,7 @@ describe("Claude Code CLI TokenForge gateway compatibility", () => {
 
     const { stdout, stderr } = await execFileAsync(
       "claude",
-      ["-p", "Use your Bash tool to run exactly: printf TOKENFORGE_GLM53_TOOL_OK. After the tool succeeds, reply with exactly: TOKENFORGE_GLM53_TOOL_OK", "--output-format", "json", "--dangerously-skip-permissions"],
+      ["-p", "Use your Bash tool to run exactly: printf TOKENFORGE_GLM53_TOOL_OK. After the tool succeeds, reply with exactly: TOKENFORGE_GLM53_TOOL_OK", "--model", "glm-5.3", "--output-format", "json", "--dangerously-skip-permissions"],
       {
         cwd: "/tmp",
         env: {
@@ -144,6 +145,58 @@ describe("Claude Code CLI TokenForge gateway compatibility", () => {
     expect(parsed.is_error).not.toBe(true);
     expect(parsed.num_turns).toBeGreaterThan(1);
     expect(parsed.result).toContain("TOKENFORGE_GLM53_TOOL_OK");
+  }, 130_000);
+
+  glmQualityProbeIt("returns a short coherent greeting through the local GLM 5.3 Messages bridge", async () => {
+    await upsertUser({
+      openId: probeOpenId,
+      name: "Ephemeral GLM 5.3 Claude Code Quality Probe",
+      email: null,
+      loginMethod: "probe",
+      role: "user",
+    });
+    const user = await getUserByOpenId(probeOpenId);
+    expect(user).toBeTruthy();
+    probeUserId = user!.id;
+    await ensureAccountControl(probeUserId);
+    await ensureCreditAccount(probeUserId);
+    const temporaryKey = await createApiKey(probeUserId, "ephemeral-glm53-claude-code-quality-probe");
+    const baseUrl = (process.env.TOKENFORGE_GLM53_CLAUDE_CODE_PROBE_BASE_URL ?? "http://127.0.0.1:3000").replace(/\/$/, "");
+    claudeConfigDir = `/tmp/tokenforge-glm53-claude-code-quality-${randomUUID()}`;
+
+    const { stdout, stderr } = await execFileAsync(
+      "claude",
+      ["-p", "Hi. Reply with only one short, friendly English greeting.", "--model", "glm-5.3", "--output-format", "json"],
+      {
+        cwd: "/tmp",
+        env: {
+          ...process.env,
+          ANTHROPIC_API_KEY: temporaryKey.key,
+          ANTHROPIC_BASE_URL: baseUrl,
+          ANTHROPIC_DEFAULT_OPUS_MODEL: "glm-5.3",
+          ANTHROPIC_MODEL: "glm-5.3",
+          ANTHROPIC_SMALL_FAST_MODEL: "glm-5.3",
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+          CLAUDE_CONFIG_DIR: claudeConfigDir,
+        },
+        maxBuffer: 2 * 1024 * 1024,
+        timeout: 120_000,
+      },
+    );
+
+    const parsed = JSON.parse(stdout) as { result?: unknown; is_error?: unknown };
+    const result = typeof parsed.result === "string" ? parsed.result.trim() : "";
+    console.info("[TokenForge GLM 5.3 Claude Code quality probe]", {
+      exitSucceeded: true,
+      isError: parsed.is_error === true,
+      conciseGreeting: result.length > 0 && result.length <= 240,
+      stderrPresent: stderr.trim().length > 0,
+    });
+    expect(parsed.is_error).not.toBe(true);
+    expect(result.length).toBeGreaterThan(0);
+    expect(result.length).toBeLessThanOrEqual(240);
+    expect(result).toMatch(/\b(hi|hello|hey|greetings)\b/i);
+    expect(result).not.toMatch(/I think I misread|internal monologue/i);
   }, 130_000);
 
   longHistoryProbeIt("accepts a 100-entry Claude Code-shaped history with full-history forwarding", async () => {
