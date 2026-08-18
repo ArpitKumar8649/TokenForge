@@ -345,3 +345,4 @@
 - [x] Replace Claude Fable 5’s FXQidian route with the supplied NVIDIA Integrate provider and validate both OpenAI-compatible and Claude Code Messages requests.
 - [x] Add the four supplied server-only NVIDIA Integrate credentials for Claude Fable 5, rotate the full pool safely, validate every slot, and publish the updated routing.
 - [x] Update the server-only GLM 5.3 upstream model identifier and validate the new provider configuration.
+- [x] Reproduce and repair the GLM 5.3 Claude Code `/v1/messages` 503 by comparing direct TokenRouter and translated bridge requests, then validate the fixed workflow.
