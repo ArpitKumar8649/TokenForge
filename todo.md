@@ -341,3 +341,4 @@
 - [x] Diagnose and repair Kimi K3 Claude Code compatibility through the existing `/v1/messages` proxy and validate it with a real CLI workflow.
 - [x] Add three supplied Cluster Protocol credentials and expand round-robin routing safely across all six keys.
 - [x] Route Claude Fable 5 through a dedicated FXQidian-compatible provider using an isolated model mapping and preserve both API contracts.
+- [x] Research reputable third-party API providers that currently offer free models and summarize their available free-model catalogues and constraints.
