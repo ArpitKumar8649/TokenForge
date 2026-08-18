@@ -329,3 +329,5 @@
 - [x] Remove manual password sign-in and sign-up from the public authentication flow, retaining GitHub OAuth only.
 - [x] Require GitHub OAuth accounts to be at least 14 days old before TokenForge account access is created.
 - [x] Make the remaining direct TokenRouter route diagnostic record transient upstream 5xx outcomes without failing unrelated application validation.
+- [x] Diagnose and reduce Claude Opus 5 stale-key authentication failures and transient API errors during Claude Code sessions.
+- [x] Raise the bounded gateway JSON request limit and return a clear structured error for oversized Claude Code histories.

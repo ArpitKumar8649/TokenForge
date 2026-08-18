@@ -9,6 +9,7 @@ import { registerDiscordOAuthRoutes } from "../discordOAuth";
 import { registerStorageProxy } from "./storageProxy";
 import { registerOpenAiGateway, registerPlaygroundGateway } from "../openaiGateway";
 import { registerAnthropicMessagesGateway } from "../anthropicGateway";
+import { isRequestPayloadTooLarge, requestPayloadTooLargeResponse, TOKENFORGE_JSON_BODY_LIMIT } from "../requestPayload";
 import { appRouter } from "../routers";
 import { clearLegacyAdministratorRoles, ensureCatalogue } from "../db";
 import { createContext } from "./context";
@@ -37,9 +38,14 @@ async function startServer() {
   const app = express();
   app.set("trust proxy", 1);
   const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "1mb" }));
-  app.use(express.urlencoded({ limit: "1mb", extended: true }));
+  // Claude Code sends complete tool and conversation histories. Keep a generous
+  // but bounded request size so valid long-running sessions do not fail locally.
+  app.use(express.json({ limit: TOKENFORGE_JSON_BODY_LIMIT }));
+  app.use(express.urlencoded({ limit: TOKENFORGE_JSON_BODY_LIMIT, extended: true }));
+  app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (!isRequestPayloadTooLarge(error)) return next(error);
+    return res.status(413).json(requestPayloadTooLargeResponse(req.path));
+  });
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   registerGitHubOAuthRoutes(app);
