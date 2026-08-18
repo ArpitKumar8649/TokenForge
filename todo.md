@@ -311,3 +311,6 @@
 - [x] Add concise GLM 5.3 identity guidance for Playground and API calls and prevent repetitive provider reasoning output from being shown as a misleading thinking summary.
 - [x] Remove automatic history compaction from the TokenRouter-backed Claude Messages bridge and update full-history forwarding coverage.
 - [x] Add GLM 5.3 to the Anthropic-compatible `/v1/messages` translation bridge and verify its Playground thinking-display behavior.
+- [x] Roll back the later GLM 5.3 continuation-state and enhanced response-guidance changes while retaining the original GLM endpoint and catalogue entry.
+- [x] Update the GLM 5.3 server-side TokenRouter mapping to qwen/qwen3.8-max-free and validate a lightweight direct completion.
+- [x] Validate the restored `/v1/messages` bridge for GLM 5.3 with Claude Code and retain deterministic Claude Fable 5 and Claude Opus 5 translation coverage.
