@@ -253,12 +253,14 @@ async function forwardTokenHarborRequest(input: ChatInput, signal: AbortSignal) 
 
 /** Claude Opus 5 uses an isolated OpenAI-compatible upstream credential, never the shared TokenRouter pool. */
 async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: AbortSignal) {
-  const base = process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL?.replace(/\/$/, "");
-  const secret = process.env.CLAUDE_OPUS5_API_KEY;
-  const upstreamModel = process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL?.trim();
-  if (!base || !secret || !upstreamModel) throw new Error("TokenForge Claude Opus 5 inference is not configured");
+  const configuredBase = process.env.OPENCODE_CLAUDE_OPUS5_BASE_URL?.replace(/\/$/, "");
+  const secret = process.env.OPENCODE_CLAUDE_OPUS5_API_KEY;
+  const upstreamModel = process.env.OPENCODE_CLAUDE_OPUS5_MODEL?.trim();
+  const url = configuredBase?.endsWith("/chat/completions")
+    ? configuredBase
+    : configuredBase ? `${configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase}/v1`}/chat/completions` : null;
+  if (!url || !secret || !upstreamModel) throw new Error("TokenForge Claude Opus 5 inference is not configured");
   const requestBody = { ...input, model: upstreamModel };
-  const url = `${base}/v1/chat/completions`;
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const responseStartTimeout = AbortSignal.timeout(50_000);

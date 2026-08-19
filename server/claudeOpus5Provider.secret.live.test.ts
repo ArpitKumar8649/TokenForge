@@ -1,15 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-const baseUrl = process.env.TOKENROUTER_CLAUDE_OPUS5_BASE_URL?.replace(/\/+$/, "");
-const apiKey = process.env.CLAUDE_OPUS5_API_KEY;
-const model = process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL;
+const baseUrl = process.env.OPENCODE_CLAUDE_OPUS5_BASE_URL?.replace(/\/+$/, "");
+const apiKey = process.env.OPENCODE_CLAUDE_OPUS5_API_KEY;
+const model = process.env.OPENCODE_CLAUDE_OPUS5_MODEL;
 const hasProviderConfiguration = Boolean(baseUrl && apiKey && model);
 
-describe.skipIf(!hasProviderConfiguration)("Claude Opus 5 isolated provider credential", () => {
+describe.skipIf(!hasProviderConfiguration || process.env.RUN_TOKENFORGE_OPENCODE_CLAUDE_OPUS5_LIVE !== "1")("Claude Opus 5 isolated OpenCode provider credential", () => {
   it("accepts a lightweight OpenAI-compatible completion using the configured server-only credential", async () => {
     let response: Response;
     try {
-      response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      response = await fetch(baseUrl!.endsWith("/chat/completions")
+        ? baseUrl!
+        : `${baseUrl!.endsWith("/v1") ? baseUrl : `${baseUrl}/v1`}/chat/completions`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,

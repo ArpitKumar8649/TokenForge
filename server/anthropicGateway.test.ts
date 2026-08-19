@@ -80,7 +80,7 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(translated.messages?.every(message => message.role === "user" || message.role === "assistant")).toBe(true);
   });
 
-  it("translates TokenRouter-backed Claude and GLM 5.3 models through their compatible Chat Completions route", () => {
+  it("translates the supported Claude and GLM 5.3 models through their compatible Chat Completions routes", () => {
     expect(isNativeTokenRouterMessagesRequest({ model: "claude-opus-5", system: "Be concise.", messages: [{ role: "user", content: "Hello" }] })).toBe(false);
     expect(isNativeTokenRouterMessagesRequest({ model: "claude-fable-5", system: "Be concise.", messages: [{ role: "user", content: "Hello" }] })).toBe(false);
     expect(translateAnthropicRequest({ model: "claude-opus-5", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "claude-opus-5" });

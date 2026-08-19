@@ -61,6 +61,9 @@ beforeEach(() => {
   process.env.CLAUDE_OPUS5_BASE_URL = "https://opus5.example";
   process.env.CLAUDE_OPUS5_API_KEY = "server-only-opus5-secret";
   process.env.CLAUDE_OPUS5_MODEL = "upstream-claude-opus-5";
+  process.env.OPENCODE_CLAUDE_OPUS5_BASE_URL = "https://opencode.example/zen";
+  process.env.OPENCODE_CLAUDE_OPUS5_API_KEY = "server-only-opencode-opus5-secret";
+  process.env.OPENCODE_CLAUDE_OPUS5_MODEL = "upstream-claude-opus-5";
   process.env.JWT_SECRET = "managed-orcarouter-pool-test-secret";
   process.env.TOKENROUTER_BASE_URL = "https://tokenrouter.example";
   process.env.TOKENROUTER_API_KEY = "server-only-tokenrouter-secret";
@@ -225,10 +228,10 @@ describe("TokenForge Playground gateway", () => {
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
-      "Bearer server-only-opus5-secret",
-      "Bearer server-only-opus5-secret",
+      "Bearer server-only-opencode-opus5-secret",
+      "Bearer server-only-opencode-opus5-secret",
     ]);
-    expect(fetchMock.mock.calls.every(([url]) => url === "https://opus5-tokenrouter.example/v1/chat/completions")).toBe(true);
+    expect(fetchMock.mock.calls.every(([url]) => url === "https://opencode.example/zen/v1/chat/completions")).toBe(true);
   });
 
   it("fails over to the next FXQidian pool slot after a retryable provider response without exposing credentials in telemetry", async () => {
@@ -249,15 +252,15 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.stringify(telemetry)).not.toContain("server-only-provider-secret");
   });
 
-  it("routes Claude Opus 5 through its isolated provider credential rather than the shared TokenRouter pool", async () => {
+  it("routes Claude Opus 5 through its isolated OpenCode credential rather than the shared TokenRouter pool", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Route independently." }] }, new AbortController().signal);
 
     expect(response.status).toBe(200);
-    expect(fetchMock).toHaveBeenCalledWith("https://opus5-tokenrouter.example/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-opus5-secret" }),
+    expect(fetchMock).toHaveBeenCalledWith("https://opencode.example/zen/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-opencode-opus5-secret" }),
       body: expect.stringContaining('"model":"upstream-claude-opus-5"'),
     }));
     expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toContain("server-only-tokenrouter-secret");
@@ -354,8 +357,8 @@ describe("TokenForge Playground gateway", () => {
       sourceIpHash: "hashed-source-ip",
     });
 
-    expect(fetchMock).toHaveBeenCalledWith("https://opus5-tokenrouter.example/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-opus5-secret" }),
+    expect(fetchMock).toHaveBeenCalledWith("https://opencode.example/zen/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-opencode-opus5-secret" }),
       body: expect.stringContaining('"model":"upstream-claude-opus-5"'),
     }));
     const playgroundPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);

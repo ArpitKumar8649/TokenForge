@@ -33,7 +33,7 @@ afterEach(async () => {
 });
 
 describe("TokenForge Claude Opus 5 Anthropic Messages compatibility", () => {
-  nativeProbeIt("translates a Claude Code-style request through TokenRouter's compatible Chat Completions route", async () => {
+  nativeProbeIt("translates a Claude Code-style request through the configured compatible Chat Completions route", async () => {
     await upsertUser({
       openId: probeOpenId,
       name: "Ephemeral Claude Opus 5 Native Probe",
