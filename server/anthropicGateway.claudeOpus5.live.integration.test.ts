@@ -13,6 +13,7 @@ import { accountControls, apiKeys, creditAccounts, creditLedger, usageEvents, us
 
 const nativeProbeIt = process.env.RUN_TOKENFORGE_CLAUDE_OPUS5_NATIVE_PROBE === "true" ? it : it.skip;
 const probeOpenId = `tf_probe_opus5_native_${randomUUID().replace(/-/g, "")}`;
+const probePrompt = process.env.TOKENFORGE_CLAUDE_OPUS5_PROBE_PROMPT ?? "Reply with exactly OK.";
 let probeUserId: number | null = null;
 
 async function cleanupProbe() {
@@ -59,9 +60,9 @@ describe("TokenForge Claude Opus 5 Anthropic Messages compatibility", () => {
       },
       body: JSON.stringify({
         model: "claude-opus-5",
-        max_tokens: 64,
+        max_tokens: 256,
         system: [{ type: "text", text: "Be concise." }],
-        messages: [{ role: "user", content: [{ type: "text", text: "Reply with exactly OK." }] }],
+        messages: [{ role: "user", content: [{ type: "text", text: probePrompt }] }],
         tools: [{ name: "read_file", input_schema: { type: "object", properties: { path: { type: "string" } } } }],
         stream: false,
       }),
@@ -76,6 +77,14 @@ describe("TokenForge Claude Opus 5 Anthropic Messages compatibility", () => {
       returnedModel: payload?.model,
       providerError: typeof payload?.error?.message === "string" ? payload.error.message : null,
       hasContent: Array.isArray(payload?.content),
+      publicText: Array.isArray(payload?.content)
+        ? payload.content
+          .filter((block): block is { type: unknown; text: unknown } => Boolean(block) && typeof block === "object" && !Array.isArray(block) && "type" in block && "text" in block)
+          .filter(block => block.type === "text" && typeof block.text === "string")
+          .map(block => block.text)
+          .join("\n")
+          .slice(0, 1_000)
+        : null,
     });
     expect(response.ok, `TokenForge /v1/messages rejected the native Claude Opus 5 probe with HTTP ${response.status}: ${JSON.stringify(payload)}`).toBe(true);
     expect(payload).toMatchObject({ type: "message", model: "claude-opus-5" });

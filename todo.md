@@ -362,3 +362,4 @@
 - [x] Add a server-side Claude Opus 5 identity instruction across API and Playground requests without overriding user system prompts.
 - [x] Collect server-only BluesMinds provider settings for Claude Fable 5, validate completion and Messages compatibility, then replace its OpenCode Zen route.
 - [x] Store a second server-only BluesMinds Claude Fable 5 credential, rotate requests round-robin across both keys, and validate each slot.
+- [x] Reproduce the Claude Opus 5 identity mismatch reporting Nemotron Lightning, identify its source, and apply a targeted correction if needed.
