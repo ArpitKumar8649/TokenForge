@@ -15,7 +15,6 @@ import { selectNextClusterProtocolCredentialWithSlot } from "./clusterProtocolCr
 import { selectNextFxqidianCredentialWithSlot } from "./fxqidianCredentials";
 import { selectNextOrcaRouterCredentialWithSlot } from "./orcaRouterCredentials";
 import { selectNextTokenRouterCredentialWithSlot } from "./tokenRouterCredentials";
-import { selectNextNvidiaClaudeFable5CredentialWithSlot } from "./nvidiaClaudeFable5Credentials";
 import { isCredentialSlotEligible, recordCredentialFailover, recordCredentialFailure, recordCredentialSuccess, type CredentialTelemetryProvider } from "./providerCredentialTelemetry";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, getTokenForgeProviderSlug, getTokenForgeUpstreamModelId, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, type TokenForgeModelId } from "./modelCatalogue";
@@ -284,39 +283,36 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
   throw lastError instanceof Error ? lastError : new Error("The selected provider is temporarily unavailable");
 }
 
-/** Claude Fable 5 uses its own OpenAI-compatible NVIDIA Integrate route, never the shared TokenRouter pool. */
+/** Claude Fable 5 uses its own OpenAI-compatible OpenCode Zen route, never the shared TokenRouter pool. */
 async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: AbortSignal) {
-  const base = process.env.NVIDIA_CLAUDE_FABLE5_BASE_URL?.replace(/\/$/, "");
-  const upstreamModel = process.env.NVIDIA_CLAUDE_FABLE5_MODEL?.trim();
-  if (!base || !upstreamModel) throw new Error("TokenForge Claude Fable 5 inference is not configured");
-  // NVIDIA Integrate does not support this OpenAI-extension field. Returned
-  // reasoning remains available to the existing Playground summary extraction.
-  const { reasoning_effort: _strippedReasoningEffort, ...compatibleInput } = input;
-  const requestBody = { ...compatibleInput, model: upstreamModel };
-  const url = `${base}/v1/chat/completions`;
-  const first = selectNextNvidiaClaudeFable5CredentialWithSlot();
-  if (!first) throw new Error("TokenForge Claude Fable 5 inference is not configured");
-  let candidate = first;
-  let lastResponse: globalThis.Response | null = null;
+  const configuredBase = process.env.OPENCODE_CLAUDE_FABLE5_BASE_URL?.replace(/\/$/, "");
+  const secret = process.env.OPENCODE_CLAUDE_FABLE5_API_KEY;
+  const upstreamModel = process.env.OPENCODE_CLAUDE_FABLE5_MODEL?.trim();
+  const url = configuredBase?.endsWith("/chat/completions")
+    ? configuredBase
+    : configuredBase ? `${configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase}/v1`}/chat/completions` : null;
+  if (!url || !secret || !upstreamModel) throw new Error("TokenForge Claude Fable 5 inference is not configured");
+  const requestBody = { ...input, model: upstreamModel };
   let lastError: unknown = null;
-  for (let attempt = 0; attempt < candidate.poolSize; attempt += 1) {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const responseStartTimeout = AbortSignal.timeout(50_000);
+    const attemptSignal = AbortSignal.any([signal, responseStartTimeout]);
     try {
       const response = await fetch(url, {
         method: "POST",
-        headers: { Authorization: `Bearer ${candidate.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
+        headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
         body: JSON.stringify(requestBody),
-        signal,
+        signal: attemptSignal,
       });
-      lastResponse = response;
-      if (response.ok || !retryableProviderStatus(response.status)) return response;
+      if (response.ok || !retryableProviderStatus(response.status) || attempt === 2) return response;
+      console.warn("[Claude Fable 5 provider retry]", { event: "retryable_response_before_stream", upstreamStatus: response.status, attempt });
       response.body?.cancel().catch(() => undefined);
     } catch (error) {
       lastError = error;
-      if (signal.aborted) throw error;
+      if (signal.aborted || !responseStartTimeout.aborted || attempt === 2) throw error;
+      console.warn("[Claude Fable 5 provider retry]", { event: "response_start_timeout_before_stream", attempt });
     }
-    if (attempt < candidate.poolSize - 1) candidate = selectNextNvidiaClaudeFable5CredentialWithSlot() ?? candidate;
   }
-  if (lastResponse) return lastResponse;
   throw lastError instanceof Error ? lastError : new Error("The selected provider is temporarily unavailable");
 }
 

@@ -9,9 +9,10 @@ const NVIDIA_CLAUDE_FABLE5_API_KEYS = [
   process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_4,
   process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_5,
 ];
+const retiredNvidiaDiagnosticIt = process.env.RUN_TOKENFORGE_RETIRED_NVIDIA_CLAUDE_FABLE5_DIAGNOSTIC === "true" ? it : it.skip;
 
 describe("NVIDIA Claude Fable 5 credential pool", () => {
-  it("authorizes a minimal OpenAI-compatible completion with every configured Fable credential", async () => {
+	  retiredNvidiaDiagnosticIt("authorizes a minimal OpenAI-compatible completion with every configured Fable credential", async () => {
     expect(NVIDIA_CLAUDE_FABLE5_BASE_URL).toBeTruthy();
     expect(NVIDIA_CLAUDE_FABLE5_MODEL).toBeTruthy();
     expect(NVIDIA_CLAUDE_FABLE5_API_KEYS).toHaveLength(5);

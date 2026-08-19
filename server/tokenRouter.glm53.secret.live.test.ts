@@ -11,28 +11,35 @@ describe("TokenRouter GLM 5.3 model configuration", () => {
     const credentials = getTokenRouterCredentialPool();
     expect(credentials.length).toBeGreaterThan(0);
 
-    const statuses: number[] = [];
+    const outcomes: string[] = [];
     for (const [slot, credential] of credentials.entries()) {
-      const response = await fetch(`${TOKENROUTER_BASE_URL}/v1/chat/completions`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${credential}`,
-          Accept: "application/json",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: TOKENROUTER_GLM53_MODEL,
-          messages: [{ role: "user", content: "Reply with exactly OK." }],
-          max_tokens: 8,
-          stream: false,
-        }),
-        signal: AbortSignal.timeout(30_000),
-      });
-      statuses.push(response.status);
-      console.info("[TokenRouter GLM 5.3 lightweight completion]", { slot: slot + 1, status: response.status, accepted: response.ok });
-      if (response.ok) return;
+      try {
+        const response = await fetch(`${TOKENROUTER_BASE_URL}/v1/chat/completions`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${credential}`,
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: TOKENROUTER_GLM53_MODEL,
+            messages: [{ role: "user", content: "Reply with exactly OK." }],
+            max_tokens: 8,
+            stream: false,
+          }),
+          signal: AbortSignal.timeout(30_000),
+        });
+        outcomes.push(`HTTP ${response.status}`);
+        console.info("[TokenRouter GLM 5.3 lightweight completion]", { slot: slot + 1, status: response.status, accepted: response.ok });
+        if (response.ok) return;
+      } catch (error) {
+        const timeout = error instanceof Error && error.name === "TimeoutError";
+        outcomes.push(timeout ? "timeout" : "connection_error");
+        console.info("[TokenRouter GLM 5.3 lightweight completion]", { slot: slot + 1, timeout, accepted: false });
+        if (!timeout) throw error;
+      }
     }
 
-    throw new Error(`The configured GLM 5.3 upstream model was not accepted by any TokenRouter credential slot (HTTP ${statuses.join(", ")}).`);
+    throw new Error(`The configured GLM 5.3 upstream model was not accepted by any TokenRouter credential slot (${outcomes.join(", ")}).`);
   }, 275_000);
 });

@@ -33,7 +33,7 @@ afterEach(async () => {
 });
 
 describe("TokenForge Claude Fable 5 Anthropic Messages compatibility", () => {
-	  nativeProbeIt("translates a Claude Code-style request through NVIDIA Integrate's compatible Chat Completions route", async () => {
+	  nativeProbeIt("translates a Claude Code-style request through the isolated OpenCode Zen Chat Completions route", async () => {
     await upsertUser({
       openId: probeOpenId,
       name: "Ephemeral Claude Fable Native Probe",
