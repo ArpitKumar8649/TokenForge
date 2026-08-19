@@ -15,6 +15,7 @@ vi.mock("./db", () => ({
 
 import { getPlatformMaintenanceConfig, getQuotaStatus, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordUsage, reserveCredit, settleReservedCredit } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
+import { resetBluesMindsClaudeFable5CredentialRotation } from "./bluesMindsClaudeFable5Credentials";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 import { invalidateOrcaRouterCredentialPool, resetOrcaRouterSlotRequestCounts } from "./orcaRouterCredentials";
@@ -43,6 +44,7 @@ beforeEach(() => {
   process.env.FXQIDIAN_API_KEY_2 = "server-only-provider-secret-2";
   process.env.BLUESMINDS_CLAUDE_FABLE5_BASE_URL = "https://bluesminds.example";
   process.env.BLUESMINDS_CLAUDE_FABLE5_API_KEY = "server-only-bluesminds-fable5-secret";
+  process.env.BLUESMINDS_CLAUDE_FABLE5_API_KEY_2 = "server-only-bluesminds-fable5-secret-2";
   process.env.BLUESMINDS_CLAUDE_FABLE5_MODEL = "upstream-claude-fable-5-model";
   process.env.CLUSTER_PROTOCOL_BASE_URL = "https://cluster.example";
   process.env.CLUSTER_PROTOCOL_API_KEY = "server-only-cluster-secret";
@@ -83,6 +85,7 @@ beforeEach(() => {
   }));
   vi.mocked(loadOrcaRouterCredentialSlotCiphertexts).mockResolvedValue([]);
   resetClusterProtocolCredentialRotation();
+  resetBluesMindsClaudeFable5CredentialRotation();
   resetFxqidianCredentialRotation();
   invalidateOrcaRouterCredentialPool();
   resetOrcaRouterSlotRequestCounts();
@@ -490,7 +493,23 @@ describe("TokenForge Playground gateway", () => {
     expect(apiMessages).not.toContainEqual(playgroundResponseGuidance());
   });
 
-  it("retries Claude Fable 5 once through the same isolated BluesMinds credential after a retryable provider response", async () => {
+  it("rotates sequential Claude Fable 5 requests across both isolated BluesMinds credentials", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const signal = new AbortController().signal;
+
+    await forwardProviderRequest("claude-fable-5", { model: "claude-fable-5", messages: [{ role: "user", content: "First request." }] }, signal);
+    await forwardProviderRequest("claude-fable-5", { model: "claude-fable-5", messages: [{ role: "user", content: "Second request." }] }, signal);
+    await forwardProviderRequest("claude-fable-5", { model: "claude-fable-5", messages: [{ role: "user", content: "Third request." }] }, signal);
+
+    expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
+      "Bearer server-only-bluesminds-fable5-secret",
+      "Bearer server-only-bluesminds-fable5-secret-2",
+      "Bearer server-only-bluesminds-fable5-secret",
+    ]);
+  });
+
+  it("retries Claude Fable 5 through the next isolated BluesMinds credential after a retryable provider response", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Temporary capacity" } }), { status: 429 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
@@ -506,7 +525,7 @@ describe("TokenForge Playground gateway", () => {
       headers: expect.objectContaining({ Authorization: "Bearer server-only-bluesminds-fable5-secret" }),
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "https://bluesminds.example/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-bluesminds-fable5-secret" }),
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-bluesminds-fable5-secret-2" }),
     }));
   });
 
