@@ -2,12 +2,15 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  TOKENFORGE_PUBLIC_ORIGIN,
-  TOKENFORGE_AFFILIATE_CODE_LENGTH,
-  TOKENFORGE_REFERRAL_REWARD_NANOS,
-  TOKENFORGE_REFERRAL_REWARD_USD,
-  buildReferralInviteUrl,
-  normalizeReferralCode,
+	TOKENFORGE_PUBLIC_ORIGIN,
+	TOKENFORGE_AFFILIATE_CODE_LENGTH,
+	TOKENFORGE_REFERRAL_REWARD_NANOS,
+	TOKENFORGE_REFERRAL_REWARD_USD,
+	SPECIAL_REFERRAL_CAMPAIGN_CODE,
+	buildReferralInviteUrl,
+	buildSpecialReferralCampaignUrl,
+	isSpecialReferralCampaignCode,
+	normalizeReferralCode,
 } from "../shared/referrals";
 
 const dbSource = readFileSync(path.resolve(import.meta.dirname, "./db.ts"), "utf8");
@@ -17,6 +20,8 @@ const clientSource = readFileSync(path.resolve(import.meta.dirname, "../client/s
 const appSource = readFileSync(path.resolve(import.meta.dirname, "../client/src/App.tsx"), "utf8");
 const mainSource = readFileSync(path.resolve(import.meta.dirname, "../client/src/main.tsx"), "utf8");
 const schemaSource = readFileSync(path.resolve(import.meta.dirname, "../drizzle/schema.ts"), "utf8");
+const dashboardSource = readFileSync(path.resolve(import.meta.dirname, "../client/src/pages/DeveloperDashboard.tsx"), "utf8");
+const discordSource = readFileSync(path.resolve(import.meta.dirname, "./discordOAuth.ts"), "utf8");
 
 describe("TokenForge referrals", () => {
   it("uses the canonical hosted affiliate URL and an equal $10 reward for each eligible account", () => {
@@ -51,7 +56,7 @@ describe("TokenForge referrals", () => {
     expect(schemaSource).toContain('code: varchar("code", { length: 4 }).notNull().unique()');
   });
 
-  it("captures `aff` separately from pathname routing and preserves it for GitHub sign-in", () => {
+	it("captures `aff` separately from pathname routing and preserves it for GitHub sign-in", () => {
     expect(clientSource).toContain("import { Link, useSearch } from \"wouter\"");
     expect(clientSource).toContain("const search = useSearch()");
     expect(clientSource).toContain("normalizeReferralCode(new URLSearchParams(search).get(\"aff\"))");
@@ -60,6 +65,36 @@ describe("TokenForge referrals", () => {
     expect(clientSource).toContain("window.location.assign(`/api/auth/github${referralQuery}`)");
     expect(oauthSource).toContain('getQueryParam(req, "aff")');
     expect(appSource).toContain('<Route path={"/sign-up"}>{() => <LocalAuth mode="signup" />}</Route>');
-    expect(mainSource).toContain('window.location.pathname !== "/sign-up"');
-  });
+		expect(mainSource).toContain('window.location.pathname !== "/sign-up"');
+	});
+
+	it("builds a reusable special campaign link without treating it as a normal affiliate code", () => {
+		expect(SPECIAL_REFERRAL_CAMPAIGN_CODE).toBe("bonus150");
+		expect(buildSpecialReferralCampaignUrl()).toBe("https://tokengate-cqt9ivzs.manus.space/sign-up?aff=bonus150");
+		expect(isSpecialReferralCampaignCode(" BONUS150 ")).toBe(true);
+		expect(isSpecialReferralCampaignCode("bonus151")).toBe(false);
+		expect(normalizeReferralCode(SPECIAL_REFERRAL_CAMPAIGN_CODE)).toBeUndefined();
+	});
+
+	it("reserves no more than 150 special slots and credits the bonus exactly once after Discord verification", () => {
+		expect(dbSource).toContain("export const SPECIAL_REFERRAL_CAMPAIGN_CAP = 150");
+		expect(dbSource).toContain("if (slotNumber > SPECIAL_REFERRAL_CAMPAIGN_CAP)");
+		expect(dbSource).toContain('reason: "campaign_full"');
+		expect(dbSource).toContain('kind: "special_referral_bonus"');
+		expect(dbSource).toContain("if (claim.awardedAt)");
+		expect(dbSource).toContain("SPECIAL_REFERRAL_BONUS_NANOS");
+		expect(discordSource).toContain("settleSpecialReferralBonusAfterDiscordVerification");
+		expect(schemaSource).toContain('export const specialReferralClaims');
+	});
+
+	it("keeps special referral administration and gift acknowledgement protected and visible", () => {
+		expect(routerSource).toContain('"specialReferral"');
+		expect(routerSource).toContain("specialReferralCampaign: adminProcedure.query");
+		expect(routerSource).toContain("specialReferralGift: verifiedDeveloperProcedure.query");
+		expect(routerSource).toContain("acknowledgeSpecialReferralGift");
+		expect(dbSource).toContain("specialReferralSlot");
+		expect(dashboardSource).toContain("SPECIAL REFERRAL REWARD");
+		expect(dashboardSource).toContain("Open gift");
+		expect(dashboardSource).toContain("Credited");
+	});
 });

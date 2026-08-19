@@ -188,12 +188,42 @@ function GiveawayNotificationBanner({ enabled }: { enabled: boolean }) {
   </section>;
 }
 
+function SpecialReferralGiftBox({ enabled }: { enabled: boolean }) {
+  const utils = trpc.useUtils();
+  const gift = trpc.developer.specialReferralGift.useQuery(undefined, { enabled, refetchInterval: 15_000 });
+  const [revealed, setRevealed] = useState(false);
+  const acknowledge = trpc.developer.acknowledgeSpecialReferralGift.useMutation({
+    onSuccess: () => {
+      setRevealed(true);
+      utils.developer.specialReferralGift.invalidate();
+    },
+    onError: error => toast.error(error.message),
+  });
+  const claim = gift.data;
+  if (!claim?.awardedAt || (claim.giftViewedAt && !revealed)) return null;
+  const amount = `$${(claim.amountNanos / 1_000_000_000).toFixed(0)}`;
+  return <section className="special-referral-gift mb-5" aria-label="Special referral gift" role="status">
+    <div className="special-referral-gift__ribbons" aria-hidden="true">{Array.from({ length: 16 }, (_, index) => <i key={index} />)}</div>
+    <div className={`special-referral-gift__box ${revealed ? "special-referral-gift__box--opened" : ""}`}>
+      <div className="special-referral-gift__shine" aria-hidden="true" />
+      <div className="special-referral-gift__icon"><Gift size={28} /></div>
+      <div className="min-w-0 flex-1">
+        <p className="special-referral-gift__eyebrow">SPECIAL REFERRAL REWARD</p>
+        <h2>{revealed ? `${amount} added to your account` : "Your verified gift box is ready"}</h2>
+        <p>{revealed ? "Your Discord-verified referral bonus is now available in your TokenForge credit balance." : "You joined through TokenForge’s limited special link and completed Discord verification. Open your gift box to reveal the bonus."}</p>
+      </div>
+      {!revealed && <Button className="special-referral-gift__button" onClick={() => acknowledge.mutate()} disabled={acknowledge.isPending}>{acknowledge.isPending ? <Loader2 className="animate-spin" size={16} /> : <Gift size={16} />}{acknowledge.isPending ? "Opening…" : "Open gift"}</Button>}
+      {revealed && <span className="special-referral-gift__confirmed"><Check size={15} /> Credited</span>}
+    </div>
+  </section>;
+}
+
 export default function DeveloperDashboard({ section = "overview", modelId }: { section?: Section; modelId?: string }) {
   const { user, loading } = useAuth();
   const workspaceVerified = Boolean(user?.isAdminSession || user?.discordVerifiedAt);
   const usage = trpc.developer.usage.useQuery(undefined, { enabled: Boolean(user) && workspaceVerified });
   const content = section === "playground" ? <Playground /> : section === "models" ? <DashboardModels /> : section === "model" ? <DashboardModels modelId={modelId} /> : section === "keys" ? <><PageIntro eyebrow="Credentials" title="API keys" subtitle="Create, rotate, or revoke credentials without ever re-exposing a saved secret." /><ApiKeyList /></> : section === "usage" ? <><PageIntro eyebrow="Observability" title="Usage logs" subtitle="A transparent record of request source, model, tokens, and credit cost." /><UsageLogs /></> : section === "profile" ? <><PageIntro eyebrow="Account & rewards" title="Profile" subtitle="Manage your TokenForge identity and claim your daily build credit." /><Profile /></> : section === "referrals" ? <ReferralWorkspace /> : <Overview user={user} loading={loading} usage={usage} />;
-  return <DashboardLayout><div className="dashboard-page-surface"><div className="dashboard-page-content"><GiveawayNotificationBanner enabled={Boolean(user) && workspaceVerified} />{content}</div></div></DashboardLayout>;
+  return <DashboardLayout><div className="dashboard-page-surface"><div className="dashboard-page-content"><SpecialReferralGiftBox enabled={Boolean(user) && workspaceVerified} /><GiveawayNotificationBanner enabled={Boolean(user) && workspaceVerified} />{content}</div></div></DashboardLayout>;
 }
 
 function ReferralWorkspace() {

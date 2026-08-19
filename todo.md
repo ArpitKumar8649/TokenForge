@@ -369,3 +369,7 @@
 - [x] Retain the existing BluesMinds configuration, migrate Claude Fable 5 to NVIDIA NIM using its five server-only credentials with round-robin and retry failover, and validate API plus Messages compatibility after a NVIDIA model ID is provided.
 - [x] Add an admin-only provider settings section with masked current values and secure partial updates for base URL, API key, and model ID without replacing untouched fields.
 - [x] Strengthen Claude Fable 5 API and Playground identity guidance so public responses identify as Claude Fable 5 through TokenForge and do not disclose upstream model or provider details.
+- [x] Create a reusable special referral link that reserves up to 150 new referral sign-ups for a $150 Discord-verification bonus while preserving the existing $50 new-account and standard referral credits.
+- [x] Credit the special $150 referral bonus exactly once after Discord verification, label qualifying accounts, and expose the special referral status in administrator account sorting and detail views.
+- [x] Add an animated special-referral gift-box claim experience with ribbon reveal and a clear $150 credit confirmation after the eligible user verifies Discord.
+- [x] Add administrator reporting for special-referral reservations, successful verified claims, remaining cap, and qualifying-account details.

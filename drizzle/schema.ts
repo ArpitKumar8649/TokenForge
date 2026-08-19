@@ -63,6 +63,25 @@ export const referralAttributions = mysqlTable(
   table => [index("referral_attributions_referrer_time_idx").on(table.referrerUserId, table.createdAt)],
 );
 
+/** A durable reservation and receipt for the reusable 150-member special referral campaign. */
+export const specialReferralClaims = mysqlTable(
+  "special_referral_claims",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    campaignKey: varchar("campaignKey", { length: 64 }).notNull(),
+    slotNumber: int("slotNumber").notNull(),
+    userId: int("userId").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+    reservedAt: timestamp("reservedAt").defaultNow().notNull(),
+    verifiedAt: timestamp("verifiedAt"),
+    awardedAt: timestamp("awardedAt"),
+    giftViewedAt: timestamp("giftViewedAt"),
+  },
+  table => [
+    uniqueIndex("special_referral_claims_campaign_slot_unique_idx").on(table.campaignKey, table.slotNumber),
+    index("special_referral_claims_campaign_verified_idx").on(table.campaignKey, table.verifiedAt, table.awardedAt),
+  ],
+);
+
 /** First-party credentials. Passwords are stored only as salted scrypt derivations. */
 export const passwordCredentials = mysqlTable(
   "password_credentials",
@@ -204,7 +223,7 @@ export const creditLedger = mysqlTable(
   {
     id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
     userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
-    kind: mysqlEnum("kind", ["introductory_grant", "daily_checkin", "usage_debit", "manual_adjustment", "referral_reward"]).notNull(),
+    kind: mysqlEnum("kind", ["introductory_grant", "daily_checkin", "usage_debit", "manual_adjustment", "referral_reward", "special_referral_bonus"]).notNull(),
     amountNanos: bigint("amountNanos", { mode: "number" }).notNull(),
     balanceAfterNanos: bigint("balanceAfterNanos", { mode: "number" }).notNull(),
     referenceId: varchar("referenceId", { length: 128 }),

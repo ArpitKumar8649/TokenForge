@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNotNull, isNull, like, lte, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createHmac, randomBytes, randomInt } from "node:crypto";
 import {
@@ -26,6 +26,7 @@ import {
   providerConfigs,
   referralAttributions,
   referralCodes,
+  specialReferralClaims,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { hashPassword, normalizeEmail, nextFailedLoginState, normalizeEmailAllowlistEntries, retryAfterSeconds, verifyPassword } from "./localAuth";
@@ -38,7 +39,7 @@ import { getProviderCredentialTelemetry } from "./providerCredentialTelemetry";
 import { encryptOrcaRouterCredential } from "./orcaRouterCredentialVault";
 import { decryptGlmToolContinuation, encryptGlmToolContinuation, type GlmPrivateToolContinuation } from "./glmToolContinuationVault";
 import { decryptProviderRuntimeConfig, encryptProviderRuntimeConfig } from "./providerRuntimeConfigVault";
-import { TOKENFORGE_REFERRAL_REWARD_NANOS, normalizeReferralCode } from "../shared/referrals";
+import { TOKENFORGE_REFERRAL_REWARD_NANOS, isSpecialReferralCampaignCode, normalizeReferralCode } from "../shared/referrals";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -51,6 +52,9 @@ const ANNOUNCEMENT_TEXT_SETTING_KEY = "announcement_text";
 const SESSION_VERSION_SETTING_KEY = "auth_session_version";
 const PLATFORM_MAINTENANCE_SETTING_KEY = "platform_maintenance";
 const CLAUDE_FABLE5_NVIDIA_RUNTIME_SETTING_KEY = "claude_fable5_nvidia_runtime_v1";
+const SPECIAL_REFERRAL_CAMPAIGN_KEY = "special-referral-150-v1";
+export const SPECIAL_REFERRAL_CAMPAIGN_CAP = 150;
+export const SPECIAL_REFERRAL_BONUS_NANOS = 150 * NANODOLLARS_PER_DOLLAR;
 export const DISCORD_UNVERIFIED_CLEANUP_NOTICE_KIND = "discord_unverified_cleanup";
 const AFFILIATE_CODE_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 const AFFILIATE_CODE_LENGTH = 4;
@@ -308,6 +312,99 @@ export async function getReferralOverview(userId: number) {
     referrals: attributions.map(item => ({ id: item.id, name: item.memberName || "New TokenForge member", createdAt: item.createdAt, rewardNanos: item.rewardNanos })),
     totalRewardNanos: attributions.reduce((total, item) => total + item.rewardNanos, 0),
     receivedRewardNanos: received[0]?.rewardNanos ?? 0,
+  };
+}
+
+/** Reserves a campaign slot during account creation; the unique slot number enforces the 150-user cap. */
+export async function reserveSpecialReferralCampaignSlot(userId: number, rawReferralCode?: string | null) {
+  if (!isSpecialReferralCampaignCode(rawReferralCode)) return { reserved: false as const, reason: "not_special_link" as const };
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const existing = (await db.select().from(specialReferralClaims).where(eq(specialReferralClaims.userId, userId)).limit(1))[0];
+  if (existing) return { reserved: true as const, slotNumber: existing.slotNumber, alreadyReserved: true as const };
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const [{ count }] = await db.select({ count: sql<number>`count(*)` }).from(specialReferralClaims).where(eq(specialReferralClaims.campaignKey, SPECIAL_REFERRAL_CAMPAIGN_KEY));
+    const slotNumber = Number(count) + 1;
+    if (slotNumber > SPECIAL_REFERRAL_CAMPAIGN_CAP) return { reserved: false as const, reason: "campaign_full" as const };
+    try {
+      await db.insert(specialReferralClaims).values({ campaignKey: SPECIAL_REFERRAL_CAMPAIGN_KEY, slotNumber, userId });
+      await writeAuditEvent({ actorUserId: userId, targetUserId: userId, action: "special_referral.reserved", entityType: "special_referral", entityId: String(slotNumber), metadata: { campaignKey: SPECIAL_REFERRAL_CAMPAIGN_KEY } });
+      return { reserved: true as const, slotNumber, alreadyReserved: false as const };
+    } catch (error: any) {
+      if (error?.code !== "ER_DUP_ENTRY") throw error;
+      const concurrent = (await db.select().from(specialReferralClaims).where(eq(specialReferralClaims.userId, userId)).limit(1))[0];
+      if (concurrent) return { reserved: true as const, slotNumber: concurrent.slotNumber, alreadyReserved: true as const };
+    }
+  }
+  return { reserved: false as const, reason: "reservation_busy" as const };
+}
+
+/** Awards the campaign balance exactly once after Discord verification; duplicate ledger keys keep retries safe. */
+export async function settleSpecialReferralBonusAfterDiscordVerification(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const now = new Date();
+  try {
+    return await db.transaction(async tx => {
+      const claim = (await tx.select().from(specialReferralClaims).where(eq(specialReferralClaims.userId, userId)).limit(1))[0];
+      if (!claim) return { awarded: false as const, reason: "not_eligible" as const };
+      if (claim.awardedAt) return { awarded: false as const, reason: "already_awarded" as const, slotNumber: claim.slotNumber };
+      await tx.update(specialReferralClaims).set({ verifiedAt: claim.verifiedAt ?? now }).where(eq(specialReferralClaims.id, claim.id));
+      await tx.insert(creditAccounts).values({ userId, balanceNanos: 0 }).onDuplicateKeyUpdate({ set: { userId } });
+      await tx.update(creditAccounts).set({ balanceNanos: sql`${creditAccounts.balanceNanos} + ${SPECIAL_REFERRAL_BONUS_NANOS}` }).where(eq(creditAccounts.userId, userId));
+      const account = (await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).limit(1))[0];
+      await tx.insert(creditLedger).values({ userId, kind: "special_referral_bonus", amountNanos: SPECIAL_REFERRAL_BONUS_NANOS, balanceAfterNanos: account?.balanceNanos ?? SPECIAL_REFERRAL_BONUS_NANOS, referenceId: `special-referral:${claim.id}`, note: "Special referral bonus after Discord verification" });
+      await tx.update(specialReferralClaims).set({ awardedAt: now, verifiedAt: claim.verifiedAt ?? now }).where(eq(specialReferralClaims.id, claim.id));
+      return { awarded: true as const, slotNumber: claim.slotNumber, awardedAt: now };
+    });
+  } catch (error: any) {
+    if (error?.code === "ER_DUP_ENTRY") return { awarded: false as const, reason: "already_awarded" as const };
+    throw error;
+  }
+}
+
+export async function getSpecialReferralGiftStatus(userId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const claim = (await db.select().from(specialReferralClaims).where(eq(specialReferralClaims.userId, userId)).limit(1))[0];
+  if (!claim) return null;
+  return { slotNumber: claim.slotNumber, reservedAt: claim.reservedAt, verifiedAt: claim.verifiedAt, awardedAt: claim.awardedAt, giftViewedAt: claim.giftViewedAt, amountNanos: SPECIAL_REFERRAL_BONUS_NANOS };
+}
+
+/** Records visual acknowledgement only; the bonus is settled at Discord verification, not by the UI. */
+export async function acknowledgeSpecialReferralGift(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const claim = (await db.select().from(specialReferralClaims).where(eq(specialReferralClaims.userId, userId)).limit(1))[0];
+  if (!claim?.awardedAt) return null;
+  if (!claim.giftViewedAt) await db.update(specialReferralClaims).set({ giftViewedAt: new Date() }).where(eq(specialReferralClaims.id, claim.id));
+  return { slotNumber: claim.slotNumber, amountNanos: SPECIAL_REFERRAL_BONUS_NANOS, awardedAt: claim.awardedAt };
+}
+
+/** Administrator-only campaign health and qualifying-account directory; excludes every secret and API-key field. */
+export async function getSpecialReferralCampaignAdminOverview() {
+  const db = await getDb();
+  if (!db) return { cap: SPECIAL_REFERRAL_CAMPAIGN_CAP, reserved: 0, awarded: 0, remaining: SPECIAL_REFERRAL_CAMPAIGN_CAP, accounts: [] };
+  const [counts, accounts] = await Promise.all([
+    db.select({ reserved: sql<number>`count(*)`, awarded: sql<number>`coalesce(sum(case when ${specialReferralClaims.awardedAt} is not null then 1 else 0 end), 0)` })
+      .from(specialReferralClaims)
+      .where(eq(specialReferralClaims.campaignKey, SPECIAL_REFERRAL_CAMPAIGN_KEY)),
+    db.select({ id: users.id, name: users.name, email: users.email, slotNumber: specialReferralClaims.slotNumber, reservedAt: specialReferralClaims.reservedAt, verifiedAt: specialReferralClaims.verifiedAt, awardedAt: specialReferralClaims.awardedAt, balanceNanos: creditAccounts.balanceNanos, discordVerifiedAt: accountControls.discordVerifiedAt })
+      .from(specialReferralClaims)
+      .innerJoin(users, eq(specialReferralClaims.userId, users.id))
+      .leftJoin(creditAccounts, eq(users.id, creditAccounts.userId))
+      .leftJoin(accountControls, eq(users.id, accountControls.userId))
+      .where(eq(specialReferralClaims.campaignKey, SPECIAL_REFERRAL_CAMPAIGN_KEY))
+      .orderBy(desc(specialReferralClaims.awardedAt), desc(specialReferralClaims.reservedAt), asc(specialReferralClaims.slotNumber)),
+  ]);
+  const reserved = Number(counts[0]?.reserved ?? 0);
+  const awarded = Number(counts[0]?.awarded ?? 0);
+  return {
+    cap: SPECIAL_REFERRAL_CAMPAIGN_CAP,
+    reserved,
+    awarded,
+    remaining: Math.max(0, SPECIAL_REFERRAL_CAMPAIGN_CAP - reserved),
+    accounts: accounts.map(account => ({ ...account, specialReferral: true })),
   };
 }
 
@@ -622,6 +719,7 @@ export async function createPasswordUser(input: { email: string; password: strin
     });
     await Promise.all([ensureAccountControl(userId), ensureCreditAccount(userId), getOrCreateReferralCode(userId)]);
     await awardReferralForNewUser(userId, input.referralCode);
+    await reserveSpecialReferralCampaignSlot(userId, input.referralCode);
     await clearDiscordUnverifiedCleanupNotice(email);
     return getUserByOpenId(openId);
   } catch (error: any) {
@@ -949,6 +1047,7 @@ export async function markDiscordVerified(userId: number) {
     entityType: "account",
     entityId: String(userId),
   });
+  await settleSpecialReferralBonusAfterDiscordVerification(userId);
   return verifiedAt;
 }
 
@@ -1240,6 +1339,8 @@ export type AdminAccountBase = {
   tokenLimit: number | null;
   balanceNanos: number | null;
   discordVerifiedAt: Date | null;
+  specialReferralSlot?: number | null;
+  specialReferralAwardedAt?: Date | null;
 };
 
 export type AdminAccountUsage = {
@@ -1255,11 +1356,11 @@ export type AdminAccountDirectoryInput = {
   pageSize?: number;
   search?: string;
   status?: "all" | "active" | "suspended" | "flagged";
-  sort?: "latestJoin" | "mostTokens" | "discordVerified" | "mostCredit";
+  sort?: "latestJoin" | "mostTokens" | "discordVerified" | "mostCredit" | "specialReferral";
 };
 
 export function normalizeAdminAccountDirectoryInput(input: AdminAccountDirectoryInput = {}) {
-  const sort = input.sort === "mostTokens" || input.sort === "discordVerified" || input.sort === "mostCredit" || input.sort === "latestJoin"
+  const sort = input.sort === "mostTokens" || input.sort === "discordVerified" || input.sort === "mostCredit" || input.sort === "specialReferral" || input.sort === "latestJoin"
     ? input.sort
     : "latestJoin";
   return {
@@ -1348,12 +1449,15 @@ export async function listAdminAccounts(input: AdminAccountDirectoryInput = {}) 
       ? [desc(accountControls.discordVerifiedAt), desc(users.createdAt), desc(users.id)]
       : query.sort === "mostCredit"
         ? [desc(creditAccounts.balanceNanos), desc(users.createdAt), desc(users.id)]
+        : query.sort === "specialReferral"
+          ? [desc(specialReferralClaims.awardedAt), desc(specialReferralClaims.reservedAt), desc(users.createdAt), desc(users.id)]
         : [desc(users.createdAt), desc(users.id)];
   const accounts = await db
-    .select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos, discordVerifiedAt: accountControls.discordVerifiedAt })
+    .select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos, discordVerifiedAt: accountControls.discordVerifiedAt, specialReferralSlot: specialReferralClaims.slotNumber, specialReferralAwardedAt: specialReferralClaims.awardedAt })
     .from(users)
     .leftJoin(accountControls, eq(users.id, accountControls.userId))
     .leftJoin(creditAccounts, eq(users.id, creditAccounts.userId))
+    .leftJoin(specialReferralClaims, and(eq(users.id, specialReferralClaims.userId), eq(specialReferralClaims.campaignKey, SPECIAL_REFERRAL_CAMPAIGN_KEY)))
     .where(whereClause)
     .orderBy(...sortOrder)
     .limit(query.pageSize)
@@ -1473,6 +1577,7 @@ export async function resolveGitHubIdentity(input: GitHubIdentityInput) {
     });
     await Promise.all([ensureAccountControl(userId), ensureCreditAccount(userId), getOrCreateReferralCode(userId)]);
     await awardReferralForNewUser(userId, input.referralCode);
+    await reserveSpecialReferralCampaignSlot(userId, input.referralCode);
     const user = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
     if (!user) throw new Error("TokenForge could not load the new GitHub account");
     return { kind: "resolved" as const, user };

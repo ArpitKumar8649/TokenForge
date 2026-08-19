@@ -45,6 +45,9 @@ import {
   getAnnouncementText,
   setAnnouncementText,
   getReferralOverview,
+  getSpecialReferralGiftStatus,
+  acknowledgeSpecialReferralGift,
+  getSpecialReferralCampaignAdminOverview,
   resetDiscordVerification,
   setPlatformMaintenanceConfig,
   getOrCreateAdminSessionPrincipal,
@@ -61,6 +64,7 @@ import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PR
 import { runPlaygroundCompletion, TokenForgePlaygroundError, tokenForgeRequestIpHash } from "./openaiGateway";
 import { verifyAdminPasscode } from "./adminPasscode";
 import { getOrcaRouterCredentialPoolStatus, getOrcaRouterSlotRequestCounts, invalidateOrcaRouterCredentialPool, ORCA_ROUTER_CREDENTIAL_POOL_SIZE, validateOrcaRouterCredential } from "./orcaRouterCredentials";
+import { buildSpecialReferralCampaignUrl } from "../shared/referrals";
 
 const apiKeyLabel = z
   .string()
@@ -82,7 +86,7 @@ const adminAccountDirectoryInput = z.object({
   pageSize: z.number().int().min(5).max(50).default(10),
   search: z.string().trim().max(120).default(""),
   status: z.enum(["all", "active", "suspended", "flagged"]).default("all"),
-  sort: z.enum(["latestJoin", "mostTokens", "discordVerified", "mostCredit"]).default("latestJoin"),
+  sort: z.enum(["latestJoin", "mostTokens", "discordVerified", "mostCredit", "specialReferral"]).default("latestJoin"),
 });
 const permanentAccountDeleteInput = z.object({ userId: z.number().int().positive(), confirmation: z.string().trim().max(64).optional() });
 const adminCreditGrantInput = z.object({
@@ -166,6 +170,12 @@ export const appRouter = router({
       const referrals = await getReferralOverview(ctx.user.id);
       if (!referrals) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Referral details are temporarily unavailable" });
       return referrals;
+    }),
+    specialReferralGift: verifiedDeveloperProcedure.query(async ({ ctx }) => getSpecialReferralGiftStatus(ctx.user.id)),
+    acknowledgeSpecialReferralGift: verifiedDeveloperProcedure.mutation(async ({ ctx }) => {
+      const gift = await acknowledgeSpecialReferralGift(ctx.user.id);
+      if (!gift) throw new TRPCError({ code: "NOT_FOUND", message: "No verified special referral gift is available for this account." });
+      return gift;
     }),
     createApiKey: verifiedDeveloperProcedure.input(z.object({ label: apiKeyLabel })).mutation(async ({ ctx, input }) => {
       try {
@@ -287,6 +297,7 @@ export const appRouter = router({
       return { success: true } as const;
     }),
     overview: adminProcedure.query(() => getAdminOverview()),
+    specialReferralCampaign: adminProcedure.query(async () => ({ ...(await getSpecialReferralCampaignAdminOverview()), link: buildSpecialReferralCampaignUrl(), bonusUsd: 150 })),
     accounts: adminProcedure.input(adminAccountDirectoryInput).query(({ input }) => listAdminAccounts(input)),
     accountModelUsage: adminProcedure.input(z.object({ userIds: z.array(z.number().int().positive()).min(1).max(10) })).query(({ input }) => getAdminAccountModelUsage(input.userIds)),
     activity: adminProcedure.input(z.object({ limit: z.number().int().min(1).max(100).default(40) }).optional()).query(({ input }) => listAdminAuditEvents(input?.limit ?? 40)),
