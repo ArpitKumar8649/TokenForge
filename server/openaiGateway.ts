@@ -17,6 +17,7 @@ import { selectNextBluesMindsClaudeFable5CredentialWithSlot } from "./bluesMinds
 import { selectNextFxqidianCredentialWithSlot } from "./fxqidianCredentials";
 import { selectNextNvidiaClaudeFable5CredentialWithSlot } from "./nvidiaClaudeFable5Credentials";
 import { selectNextOrcaRouterCredentialWithSlot } from "./orcaRouterCredentials";
+import { selectNextTokenReplyClaudeOpus5CredentialWithSlot } from "./tokenReplyClaudeOpus5Credentials";
 import { selectNextTokenRouterCredentialWithSlot } from "./tokenRouterCredentials";
 import { isCredentialSlotEligible, recordCredentialFailover, recordCredentialFailure, recordCredentialSuccess, type CredentialTelemetryProvider } from "./providerCredentialTelemetry";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
@@ -262,16 +263,17 @@ async function forwardTokenHarborRequest(input: ChatInput, signal: AbortSignal) 
   }
 }
 
-/** Claude Opus 5 uses an isolated OpenAI-compatible upstream credential, never the shared TokenRouter pool. */
+/** Claude Opus 5 uses an isolated TokenReply credential pool, never the shared TokenRouter pool. */
 async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: AbortSignal) {
   const configuredBase = process.env.OPENCODE_CLAUDE_OPUS5_BASE_URL?.replace(/\/$/, "");
-  const secret = process.env.OPENCODE_CLAUDE_OPUS5_API_KEY;
   const upstreamModel = process.env.OPENCODE_CLAUDE_OPUS5_MODEL?.trim();
   const url = configuredBase?.endsWith("/chat/completions")
     ? configuredBase
     : configuredBase ? `${configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase}/v1`}/chat/completions` : null;
-  if (!url || !secret || !upstreamModel) throw new Error("TokenForge Claude Opus 5 inference is not configured");
+  const firstCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot();
+  if (!url || !firstCredential || !upstreamModel) throw new Error("TokenForge Claude Opus 5 inference is not configured");
   const requestBody = { ...input, model: upstreamModel };
+  let selectedCredential = firstCredential;
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const responseStartTimeout = AbortSignal.timeout(50_000);
@@ -279,17 +281,19 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
     try {
       const response = await fetch(url, {
         method: "POST",
-        headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
+        headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
         body: JSON.stringify(requestBody),
         signal: attemptSignal,
       });
       if (response.ok || !retryableProviderStatus(response.status) || attempt === 2) return response;
-      console.warn("[Claude Opus 5 provider retry]", { event: "retryable_response_before_stream", upstreamStatus: response.status, attempt });
+      console.warn("[Claude Opus 5 TokenReply provider retry]", { event: "retryable_response_before_stream", upstreamStatus: response.status, attempt });
       response.body?.cancel().catch(() => undefined);
+      selectedCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot() ?? selectedCredential;
     } catch (error) {
       lastError = error;
       if (signal.aborted || !responseStartTimeout.aborted || attempt === 2) throw error;
-      console.warn("[Claude Opus 5 provider retry]", { event: "response_start_timeout_before_stream", attempt });
+      console.warn("[Claude Opus 5 TokenReply provider retry]", { event: "response_start_timeout_before_stream", attempt });
+      selectedCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot() ?? selectedCredential;
     }
   }
   throw lastError instanceof Error ? lastError : new Error("The selected provider is temporarily unavailable");

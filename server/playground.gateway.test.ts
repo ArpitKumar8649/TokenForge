@@ -20,6 +20,7 @@ import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredent
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 import { resetNvidiaClaudeFable5CredentialRotation } from "./nvidiaClaudeFable5Credentials";
 import { invalidateOrcaRouterCredentialPool, resetOrcaRouterSlotRequestCounts } from "./orcaRouterCredentials";
+import { resetTokenReplyClaudeOpus5CredentialRotation } from "./tokenReplyClaudeOpus5Credentials";
 import { resetTokenRouterCredentialRotation } from "./tokenRouterCredentials";
 import { getProviderCredentialTelemetry, resetProviderCredentialTelemetry } from "./providerCredentialTelemetry";
 import { CLAUDE_OPUS5_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG } from "./modelCatalogue";
@@ -68,6 +69,12 @@ beforeEach(() => {
   process.env.CLAUDE_OPUS5_MODEL = "upstream-claude-opus-5";
   process.env.OPENCODE_CLAUDE_OPUS5_BASE_URL = "https://opencode.example/zen";
   process.env.OPENCODE_CLAUDE_OPUS5_API_KEY = "server-only-opencode-opus5-secret";
+  process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_2 = "server-only-opencode-opus5-secret-2";
+  process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_3 = "server-only-opencode-opus5-secret-3";
+  process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_4 = "server-only-opencode-opus5-secret-4";
+  process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_5 = "server-only-opencode-opus5-secret-5";
+  process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_6 = "server-only-opencode-opus5-secret-6";
+  process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_7 = "server-only-opencode-opus5-secret-7";
   process.env.OPENCODE_CLAUDE_OPUS5_MODEL = "upstream-claude-opus-5";
   process.env.JWT_SECRET = "managed-orcarouter-pool-test-secret";
   process.env.TOKENROUTER_BASE_URL = "https://tokenrouter.example";
@@ -102,6 +109,7 @@ beforeEach(() => {
   resetFxqidianCredentialRotation();
   invalidateOrcaRouterCredentialPool();
   resetOrcaRouterSlotRequestCounts();
+  resetTokenReplyClaudeOpus5CredentialRotation();
   resetTokenRouterCredentialRotation();
   resetProviderCredentialTelemetry();
 });
@@ -227,7 +235,7 @@ describe("TokenForge Playground gateway", () => {
     ]);
   });
 
-  it("retries a retryable Claude Opus 5 response once before streaming while retaining its dedicated credential", async () => {
+  it("retries a retryable Claude Opus 5 response once before streaming with the next TokenReply credential", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "upstream_busy" } }), { status: 503 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
@@ -239,9 +247,30 @@ describe("TokenForge Playground gateway", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
       "Bearer server-only-opencode-opus5-secret",
-      "Bearer server-only-opencode-opus5-secret",
+      "Bearer server-only-opencode-opus5-secret-2",
     ]);
     expect(fetchMock.mock.calls.every(([url]) => url === "https://opencode.example/zen/v1/chat/completions")).toBe(true);
+  });
+
+  it("rotates sequential Claude Opus 5 gateway calls across all seven server-only TokenReply credentials", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ choices: [] }), { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+    const signal = new AbortController().signal;
+
+    for (let call = 0; call < 8; call += 1) {
+      await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Rotate safely." }] }, signal);
+    }
+
+    expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
+      "Bearer server-only-opencode-opus5-secret",
+      "Bearer server-only-opencode-opus5-secret-2",
+      "Bearer server-only-opencode-opus5-secret-3",
+      "Bearer server-only-opencode-opus5-secret-4",
+      "Bearer server-only-opencode-opus5-secret-5",
+      "Bearer server-only-opencode-opus5-secret-6",
+      "Bearer server-only-opencode-opus5-secret-7",
+      "Bearer server-only-opencode-opus5-secret",
+    ]);
   });
 
   it("fails over to the next FXQidian pool slot after a retryable provider response without exposing credentials in telemetry", async () => {
