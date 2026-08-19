@@ -358,3 +358,4 @@
 - [x] Update the server-only OpenCode Claude Opus 5 upstream model identifier and validate the revised configuration.
 - [x] Collect server-only OpenCode Zen credentials and model settings for Claude Fable 5, validate both API contracts, then replace its NVIDIA route.
 - [x] Update the server-only OpenCode Zen Claude Fable 5 model identifier and validate the revised configuration.
+- [x] Update the server-only OpenCode Zen Claude Fable 5 model identifier again and validate the revised configuration.
