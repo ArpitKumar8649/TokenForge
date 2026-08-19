@@ -350,3 +350,6 @@
 - [x] Determine whether GLM 5.3 returns reusable provider-generated tool-call reasoning and, if supported, preserve it server-side across Claude Code continuations without exposing it to users.
 - [x] Query the supplied OpenCode Zen `/models` catalogue server-side and report all entries explicitly marked as free without exposing the credential.
 - [x] Verify official OpenCode Zen token, rate, quota, and concurrency limits for free-tagged models and report documented constraints.
+- [x] Run bounded live burst and context-growth probes for OpenCode Zen’s currently free models, then report observed throttling and accepted request sizes.
+- [x] Compare completed OpenCode Zen free-model responses on standardized coding and reasoning tasks, separating quality results from provider availability failures.
+- [x] Run bounded live burst and context-growth probes for OpenCode Zen’s currently free models, then report observed throttling and accepted request sizes.
