@@ -19,6 +19,7 @@ import {
   forwardTokenRouterAnthropicMessagesRequest,
   modelScopedGuidance,
   publicProviderFailureStatus,
+  sanitizeModelResponsePayload,
   tokenForgeRequestIpHash,
   type TokenForgeChatInput,
   type TokenForgeChatMessage,
@@ -565,7 +566,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
         return respondError(res, requestId, 503, "api_error", "The selected provider returned an invalid response.");
       }
       try {
-        const response = translateOpenAiMessageResponse(model, payload);
+        const response = translateOpenAiMessageResponse(model, sanitizeModelResponsePayload(model, payload));
         if (model === "glm-5.3") {
           try { await capturePrivateGlmToolContinuation(key.userId, payload); } catch (error) { console.warn("[GLM continuation] Private state could not be stored:", error); }
         }

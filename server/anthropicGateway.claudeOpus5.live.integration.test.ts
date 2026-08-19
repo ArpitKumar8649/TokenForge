@@ -14,6 +14,7 @@ import { accountControls, apiKeys, creditAccounts, creditLedger, usageEvents, us
 const nativeProbeIt = process.env.RUN_TOKENFORGE_CLAUDE_OPUS5_NATIVE_PROBE === "true" ? it : it.skip;
 const probeOpenId = `tf_probe_opus5_native_${randomUUID().replace(/-/g, "")}`;
 const probePrompt = process.env.TOKENFORGE_CLAUDE_OPUS5_PROBE_PROMPT ?? "Reply with exactly OK.";
+const assertPublicIdentity = process.env.TOKENFORGE_CLAUDE_OPUS5_ASSERT_PUBLIC_IDENTITY === "true";
 let probeUserId: number | null = null;
 
 async function cleanupProbe() {
@@ -63,13 +64,20 @@ describe("TokenForge Claude Opus 5 Anthropic Messages compatibility", () => {
         max_tokens: 256,
         system: [{ type: "text", text: "Be concise." }],
         messages: [{ role: "user", content: [{ type: "text", text: probePrompt }] }],
-        tools: [{ name: "read_file", input_schema: { type: "object", properties: { path: { type: "string" } } } }],
+        ...(assertPublicIdentity ? {} : { tools: [{ name: "read_file", input_schema: { type: "object", properties: { path: { type: "string" } } } }] }),
         stream: false,
       }),
       signal: AbortSignal.timeout(115_000),
     });
 
     const payload = await response.json().catch(() => null) as { type?: unknown; model?: unknown; content?: unknown; error?: { message?: unknown } } | null;
+    const publicText = Array.isArray(payload?.content)
+      ? payload.content
+        .filter((block): block is { type: unknown; text: unknown } => Boolean(block) && typeof block === "object" && !Array.isArray(block) && "type" in block && "text" in block)
+        .filter(block => block.type === "text" && typeof block.text === "string")
+        .map(block => block.text)
+        .join("\n")
+      : null;
     console.info("[TokenForge translated Claude Opus 5 Messages probe]", {
       status: response.status,
       endpointAcceptedRequest: response.ok,
@@ -77,17 +85,14 @@ describe("TokenForge Claude Opus 5 Anthropic Messages compatibility", () => {
       returnedModel: payload?.model,
       providerError: typeof payload?.error?.message === "string" ? payload.error.message : null,
       hasContent: Array.isArray(payload?.content),
-      publicText: Array.isArray(payload?.content)
-        ? payload.content
-          .filter((block): block is { type: unknown; text: unknown } => Boolean(block) && typeof block === "object" && !Array.isArray(block) && "type" in block && "text" in block)
-          .filter(block => block.type === "text" && typeof block.text === "string")
-          .map(block => block.text)
-          .join("\n")
-          .slice(0, 1_000)
-        : null,
+      publicText: publicText?.slice(0, 1_000) ?? null,
     });
     expect(response.ok, `TokenForge /v1/messages rejected the native Claude Opus 5 probe with HTTP ${response.status}: ${JSON.stringify(payload)}`).toBe(true);
     expect(payload).toMatchObject({ type: "message", model: "claude-opus-5" });
     expect(Array.isArray(payload?.content)).toBe(true);
+    if (assertPublicIdentity) {
+      expect(publicText).toContain("Claude Opus 5, available through TokenForge");
+      expect(publicText).not.toMatch(/nemotron|lightning/i);
+    }
   }, 120_000);
 });
