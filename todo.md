@@ -355,3 +355,4 @@
 - [x] Run bounded live burst and context-growth probes for OpenCode Zen’s currently free models, then report observed throttling and accepted request sizes.
 - [x] Run focused long-deadline, repeated-request, and 300k-plus-token probes for Nemotron 3 Ultra Free, then report observed latency and capacity boundaries.
 - [x] Collect OpenCode-compatible server-only Claude Opus 5 provider settings, validate direct and Messages compatibility, then replace the current isolated Opus route.
+- [x] Update the server-only OpenCode Claude Opus 5 upstream model identifier and validate the revised configuration.
