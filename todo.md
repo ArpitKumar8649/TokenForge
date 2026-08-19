@@ -373,3 +373,4 @@
 - [x] Credit the special $150 referral bonus exactly once after Discord verification, label qualifying accounts, and expose the special referral status in administrator account sorting and detail views.
 - [x] Add an animated special-referral gift-box claim experience with ribbon reveal and a clear $150 credit confirmation after the eligible user verifies Discord.
 - [x] Add administrator reporting for special-referral reservations, successful verified claims, remaining cap, and qualifying-account details.
+- [x] Move Claude Opus 5 to the supplied TokenReply OpenAI-compatible provider, retain all credentials server-side, and validate direct plus Messages compatibility before publishing.
