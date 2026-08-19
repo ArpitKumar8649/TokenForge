@@ -13,6 +13,7 @@ import {
   dailyCheckins,
   dailyUsage,
   deletedIdentityTombstones,
+  glmToolContinuationStates,
   InsertUser,
   usageEvents,
   users,
@@ -35,6 +36,7 @@ import { getFxqidianCredentialPool } from "./fxqidianCredentials";
 import { getTokenRouterCredentialPool } from "./tokenRouterCredentials";
 import { getProviderCredentialTelemetry } from "./providerCredentialTelemetry";
 import { encryptOrcaRouterCredential } from "./orcaRouterCredentialVault";
+import { decryptGlmToolContinuation, encryptGlmToolContinuation, type GlmPrivateToolContinuation } from "./glmToolContinuationVault";
 import { TOKENFORGE_REFERRAL_REWARD_NANOS, normalizeReferralCode } from "../shared/referrals";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -74,6 +76,7 @@ export type EmailAllowlistConfig = { entries: string[]; updatedAt: Date; updated
 export type OrcaRouterCredentialSlotSummary = { slot: number; fingerprintSuffix: string; lastValidatedAt: Date; updatedAt: Date; updatedByUserId: number | null };
 export type AdminEmailProviderCount = { provider: string; accountCount: number };
 export type UserWithDiscordVerification = typeof users.$inferSelect & { discordVerifiedAt: Date | null };
+const GLM_TOOL_CONTINUATION_TTL_MS = 10 * 60 * 1_000;
 
 const CATALOGUE_DEFINITIONS = TOKENFORGE_MODEL_CATALOGUE;
 /** Standalone `users` aggregate expression; deliberately unqualified for deployed MySQL compatibility. */
@@ -473,6 +476,54 @@ export async function getDb() {
     }
   }
   return _db;
+}
+
+/** Store provider-produced GLM tool-call state only long enough to authenticate its next Claude Code continuation. */
+export async function storeGlmToolContinuation(userId: number, toolCallId: string, continuation: GlmPrivateToolContinuation) {
+  const db = await getDb();
+  if (!db || !toolCallId.trim()) return;
+  const encrypted = encryptGlmToolContinuation(continuation);
+  const expiresAt = new Date(Date.now() + GLM_TOOL_CONTINUATION_TTL_MS);
+  await db.insert(glmToolContinuationStates).values({
+    userId,
+    toolCallId: toolCallId.trim(),
+    ciphertext: encrypted.ciphertext,
+    iv: encrypted.iv,
+    authTag: encrypted.authTag,
+    expiresAt,
+  }).onDuplicateKeyUpdate({ set: {
+    ciphertext: encrypted.ciphertext,
+    iv: encrypted.iv,
+    authTag: encrypted.authTag,
+    expiresAt,
+  } });
+}
+
+/**
+ * Load authentic, encrypted provider state for the owning account only. Expired or
+ * unreadable records are discarded and callers safely fall back to text-only history.
+ */
+export async function loadGlmToolContinuations(userId: number, toolCallIds: readonly string[]) {
+  const ids = Array.from(new Set(toolCallIds.map(id => id.trim()).filter(Boolean)));
+  const result = new Map<string, GlmPrivateToolContinuation>();
+  const db = await getDb();
+  if (!db || !ids.length) return result;
+  const now = new Date();
+  const rows = await db.select().from(glmToolContinuationStates)
+    .where(and(eq(glmToolContinuationStates.userId, userId), inArray(glmToolContinuationStates.toolCallId, ids)))
+    .limit(ids.length);
+  for (const row of rows) {
+    if (row.expiresAt <= now) {
+      await db.delete(glmToolContinuationStates).where(eq(glmToolContinuationStates.id, row.id));
+      continue;
+    }
+    try {
+      result.set(row.toolCallId, decryptGlmToolContinuation(row));
+    } catch {
+      await db.delete(glmToolContinuationStates).where(eq(glmToolContinuationStates.id, row.id));
+    }
+  }
+  return result;
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {

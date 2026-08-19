@@ -24,7 +24,10 @@ describe.skipIf(!hasProviderConfiguration)("Claude Opus 5 isolated provider cred
         signal: AbortSignal.timeout(30_000),
       });
     } catch (error) {
-      if (error instanceof DOMException && error.name === "TimeoutError") {
+      const networkCode = error instanceof Error && error.cause && typeof error.cause === "object" && "code" in error.cause
+        ? (error.cause as { code?: unknown }).code
+        : undefined;
+      if ((error instanceof DOMException && error.name === "TimeoutError") || networkCode === "UND_ERR_CONNECT_TIMEOUT") {
         console.warn("[Claude Opus 5 lightweight completion] upstream response timed out before validation completed");
         return;
       }
@@ -32,7 +35,8 @@ describe.skipIf(!hasProviderConfiguration)("Claude Opus 5 isolated provider cred
     }
 
     const upstreamTransient = [408, 429, 500, 502, 503, 504, 524].includes(response.status);
-    console.info("[Claude Opus 5 lightweight completion]", { status: response.status, accepted: response.ok, upstreamTransient });
+    const responseSummary = await response.text().then(body => body.slice(0, 1_000)).catch(() => "");
+    console.info("[Claude Opus 5 lightweight completion]", { status: response.status, accepted: response.ok, upstreamTransient, responseSummary });
     expect(response.ok || upstreamTransient, "The Claude Opus 5 provider rejected the configured server-only credential or model.").toBe(true);
     if (upstreamTransient) return;
   }, 35_000);

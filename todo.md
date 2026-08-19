@@ -347,3 +347,4 @@
 - [x] Update the server-only GLM 5.3 upstream model identifier and validate the new provider configuration.
 - [x] Reproduce and repair the GLM 5.3 Claude Code `/v1/messages` 503 by comparing direct TokenRouter and translated bridge requests, then validate the fixed workflow.
 - [x] Reproduce and repair the GLM 5.3 Claude Code repository-analysis 400 by comparing the translated request against direct TokenRouter acceptance and correcting incompatible fields or message shapes.
+- [x] Determine whether GLM 5.3 returns reusable provider-generated tool-call reasoning and, if supported, preserve it server-side across Claude Code continuations without exposing it to users.

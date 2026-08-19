@@ -5,11 +5,14 @@ import {
   getPlatformMaintenanceConfig,
   getQuotaStatus,
   isModelAvailable,
+  loadGlmToolContinuations,
   recordUsage,
   reserveCredit,
   settleReservedCredit,
+  storeGlmToolContinuation,
   touchApiKey,
 } from "./db";
+import type { GlmPrivateToolContinuation } from "./glmToolContinuationVault";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
 import {
   forwardProviderRequest,
@@ -137,7 +140,7 @@ function estimateNativeAnthropicInputTokens(input: NativeTokenRouterMessagesInpu
   return Math.ceil(JSON.stringify({ system: input.system, messages: input.messages, tools: input.tools }).length / 4) + 4;
 }
 
-export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChatInput {
+export function translateAnthropicRequest(raw: AnthropicRequest, privateGlmToolContinuations: ReadonlyMap<string, GlmPrivateToolContinuation> = new Map()): TokenForgeChatInput {
   if (typeof raw.model !== "string" || !raw.model.trim()) {
     throw new AnthropicBridgeError(400, "invalid_request_error", "model must be a non-empty TokenForge Messages-supported model identifier.");
   }
@@ -219,16 +222,25 @@ export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChat
       }
     }
     if (message.role === "assistant") {
-      const glm53ToolHistory = model === "glm-5.3" && toolCalls.length > 0
+      const privateGlmToolContinuation = model === "glm-5.3" && toolCalls.length > 0
+        ? privateGlmToolContinuations.get(toolCalls[0].id)
+        : undefined;
+      const canReplayPrivateGlmToolContinuation = Boolean(privateGlmToolContinuation
+        && toolCalls.every(toolCall => privateGlmToolContinuation.tool_calls.some(call => call.id === toolCall.id)));
+      const glm53ToolHistory = model === "glm-5.3" && toolCalls.length > 0 && !canReplayPrivateGlmToolContinuation
         ? toolCalls.map(toolCall => `[Tool call: ${toolCall.function.name}]\n${toolCall.function.arguments}`).join("\n\n")
         : "";
       if (text || toolCalls.length > 0) {
-        messages.push(model === "glm-5.3"
-          ? { role: "assistant", content: [text, glm53ToolHistory].filter(Boolean).join("\n\n") }
-          : { role: "assistant", content: text || null, ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}) } as TokenForgeChatMessage);
+        messages.push(canReplayPrivateGlmToolContinuation
+          ? privateGlmToolContinuation!
+          : model === "glm-5.3"
+            ? { role: "assistant", content: [text, glm53ToolHistory].filter(Boolean).join("\n\n") }
+            : { role: "assistant", content: text || null, ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}) } as TokenForgeChatMessage);
       }
     } else {
-      if (usesOpenAiNativeToolResults && toolResults.length > 0) {
+      const canReplayPrivateGlmToolResults = model === "glm-5.3" && toolResults.length > 0
+        && toolResults.every(result => privateGlmToolContinuations.has(result.toolUseId));
+      if ((usesOpenAiNativeToolResults || canReplayPrivateGlmToolResults) && toolResults.length > 0) {
         for (const result of toolResults) {
           messages.push({ role: "tool", tool_call_id: result.toolUseId, content: result.content } as TokenForgeChatMessage);
         }
@@ -296,6 +308,37 @@ function toStopReason(reason: unknown) {
   if (reason === "tool_calls") return "tool_use";
   if (reason === "length") return "max_tokens";
   return "end_turn";
+}
+
+function authenticGlmToolContinuation(payload: unknown): GlmPrivateToolContinuation | null {
+  const message = (payload as { choices?: Array<{ message?: unknown }> })?.choices?.[0]?.message;
+  if (!message || typeof message !== "object") return null;
+  const candidate = message as Partial<GlmPrivateToolContinuation>;
+  if (candidate.role !== "assistant" || typeof candidate.reasoning_content !== "string" || !candidate.reasoning_content.trim() || !Array.isArray(candidate.tool_calls)) return null;
+  const toolCalls = candidate.tool_calls.filter((call): call is GlmPrivateToolContinuation["tool_calls"][number] =>
+    Boolean(call && typeof call.id === "string" && call.id && call.type === "function" && typeof call.function?.name === "string" && typeof call.function?.arguments === "string"),
+  );
+  if (!toolCalls.length) return null;
+  return { role: "assistant", content: typeof candidate.content === "string" ? candidate.content : null, reasoning_content: candidate.reasoning_content, tool_calls: toolCalls };
+}
+
+async function capturePrivateGlmToolContinuation(userId: number, payload: unknown) {
+  const continuation = authenticGlmToolContinuation(payload);
+  if (!continuation) return;
+  await Promise.all(continuation.tool_calls.map(toolCall => storeGlmToolContinuation(userId, toolCall.id, continuation)));
+}
+
+function anthropicToolResultIds(raw: AnthropicRequest) {
+  const ids: string[] = [];
+  const requestMessages = Array.isArray(raw.messages) ? raw.messages : [];
+  for (const message of requestMessages) {
+    if (!message || typeof message !== "object" || !Array.isArray(message.content)) continue;
+    for (const block of message.content) {
+      const candidate = block as { type?: unknown; tool_use_id?: unknown };
+      if (candidate?.type === "tool_result" && typeof candidate.tool_use_id === "string") ids.push(candidate.tool_use_id);
+    }
+  }
+  return ids;
 }
 
 export function translateOpenAiMessageResponse(model: string, payload: unknown) {
@@ -460,9 +503,13 @@ export function registerAnthropicMessagesGateway(app: Express) {
       return respondError(res, requestId, 503, "overloaded_error", "TokenForge is under maintenance. Inference requests are temporarily unavailable; retry shortly.");
     }
 
+    const raw = (req.body ?? {}) as AnthropicRequest;
     let input: TokenForgeChatInput;
     try {
-      input = translateAnthropicRequest((req.body ?? {}) as AnthropicRequest);
+      const privateGlmToolContinuations = raw.model === "glm-5.3"
+        ? await loadGlmToolContinuations(key.userId, anthropicToolResultIds(raw))
+        : new Map<string, GlmPrivateToolContinuation>();
+      input = translateAnthropicRequest(raw, privateGlmToolContinuations);
     } catch (error) {
       return error instanceof AnthropicBridgeError
         ? respondError(res, requestId, error.status, error.type, error.message)
@@ -519,6 +566,9 @@ export function registerAnthropicMessagesGateway(app: Express) {
       }
       try {
         const response = translateOpenAiMessageResponse(model, payload);
+        if (model === "glm-5.3") {
+          try { await capturePrivateGlmToolContinuation(key.userId, payload); } catch (error) { console.warn("[GLM continuation] Private state could not be stored:", error); }
+        }
         const tokens = normalizedTokens(usageFrom(payload), estimatedInputTokens);
         const chargeNanos = calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
         const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos });
@@ -559,6 +609,9 @@ export function registerAnthropicMessagesGateway(app: Express) {
     let textIndex: number | null = null;
     let nextIndex = 0;
     const toolIndexes = new Map<number, number>();
+    const glmStreamToolCalls = new Map<number, { id?: string; name?: string; arguments: string }>();
+    let glmStreamReasoning = "";
+    let glmStreamText = "";
     const finish = (reason: string = "end_turn") => {
       if (stopped) return;
       stopped = true;
@@ -581,7 +634,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
           const serialized = line.slice(5).trim();
           if (!serialized) continue;
           if (serialized === "[DONE]") { finish(); continue; }
-          let event: { choices?: Array<{ delta?: { content?: unknown; tool_calls?: Array<{ index?: unknown; id?: unknown; function?: { name?: unknown; arguments?: unknown } }> }; finish_reason?: unknown }>; usage?: Usage; error?: unknown };
+          let event: { choices?: Array<{ delta?: { content?: unknown; reasoning_content?: unknown; tool_calls?: Array<{ index?: unknown; id?: unknown; function?: { name?: unknown; arguments?: unknown } }> }; finish_reason?: unknown }>; usage?: Usage; error?: unknown };
           try { event = JSON.parse(serialized); } catch { continue; }
           if (event.error) {
             failed = true;
@@ -593,6 +646,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
           const choice = event.choices?.[0];
           const delta = choice?.delta;
           if (typeof delta?.content === "string" && delta.content) {
+            if (model === "glm-5.3") glmStreamText += delta.content;
             if (textIndex === null) {
               textIndex = nextIndex++;
               writeSse(res, "content_block_start", { type: "content_block_start", index: textIndex, content_block: { type: "text", text: "" } });
@@ -601,6 +655,13 @@ export function registerAnthropicMessagesGateway(app: Express) {
           }
           for (const toolCall of delta?.tool_calls ?? []) {
             const upstreamIndex = typeof toolCall.index === "number" ? toolCall.index : toolIndexes.size;
+            if (model === "glm-5.3") {
+              const collected = glmStreamToolCalls.get(upstreamIndex) ?? { arguments: "" };
+              if (typeof toolCall.id === "string") collected.id = toolCall.id;
+              if (typeof toolCall.function?.name === "string") collected.name = toolCall.function.name;
+              if (typeof toolCall.function?.arguments === "string") collected.arguments += toolCall.function.arguments;
+              glmStreamToolCalls.set(upstreamIndex, collected);
+            }
             let outputIndex = toolIndexes.get(upstreamIndex);
             if (outputIndex === undefined && typeof toolCall.id === "string" && typeof toolCall.function?.name === "string") {
               outputIndex = nextIndex++;
@@ -611,6 +672,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
               writeSse(res, "content_block_delta", { type: "content_block_delta", index: outputIndex, delta: { type: "input_json_delta", partial_json: toolCall.function.arguments } });
             }
           }
+          if (model === "glm-5.3" && typeof delta?.reasoning_content === "string") glmStreamReasoning += delta.reasoning_content;
           if (choice?.finish_reason) finish(toStopReason(choice.finish_reason));
         }
       }
@@ -619,6 +681,18 @@ export function registerAnthropicMessagesGateway(app: Express) {
       failed = true;
     } finally {
       clearTimeout(timeout);
+      if (!failed && model === "glm-5.3" && glmStreamReasoning.trim()) {
+        const toolCalls = Array.from(glmStreamToolCalls.values())
+          .filter((toolCall): toolCall is { id: string; name: string; arguments: string } => Boolean(toolCall.id && toolCall.name))
+          .map(toolCall => ({ id: toolCall.id, type: "function" as const, function: { name: toolCall.name, arguments: toolCall.arguments } }));
+        if (toolCalls.length) {
+          try {
+            await capturePrivateGlmToolContinuation(key.userId, { choices: [{ message: { role: "assistant", content: glmStreamText || null, reasoning_content: glmStreamReasoning, tool_calls: toolCalls } }] });
+          } catch (error) {
+            console.warn("[GLM continuation] Private streamed state could not be stored:", error);
+          }
+        }
+      }
       const tokens = normalizedTokens(usage, estimatedInputTokens);
       const chargeNanos = failed ? 0 : calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
       const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos, releaseReason: failed ? "Anthropic Messages stream was cancelled" : undefined });

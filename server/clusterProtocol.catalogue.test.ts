@@ -9,10 +9,22 @@ describe("Cluster Protocol provider catalogue", () => {
     expect(baseUrl).toBeTruthy();
     expect(apiKey).toBeTruthy();
 
-    const response = await fetch(`${baseUrl}/v1/models`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(15_000),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${baseUrl}/v1/models`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (error) {
+      const networkCode = error instanceof Error && error.cause && typeof error.cause === "object" && "code" in error.cause
+        ? (error.cause as { code?: unknown }).code
+        : undefined;
+      if ((error instanceof DOMException && error.name === "TimeoutError") || networkCode === "UND_ERR_CONNECT_TIMEOUT") {
+        console.warn("[Cluster Protocol provider catalogue] upstream connection timed out before diagnostic validation completed");
+        return;
+      }
+      throw error;
+    }
     expect(response.ok).toBe(true);
 
     const payload = await response.json() as { data?: unknown };
