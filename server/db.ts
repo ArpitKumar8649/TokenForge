@@ -37,6 +37,7 @@ import { getTokenRouterCredentialPool } from "./tokenRouterCredentials";
 import { getProviderCredentialTelemetry } from "./providerCredentialTelemetry";
 import { encryptOrcaRouterCredential } from "./orcaRouterCredentialVault";
 import { decryptGlmToolContinuation, encryptGlmToolContinuation, type GlmPrivateToolContinuation } from "./glmToolContinuationVault";
+import { decryptProviderRuntimeConfig, encryptProviderRuntimeConfig } from "./providerRuntimeConfigVault";
 import { TOKENFORGE_REFERRAL_REWARD_NANOS, normalizeReferralCode } from "../shared/referrals";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -49,6 +50,7 @@ const EMAIL_ALLOWLIST_SETTING_KEY = "email_allowlist";
 const ANNOUNCEMENT_TEXT_SETTING_KEY = "announcement_text";
 const SESSION_VERSION_SETTING_KEY = "auth_session_version";
 const PLATFORM_MAINTENANCE_SETTING_KEY = "platform_maintenance";
+const CLAUDE_FABLE5_NVIDIA_RUNTIME_SETTING_KEY = "claude_fable5_nvidia_runtime_v1";
 export const DISCORD_UNVERIFIED_CLEANUP_NOTICE_KIND = "discord_unverified_cleanup";
 const AFFILIATE_CODE_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 const AFFILIATE_CODE_LENGTH = 4;
@@ -795,6 +797,98 @@ export async function setAnnouncementText(text: string, updatedByUserId: number)
     updatedByUserId,
   }).onDuplicateKeyUpdate({ set: { value, updatedByUserId, updatedAt: new Date() } });
   return value || null;
+}
+
+type ClaudeFable5RuntimePayload = { baseUrl: string; model: string; apiKeys: string[] };
+
+function claudeFable5RuntimeFromEnvironment(): ClaudeFable5RuntimePayload {
+  return {
+    baseUrl: process.env.NVIDIA_CLAUDE_FABLE5_BASE_URL?.trim() ?? "",
+    model: process.env.NVIDIA_CLAUDE_FABLE5_MODEL?.trim() ?? "",
+    apiKeys: [
+      process.env.NVIDIA_CLAUDE_FABLE5_API_KEY,
+      process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_2,
+      process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_3,
+      process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_4,
+      process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_5,
+    ].map(value => value?.trim() ?? ""),
+  };
+}
+
+function maskProviderApiKey(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return "Not configured";
+  return `${normalized.slice(0, Math.min(3, normalized.length))}••••${normalized.slice(-4)}`;
+}
+
+async function readClaudeFable5RuntimeOverride() {
+  const db = await getDb();
+  if (!db) return null;
+  const record = (await db.select().from(platformSettings).where(eq(platformSettings.settingKey, CLAUDE_FABLE5_NVIDIA_RUNTIME_SETTING_KEY)).limit(1))[0];
+  if (!record) return null;
+  try {
+    const encoded = JSON.parse(record.value) as { ciphertext?: string; iv?: string; authTag?: string };
+    const decrypted = decryptProviderRuntimeConfig({ ciphertext: String(encoded.ciphertext ?? ""), iv: String(encoded.iv ?? ""), authTag: String(encoded.authTag ?? "") });
+    if (!decrypted || typeof decrypted !== "object") return null;
+    const candidate = decrypted as Partial<ClaudeFable5RuntimePayload>;
+    const configuredKeys = Array.isArray(candidate.apiKeys)
+      ? candidate.apiKeys.map(value => typeof value === "string" ? value.trim() : "").slice(0, 5)
+      : [];
+    return {
+      payload: {
+        baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl.trim() : "",
+        model: typeof candidate.model === "string" ? candidate.model.trim() : "",
+        apiKeys: [...configuredKeys, ...Array(Math.max(0, 5 - configuredKeys.length)).fill("")],
+      },
+      updatedAt: record.updatedAt,
+      updatedByUserId: record.updatedByUserId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function getClaudeFable5NvidiaRuntimeConfig(): Promise<ClaudeFable5RuntimePayload> {
+  const fallback = claudeFable5RuntimeFromEnvironment();
+  const override = await readClaudeFable5RuntimeOverride();
+  if (!override) return fallback;
+  return {
+    baseUrl: override.payload.baseUrl || fallback.baseUrl,
+    model: override.payload.model || fallback.model,
+    apiKeys: fallback.apiKeys.map((value, index) => override.payload.apiKeys[index] || value),
+  };
+}
+
+export async function getClaudeFable5NvidiaProviderSettings() {
+  const runtime = await getClaudeFable5NvidiaRuntimeConfig();
+  const override = await readClaudeFable5RuntimeOverride();
+  return {
+    baseUrl: runtime.baseUrl,
+    model: runtime.model,
+    apiKeyMasks: runtime.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+    source: override ? "database" as const : "environment" as const,
+    updatedAt: override?.updatedAt ?? null,
+    updatedByUserId: override?.updatedByUserId ?? null,
+  };
+}
+
+export async function updateClaudeFable5NvidiaProviderSettings(input: { baseUrl?: string; model?: string; apiKeys?: string[] }, updatedByUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const current = await getClaudeFable5NvidiaRuntimeConfig();
+  const next: ClaudeFable5RuntimePayload = {
+    baseUrl: input.baseUrl?.trim() || current.baseUrl,
+    model: input.model?.trim() || current.model,
+    apiKeys: current.apiKeys.map((key, index) => input.apiKeys?.[index]?.trim() || key),
+  };
+  if (!next.baseUrl || !next.model || !next.apiKeys.some(Boolean)) throw new Error("A base URL, model ID, and at least one API key are required for Claude Fable 5");
+  const encrypted = encryptProviderRuntimeConfig(next);
+  await db.insert(platformSettings).values({
+    settingKey: CLAUDE_FABLE5_NVIDIA_RUNTIME_SETTING_KEY,
+    value: JSON.stringify(encrypted),
+    updatedByUserId,
+  }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+  return getClaudeFable5NvidiaProviderSettings();
 }
 
 export async function promoteUserToAdmin(userId: number) {

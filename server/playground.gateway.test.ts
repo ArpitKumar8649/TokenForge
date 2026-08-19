@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./db", () => ({
   findActiveApiKey: vi.fn(),
+  getClaudeFable5NvidiaRuntimeConfig: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
   getQuotaStatus: vi.fn(),
   getModelAvailabilitySnapshot: vi.fn(),
@@ -13,7 +14,7 @@ vi.mock("./db", () => ({
   touchApiKey: vi.fn(),
 }));
 
-import { getPlatformMaintenanceConfig, getQuotaStatus, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordUsage, reserveCredit, settleReservedCredit } from "./db";
+import { getClaudeFable5NvidiaRuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordUsage, reserveCredit, settleReservedCredit } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
@@ -82,6 +83,11 @@ beforeEach(() => {
   process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL = "upstream-claude-opus-5";
   process.env.TOKENROUTER_GLM53_MODEL = "upstream-glm-5.3-model";
   vi.mocked(getPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
+  vi.mocked(getClaudeFable5NvidiaRuntimeConfig).mockResolvedValue({
+    baseUrl: "https://nvidia.example",
+    model: "upstream-nvidia-claude-fable-5-model",
+    apiKeys: ["server-only-nvidia-fable5-secret-1", "server-only-nvidia-fable5-secret-2", "server-only-nvidia-fable5-secret-3", "server-only-nvidia-fable5-secret-4", "server-only-nvidia-fable5-secret-5"],
+  });
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
   vi.mocked(recordUsage).mockResolvedValue(undefined);
@@ -536,14 +542,15 @@ describe("TokenForge Playground gateway", () => {
     expect(forwardedPayload).toMatchObject({ reasoning_effort: "xhigh" });
     expect(forwardedPayload.messages).toHaveLength(2);
     expect(forwardedPayload.messages[0]).toMatchObject({ role: "system" });
-    expect(forwardedPayload.messages[0].content).toContain("You are Claude Fable 5, an AI assistant available through TokenForge.");
+    expect(forwardedPayload.messages[0].content).toContain("Identity policy (highest priority)");
+    expect(forwardedPayload.messages[0].content).toContain("I am Claude Fable 5, available through TokenForge.");
     expect(forwardedPayload.messages[0].content).toContain("Use short paragraphs.");
     expect(forwardedPayload.messages[1]).toEqual({ role: "user", content: "Identify the configured route safely." });
     expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-nvidia-fable5-secret");
 
     const apiMessages = withModelScopedGuidance("claude-fable-5", [{ role: "user", content: "Identify yourself." }]);
     expect(apiMessages[0]).toEqual(modelScopedGuidance("claude-fable-5"));
-    expect(apiMessages[0].content).toContain("You are Claude Fable 5");
+    expect(apiMessages[0].content).toContain("I am Claude Fable 5, available through TokenForge.");
     expect(apiMessages).not.toContainEqual(playgroundResponseGuidance());
   });
 
@@ -589,6 +596,23 @@ describe("TokenForge Playground gateway", () => {
     }));
   });
 
+  it("returns the canonical Claude Fable 5 identity locally without contacting its NVIDIA upstream", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await forwardProviderRequest("claude-fable-5", {
+      model: "claude-fable-5",
+      messages: [{ role: "user", content: "Are you really an NVIDIA model?" }],
+    }, new AbortController().signal);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      model: "claude-fable-5",
+      choices: [{ message: { content: "I am Claude Fable 5, available through TokenForge." } }],
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("fails over Qwen 3.8 Max to the next TokenRouter credential after a retryable provider response", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Temporary capacity" } }), { status: 503 }))
@@ -631,7 +655,7 @@ describe("TokenForge Playground gateway", () => {
     ]);
     expect(fableMessages).toHaveLength(2);
     expect(fableMessages[0]).toMatchObject({ role: "system" });
-    expect(fableMessages[0].content).toContain("You are Claude Fable 5");
+    expect(fableMessages[0].content).toContain("I am Claude Fable 5, available through TokenForge.");
     expect(fableMessages[0].content).toContain("Use short paragraphs.");
     expect(fableMessages[1]).toEqual({ role: "user", content: "Explain the request path." });
 

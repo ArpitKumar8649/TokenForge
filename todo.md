@@ -367,3 +367,5 @@
 - [x] Validate the two additional server-only OpenCode credentials for Claude Opus 5: both received upstream HTTP 403 for the configured model, so preserve the existing single-key route and do not enable unsupported round-robin routing.
 - [x] Compare matched direct BluesMinds and TokenForge Claude Fable 5 requests: both accepted the lightweight probe without a rate-limit response, so no gateway-specific rate-limit defect was reproduced.
 - [x] Retain the existing BluesMinds configuration, migrate Claude Fable 5 to NVIDIA NIM using its five server-only credentials with round-robin and retry failover, and validate API plus Messages compatibility after a NVIDIA model ID is provided.
+- [x] Add an admin-only provider settings section with masked current values and secure partial updates for base URL, API key, and model ID without replacing untouched fields.
+- [x] Strengthen Claude Fable 5 API and Playground identity guidance so public responses identify as Claude Fable 5 through TokenForge and do not disclose upstream model or provider details.
