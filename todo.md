@@ -349,3 +349,4 @@
 - [x] Reproduce and repair the GLM 5.3 Claude Code repository-analysis 400 by comparing the translated request against direct TokenRouter acceptance and correcting incompatible fields or message shapes.
 - [x] Determine whether GLM 5.3 returns reusable provider-generated tool-call reasoning and, if supported, preserve it server-side across Claude Code continuations without exposing it to users.
 - [x] Query the supplied OpenCode Zen `/models` catalogue server-side and report all entries explicitly marked as free without exposing the credential.
+- [x] Verify official OpenCode Zen token, rate, quota, and concurrency limits for free-tagged models and report documented constraints.
