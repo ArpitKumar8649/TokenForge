@@ -364,3 +364,4 @@
 - [x] Store a second server-only BluesMinds Claude Fable 5 credential, rotate requests round-robin across both keys, and validate each slot.
 - [x] Reproduce the Claude Opus 5 identity mismatch reporting Nemotron Lightning, identify its source, and apply a targeted correction if needed.
 - [x] Strengthen Claude Opus 5 server-side identity policy so public API, Playground, and Messages responses never identify as the underlying model.
+- [x] Validate the two additional server-only OpenCode credentials for Claude Opus 5: both received upstream HTTP 403 for the configured model, so preserve the existing single-key route and do not enable unsupported round-robin routing.
