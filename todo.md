@@ -365,3 +365,5 @@
 - [x] Reproduce the Claude Opus 5 identity mismatch reporting Nemotron Lightning, identify its source, and apply a targeted correction if needed.
 - [x] Strengthen Claude Opus 5 server-side identity policy so public API, Playground, and Messages responses never identify as the underlying model.
 - [x] Validate the two additional server-only OpenCode credentials for Claude Opus 5: both received upstream HTTP 403 for the configured model, so preserve the existing single-key route and do not enable unsupported round-robin routing.
+- [x] Compare matched direct BluesMinds and TokenForge Claude Fable 5 requests: both accepted the lightweight probe without a rate-limit response, so no gateway-specific rate-limit defect was reproduced.
+- [x] Retain the existing BluesMinds configuration, migrate Claude Fable 5 to NVIDIA NIM using its five server-only credentials with round-robin and retry failover, and validate API plus Messages compatibility after a NVIDIA model ID is provided.

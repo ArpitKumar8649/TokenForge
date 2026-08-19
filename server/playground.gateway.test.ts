@@ -15,9 +15,9 @@ vi.mock("./db", () => ({
 
 import { getPlatformMaintenanceConfig, getQuotaStatus, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordUsage, reserveCredit, settleReservedCredit } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
-import { resetBluesMindsClaudeFable5CredentialRotation } from "./bluesMindsClaudeFable5Credentials";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
+import { resetNvidiaClaudeFable5CredentialRotation } from "./nvidiaClaudeFable5Credentials";
 import { invalidateOrcaRouterCredentialPool, resetOrcaRouterSlotRequestCounts } from "./orcaRouterCredentials";
 import { resetTokenRouterCredentialRotation } from "./tokenRouterCredentials";
 import { getProviderCredentialTelemetry, resetProviderCredentialTelemetry } from "./providerCredentialTelemetry";
@@ -46,6 +46,13 @@ beforeEach(() => {
   process.env.BLUESMINDS_CLAUDE_FABLE5_API_KEY = "server-only-bluesminds-fable5-secret";
   process.env.BLUESMINDS_CLAUDE_FABLE5_API_KEY_2 = "server-only-bluesminds-fable5-secret-2";
   process.env.BLUESMINDS_CLAUDE_FABLE5_MODEL = "upstream-claude-fable-5-model";
+  process.env.NVIDIA_CLAUDE_FABLE5_BASE_URL = "https://nvidia.example";
+  process.env.NVIDIA_CLAUDE_FABLE5_API_KEY = "server-only-nvidia-fable5-secret-1";
+  process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_2 = "server-only-nvidia-fable5-secret-2";
+  process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_3 = "server-only-nvidia-fable5-secret-3";
+  process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_4 = "server-only-nvidia-fable5-secret-4";
+  process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_5 = "server-only-nvidia-fable5-secret-5";
+  process.env.NVIDIA_CLAUDE_FABLE5_MODEL = "upstream-nvidia-claude-fable-5-model";
   process.env.CLUSTER_PROTOCOL_BASE_URL = "https://cluster.example";
   process.env.CLUSTER_PROTOCOL_API_KEY = "server-only-cluster-secret";
   process.env.CLUSTER_PROTOCOL_API_KEY_2 = "server-only-cluster-secret-2";
@@ -85,7 +92,7 @@ beforeEach(() => {
   }));
   vi.mocked(loadOrcaRouterCredentialSlotCiphertexts).mockResolvedValue([]);
   resetClusterProtocolCredentialRotation();
-  resetBluesMindsClaudeFable5CredentialRotation();
+  resetNvidiaClaudeFable5CredentialRotation();
   resetFxqidianCredentialRotation();
   invalidateOrcaRouterCredentialPool();
   resetOrcaRouterSlotRequestCounts();
@@ -506,7 +513,7 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.stringify(forwardedPayload)).not.toContain("TOKENROUTER_GLM53_MODEL");
   });
 
-  it("routes Claude Fable 5 through its dedicated BluesMinds model configuration, preserves enforced reasoning, and retains its thinking summary", async () => {
+  it("routes Claude Fable 5 through its dedicated NVIDIA NIM model configuration, preserves enforced reasoning, and retains its thinking summary", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: "Claude Fable response", reasoning_content: "Provider thinking summary" } }],
       usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
@@ -521,18 +528,18 @@ describe("TokenForge Playground gateway", () => {
     });
 
     expect(result).toMatchObject({ model: "claude-fable-5", content: "Claude Fable response", thinking: "Provider thinking summary" });
-    expect(fetchMock).toHaveBeenCalledWith("https://bluesminds.example/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-bluesminds-fable5-secret" }),
+    expect(fetchMock).toHaveBeenCalledWith("https://nvidia.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-nvidia-fable5-secret-1" }),
     }));
     const forwardedPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(forwardedPayload).toMatchObject({ model: "upstream-claude-fable-5-model", stream: false });
+    expect(forwardedPayload).toMatchObject({ model: "upstream-nvidia-claude-fable-5-model", stream: false });
     expect(forwardedPayload).toMatchObject({ reasoning_effort: "xhigh" });
     expect(forwardedPayload.messages).toHaveLength(2);
     expect(forwardedPayload.messages[0]).toMatchObject({ role: "system" });
     expect(forwardedPayload.messages[0].content).toContain("You are Claude Fable 5, an AI assistant available through TokenForge.");
     expect(forwardedPayload.messages[0].content).toContain("Use short paragraphs.");
     expect(forwardedPayload.messages[1]).toEqual({ role: "user", content: "Identify the configured route safely." });
-    expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-bluesminds-fable5-secret");
+    expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-nvidia-fable5-secret");
 
     const apiMessages = withModelScopedGuidance("claude-fable-5", [{ role: "user", content: "Identify yourself." }]);
     expect(apiMessages[0]).toEqual(modelScopedGuidance("claude-fable-5"));
@@ -540,7 +547,7 @@ describe("TokenForge Playground gateway", () => {
     expect(apiMessages).not.toContainEqual(playgroundResponseGuidance());
   });
 
-  it("rotates sequential Claude Fable 5 requests across both isolated BluesMinds credentials", async () => {
+  it("rotates sequential Claude Fable 5 requests across all five isolated NVIDIA NIM credentials", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const signal = new AbortController().signal;
@@ -548,15 +555,21 @@ describe("TokenForge Playground gateway", () => {
     await forwardProviderRequest("claude-fable-5", { model: "claude-fable-5", messages: [{ role: "user", content: "First request." }] }, signal);
     await forwardProviderRequest("claude-fable-5", { model: "claude-fable-5", messages: [{ role: "user", content: "Second request." }] }, signal);
     await forwardProviderRequest("claude-fable-5", { model: "claude-fable-5", messages: [{ role: "user", content: "Third request." }] }, signal);
+    await forwardProviderRequest("claude-fable-5", { model: "claude-fable-5", messages: [{ role: "user", content: "Fourth request." }] }, signal);
+    await forwardProviderRequest("claude-fable-5", { model: "claude-fable-5", messages: [{ role: "user", content: "Fifth request." }] }, signal);
+    await forwardProviderRequest("claude-fable-5", { model: "claude-fable-5", messages: [{ role: "user", content: "Sixth request." }] }, signal);
 
     expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
-      "Bearer server-only-bluesminds-fable5-secret",
-      "Bearer server-only-bluesminds-fable5-secret-2",
-      "Bearer server-only-bluesminds-fable5-secret",
+      "Bearer server-only-nvidia-fable5-secret-1",
+      "Bearer server-only-nvidia-fable5-secret-2",
+      "Bearer server-only-nvidia-fable5-secret-3",
+      "Bearer server-only-nvidia-fable5-secret-4",
+      "Bearer server-only-nvidia-fable5-secret-5",
+      "Bearer server-only-nvidia-fable5-secret-1",
     ]);
   });
 
-  it("retries Claude Fable 5 through the next isolated BluesMinds credential after a retryable provider response", async () => {
+  it("retries Claude Fable 5 through the next isolated NVIDIA NIM credential after a retryable provider response", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Temporary capacity" } }), { status: 429 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
@@ -568,11 +581,11 @@ describe("TokenForge Playground gateway", () => {
     }, new AbortController().signal);
 
     expect(response.status).toBe(200);
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://bluesminds.example/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-bluesminds-fable5-secret" }),
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://nvidia.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-nvidia-fable5-secret-1" }),
     }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "https://bluesminds.example/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-bluesminds-fable5-secret-2" }),
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "https://nvidia.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-nvidia-fable5-secret-2" }),
     }));
   });
 

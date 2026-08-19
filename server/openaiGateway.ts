@@ -14,6 +14,7 @@ import {
 import { selectNextClusterProtocolCredentialWithSlot } from "./clusterProtocolCredentials";
 import { selectNextBluesMindsClaudeFable5CredentialWithSlot } from "./bluesMindsClaudeFable5Credentials";
 import { selectNextFxqidianCredentialWithSlot } from "./fxqidianCredentials";
+import { selectNextNvidiaClaudeFable5CredentialWithSlot } from "./nvidiaClaudeFable5Credentials";
 import { selectNextOrcaRouterCredentialWithSlot } from "./orcaRouterCredentials";
 import { selectNextTokenRouterCredentialWithSlot } from "./tokenRouterCredentials";
 import { isCredentialSlotEligible, recordCredentialFailover, recordCredentialFailure, recordCredentialSuccess, type CredentialTelemetryProvider } from "./providerCredentialTelemetry";
@@ -292,14 +293,14 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
   throw lastError instanceof Error ? lastError : new Error("The selected provider is temporarily unavailable");
 }
 
-/** Claude Fable 5 uses its own OpenAI-compatible BluesMinds route, never the shared TokenRouter pool. */
+/** Claude Fable 5 uses its own OpenAI-compatible NVIDIA NIM route, never the shared TokenRouter pool. */
 async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: AbortSignal) {
-  const configuredBase = process.env.BLUESMINDS_CLAUDE_FABLE5_BASE_URL?.replace(/\/$/, "");
-  const upstreamModel = process.env.BLUESMINDS_CLAUDE_FABLE5_MODEL?.trim();
+  const configuredBase = process.env.NVIDIA_CLAUDE_FABLE5_BASE_URL?.replace(/\/$/, "");
+  const upstreamModel = process.env.NVIDIA_CLAUDE_FABLE5_MODEL?.trim();
   const url = configuredBase?.endsWith("/chat/completions")
     ? configuredBase
     : configuredBase ? `${configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase}/v1`}/chat/completions` : null;
-  const firstCredential = selectNextBluesMindsClaudeFable5CredentialWithSlot();
+  const firstCredential = selectNextNvidiaClaudeFable5CredentialWithSlot();
   if (!url || !firstCredential || !upstreamModel) throw new Error("TokenForge Claude Fable 5 inference is not configured");
   const requestBody = { ...input, model: upstreamModel };
   let selectedCredential = firstCredential;
@@ -315,14 +316,14 @@ async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: Abo
         signal: attemptSignal,
       });
       if (response.ok || !retryableProviderStatus(response.status) || attempt === 2) return response;
-      console.warn("[Claude Fable 5 provider retry]", { event: "retryable_response_before_stream", upstreamStatus: response.status, attempt });
+      console.warn("[Claude Fable 5 NVIDIA NIM provider retry]", { event: "retryable_response_before_stream", upstreamStatus: response.status, attempt });
       response.body?.cancel().catch(() => undefined);
-      selectedCredential = selectNextBluesMindsClaudeFable5CredentialWithSlot() ?? selectedCredential;
+      selectedCredential = selectNextNvidiaClaudeFable5CredentialWithSlot() ?? selectedCredential;
     } catch (error) {
       lastError = error;
       if (signal.aborted || !responseStartTimeout.aborted || attempt === 2) throw error;
-      console.warn("[Claude Fable 5 provider retry]", { event: "response_start_timeout_before_stream", attempt });
-      selectedCredential = selectNextBluesMindsClaudeFable5CredentialWithSlot() ?? selectedCredential;
+      console.warn("[Claude Fable 5 NVIDIA NIM provider retry]", { event: "response_start_timeout_before_stream", attempt });
+      selectedCredential = selectNextNvidiaClaudeFable5CredentialWithSlot() ?? selectedCredential;
     }
   }
   throw lastError instanceof Error ? lastError : new Error("The selected provider is temporarily unavailable");
