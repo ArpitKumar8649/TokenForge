@@ -346,3 +346,4 @@
 - [x] Add the four supplied server-only NVIDIA Integrate credentials for Claude Fable 5, rotate the full pool safely, validate every slot, and publish the updated routing.
 - [x] Update the server-only GLM 5.3 upstream model identifier and validate the new provider configuration.
 - [x] Reproduce and repair the GLM 5.3 Claude Code `/v1/messages` 503 by comparing direct TokenRouter and translated bridge requests, then validate the fixed workflow.
+- [x] Reproduce and repair the GLM 5.3 Claude Code repository-analysis 400 by comparing the translated request against direct TokenRouter acceptance and correcting incompatible fields or message shapes.

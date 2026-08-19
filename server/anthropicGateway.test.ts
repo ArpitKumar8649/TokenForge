@@ -173,6 +173,25 @@ describe("TokenForge Anthropic Messages bridge", () => {
     ]);
   });
 
+  it("normalizes GLM 5.3 Claude Code tool history without a provider-private reasoning requirement", () => {
+    const translated = translateAnthropicRequest({
+      model: "glm-5.3",
+      messages: [
+        { role: "user", content: "Inspect the repository." },
+        { role: "assistant", content: [{ type: "tool_use", id: "tool_1", name: "List", input: { path: "." } }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "tool_1", content: "README.md\npackage.json" }] },
+      ],
+      tools: [{ name: "List", input_schema: { type: "object", properties: { path: { type: "string" } } } }],
+    });
+
+    expect(translated.messages).toEqual([
+      { role: "user", content: "Inspect the repository." },
+      { role: "assistant", content: "[Tool call: List]\n{\"path\":\".\"}" },
+      { role: "user", content: "[Tool Result for tool_1]:\nREADME.md\npackage.json" },
+    ]);
+    expect(translated.messages?.some(message => message.role === "tool" || "tool_calls" in message)).toBe(false);
+  });
+
   it("forwards a 300-entry Claude history without compaction or a raw-entry refusal", () => {
     const translated = translateAnthropicRequest({
       model: "claude-opus-5",

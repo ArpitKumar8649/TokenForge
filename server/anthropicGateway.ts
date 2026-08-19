@@ -156,7 +156,12 @@ export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChat
     throw new AnthropicBridgeError(400, "invalid_request_error", "temperature must be a number from 0 to 2.");
   }
   const model = raw.model as string;
-  const usesOpenAiNativeToolResults = OPENAI_TRANSLATED_MESSAGES_MODELS.has(model);
+  // TokenRouter's GLM 5.3 route rejects a historical OpenAI `tool_calls` turn
+  // unless the provider-only reasoning_content emitted with that original call is
+  // also replayed. Claude Code sends Anthropic tool history, which deliberately
+  // cannot expose that provider-private state. Preserve the observable call and
+  // result as conversation text instead of creating an invalid tool-call chain.
+  const usesOpenAiNativeToolResults = OPENAI_TRANSLATED_MESSAGES_MODELS.has(model) && model !== "glm-5.3";
   const maxTokens = typeof raw.max_tokens === "number" ? raw.max_tokens : undefined;
   const temperature = typeof raw.temperature === "number" ? raw.temperature : undefined;
 
@@ -214,8 +219,13 @@ export function translateAnthropicRequest(raw: AnthropicRequest): TokenForgeChat
       }
     }
     if (message.role === "assistant") {
+      const glm53ToolHistory = model === "glm-5.3" && toolCalls.length > 0
+        ? toolCalls.map(toolCall => `[Tool call: ${toolCall.function.name}]\n${toolCall.function.arguments}`).join("\n\n")
+        : "";
       if (text || toolCalls.length > 0) {
-        messages.push({ role: "assistant", content: text || null, ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}) } as TokenForgeChatMessage);
+        messages.push(model === "glm-5.3"
+          ? { role: "assistant", content: [text, glm53ToolHistory].filter(Boolean).join("\n\n") }
+          : { role: "assistant", content: text || null, ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}) } as TokenForgeChatMessage);
       }
     } else {
       if (usesOpenAiNativeToolResults && toolResults.length > 0) {

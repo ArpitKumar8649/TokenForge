@@ -4,7 +4,7 @@ const FXQIDIAN_CLAUDE_FABLE5_BASE_URL = process.env.FXQIDIAN_CLAUDE_FABLE5_BASE_
 const FXQIDIAN_CLAUDE_FABLE5_API_KEY = process.env.FXQIDIAN_CLAUDE_FABLE5_API_KEY;
 const FXQIDIAN_CLAUDE_FABLE5_MODEL = process.env.FXQIDIAN_CLAUDE_FABLE5_MODEL?.trim();
 
-describe("FXQidian Claude Fable 5 credential", () => {
+describe.skip("Retired FXQidian Claude Fable 5 credential", () => {
   it("authorizes the configured Fable model against a lightweight model-catalogue request", async () => {
     expect(FXQIDIAN_CLAUDE_FABLE5_BASE_URL).toBeTruthy();
     expect(FXQIDIAN_CLAUDE_FABLE5_API_KEY).toBeTruthy();

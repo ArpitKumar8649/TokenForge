@@ -61,7 +61,11 @@ describe("TokenForge GLM 5.3 Anthropic Messages compatibility", () => {
         model: "glm-5.3",
         max_tokens: 64,
         system: [{ type: "text", text: "Respond concisely and safely." }],
-        messages: [{ role: "user", content: [{ type: "text", text: "Reply with exactly GLM_BRIDGE_OK." }] }],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "After reviewing the tool result, reply with exactly GLM_BRIDGE_OK." }] },
+          { role: "assistant", content: [{ type: "tool_use", id: "toolu_glm53_probe", name: "Read", input: { path: "README.md" } }] },
+          { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_glm53_probe", content: "TokenForge repository information." }] },
+        ],
         tools: [{ name: "Read", description: "Read a repository file", input_schema: { type: "object", properties: { path: { type: "string" } } } }],
         stream: false,
       }),
