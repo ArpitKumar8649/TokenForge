@@ -41,9 +41,9 @@ beforeEach(() => {
   process.env.FXQIDIAN_BASE_URL = "https://provider.example";
   process.env.FXQIDIAN_API_KEY = "server-only-provider-secret";
   process.env.FXQIDIAN_API_KEY_2 = "server-only-provider-secret-2";
-  process.env.OPENCODE_CLAUDE_FABLE5_BASE_URL = "https://opencode.example/zen";
-  process.env.OPENCODE_CLAUDE_FABLE5_API_KEY = "server-only-opencode-fable5-secret";
-  process.env.OPENCODE_CLAUDE_FABLE5_MODEL = "upstream-claude-fable-5-model";
+  process.env.BLUESMINDS_CLAUDE_FABLE5_BASE_URL = "https://bluesminds.example";
+  process.env.BLUESMINDS_CLAUDE_FABLE5_API_KEY = "server-only-bluesminds-fable5-secret";
+  process.env.BLUESMINDS_CLAUDE_FABLE5_MODEL = "upstream-claude-fable-5-model";
   process.env.CLUSTER_PROTOCOL_BASE_URL = "https://cluster.example";
   process.env.CLUSTER_PROTOCOL_API_KEY = "server-only-cluster-secret";
   process.env.CLUSTER_PROTOCOL_API_KEY_2 = "server-only-cluster-secret-2";
@@ -456,7 +456,7 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.stringify(forwardedPayload)).not.toContain("TOKENROUTER_GLM53_MODEL");
   });
 
-  it("routes Claude Fable 5 through its dedicated OpenCode model configuration, preserves enforced reasoning, and retains its thinking summary", async () => {
+  it("routes Claude Fable 5 through its dedicated BluesMinds model configuration, preserves enforced reasoning, and retains its thinking summary", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: "Claude Fable response", reasoning_content: "Provider thinking summary" } }],
       usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
@@ -471,8 +471,8 @@ describe("TokenForge Playground gateway", () => {
     });
 
     expect(result).toMatchObject({ model: "claude-fable-5", content: "Claude Fable response", thinking: "Provider thinking summary" });
-    expect(fetchMock).toHaveBeenCalledWith("https://opencode.example/zen/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-opencode-fable5-secret" }),
+    expect(fetchMock).toHaveBeenCalledWith("https://bluesminds.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-bluesminds-fable5-secret" }),
     }));
     const forwardedPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(forwardedPayload).toMatchObject({ model: "upstream-claude-fable-5-model", stream: false });
@@ -482,7 +482,7 @@ describe("TokenForge Playground gateway", () => {
     expect(forwardedPayload.messages[0].content).toContain("You are Claude Fable 5, an AI assistant available through TokenForge.");
     expect(forwardedPayload.messages[0].content).toContain("Use short paragraphs.");
     expect(forwardedPayload.messages[1]).toEqual({ role: "user", content: "Identify the configured route safely." });
-    expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-opencode-fable5-secret");
+    expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-bluesminds-fable5-secret");
 
     const apiMessages = withModelScopedGuidance("claude-fable-5", [{ role: "user", content: "Identify yourself." }]);
     expect(apiMessages[0]).toEqual(modelScopedGuidance("claude-fable-5"));
@@ -490,7 +490,7 @@ describe("TokenForge Playground gateway", () => {
     expect(apiMessages).not.toContainEqual(playgroundResponseGuidance());
   });
 
-  it("retries Claude Fable 5 once through the same isolated OpenCode credential after a retryable provider response", async () => {
+  it("retries Claude Fable 5 once through the same isolated BluesMinds credential after a retryable provider response", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Temporary capacity" } }), { status: 429 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
@@ -502,11 +502,11 @@ describe("TokenForge Playground gateway", () => {
     }, new AbortController().signal);
 
     expect(response.status).toBe(200);
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://opencode.example/zen/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-opencode-fable5-secret" }),
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://bluesminds.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-bluesminds-fable5-secret" }),
     }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "https://opencode.example/zen/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-opencode-fable5-secret" }),
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "https://bluesminds.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-bluesminds-fable5-secret" }),
     }));
   });
 

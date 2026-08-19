@@ -360,3 +360,4 @@
 - [x] Update the server-only OpenCode Zen Claude Fable 5 model identifier and validate the revised configuration.
 - [x] Update the server-only OpenCode Zen Claude Fable 5 model identifier again and validate the revised configuration.
 - [x] Add a server-side Claude Opus 5 identity instruction across API and Playground requests without overriding user system prompts.
+- [x] Collect server-only BluesMinds provider settings for Claude Fable 5, validate completion and Messages compatibility, then replace its OpenCode Zen route.

@@ -283,11 +283,11 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
   throw lastError instanceof Error ? lastError : new Error("The selected provider is temporarily unavailable");
 }
 
-/** Claude Fable 5 uses its own OpenAI-compatible OpenCode Zen route, never the shared TokenRouter pool. */
+/** Claude Fable 5 uses its own OpenAI-compatible BluesMinds route, never the shared TokenRouter pool. */
 async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: AbortSignal) {
-  const configuredBase = process.env.OPENCODE_CLAUDE_FABLE5_BASE_URL?.replace(/\/$/, "");
-  const secret = process.env.OPENCODE_CLAUDE_FABLE5_API_KEY;
-  const upstreamModel = process.env.OPENCODE_CLAUDE_FABLE5_MODEL?.trim();
+  const configuredBase = process.env.BLUESMINDS_CLAUDE_FABLE5_BASE_URL?.replace(/\/$/, "");
+  const secret = process.env.BLUESMINDS_CLAUDE_FABLE5_API_KEY;
+  const upstreamModel = process.env.BLUESMINDS_CLAUDE_FABLE5_MODEL?.trim();
   const url = configuredBase?.endsWith("/chat/completions")
     ? configuredBase
     : configuredBase ? `${configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase}/v1`}/chat/completions` : null;
