@@ -7,8 +7,6 @@ import {
 	TOKENFORGE_REFERRAL_REWARD_NANOS,
 	TOKENFORGE_REFERRAL_REWARD_USD,
 	SPECIAL_REFERRAL_CAMPAIGN_CODE,
-	SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_HANDLE,
-	SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_URL,
 	buildReferralInviteUrl,
 	buildSpecialReferralCampaignUrl,
 	isSpecialReferralCampaignCode,
@@ -73,15 +71,13 @@ describe("TokenForge referrals", () => {
 
 	it("builds a reusable special campaign link without treating it as a normal affiliate code", () => {
 		expect(SPECIAL_REFERRAL_CAMPAIGN_CODE).toBe("bonus150");
-		expect(SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_HANDLE).toBe("@AmirSNet");
-		expect(SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_URL).toBe("https://t.me/AmirSNet");
-		expect(buildSpecialReferralCampaignUrl()).toBe("https://tokengate-cqt9ivzs.manus.space/sign-up?aff=bonus150&via=telegram&contact=AmirSNet");
+		expect(buildSpecialReferralCampaignUrl()).toBe("https://tokengate-cqt9ivzs.manus.space/sign-up?aff=bonus150&via=AmirSNet");
 		expect(isSpecialReferralCampaignCode(" BONUS150 ")).toBe(true);
 		expect(isSpecialReferralCampaignCode("bonus151")).toBe(false);
 		expect(normalizeReferralCode(SPECIAL_REFERRAL_CAMPAIGN_CODE)).toBeUndefined();
 		expect(normalizeReferralCampaignCode(SPECIAL_REFERRAL_CAMPAIGN_CODE)).toBe(SPECIAL_REFERRAL_CAMPAIGN_CODE);
 		expect(normalizeReferralCampaignCode(" A7XP ")).toBe("a7xp");
-		expect(clientSource).toContain("Campaign contact: {SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_HANDLE}");
+		expect(clientSource).not.toContain("Campaign contact:");
 	});
 
 	it("reserves no more than 150 special slots and credits the bonus exactly once after Discord verification", () => {
