@@ -2,7 +2,6 @@ import { PublicNav } from "@/components/PublicNav";
 import { TokenForgeGlyph } from "@/components/TokenForgeGlyph";
 import { ProviderMark } from "@/components/ProviderMark";
 import { AnnouncementBanner } from "@/components/AnnouncementBanner";
-import { MovingDotCard } from "@/components/ui/moving-dot-card";
 import { ArrowRight, Braces, KeyRound, ShieldCheck } from "lucide-react";
 import { Link } from "wouter";
 import { PublicFooter } from "./Models";
@@ -62,7 +61,6 @@ export default function Home() {
             <div className="aurora-network-metrics" aria-live="polite"><article className="aurora-network-metrics__total"><span><i /> LIVE TOKENFORGE NETWORK</span><strong><AnimatedTokenCount value={metrics.data?.totalTokens ?? 0} /></strong><b>total tokens processed</b><small>Successful provider-reported tokens · refreshes every 20 seconds</small></article><article><span>Verified routes</span><strong>{TOKENFORGE_MODELS.length}</strong><small>text-chat models</small></article><article><span>Request surface</span><strong>01</strong><small>OpenAI-compatible API</small></article></div>
           </div>
         </section>
-        <section className="aurora-moving-stat" aria-labelledby="landing-token-stat-title"><div className="aurora-moving-stat__inner"><div className="aurora-moving-stat__copy"><div className="aurora-kicker"><span /> Live platform signal</div><h2 id="landing-token-stat-title">Every successful token<br /><em>leaves a visible trace.</em></h2><p>TokenForge reports the live successful-token total from its provider-backed usage records, refreshed on this page every 20 seconds.</p></div><MovingDotCard target={metrics.data?.totalTokens ?? 0} description="Successful provider-reported total" /></div></section>
         <section className="aurora-close"><p>Free beta · controlled capacity</p><h2>Bring your next build<br /><em>into focus.</em></h2><Link href="/signup" className="aurora-button">Create an account <ArrowRight size={16} /></Link></section>
       </main>
       <PublicFooter />
