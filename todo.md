@@ -385,3 +385,4 @@
 - [x] Add the supplied Telegram contact link (`https://t.me/AmirSNet`) to the special referral campaign experience without changing the existing campaign eligibility, cap, or bonus.
 - [x] Remove the mistakenly added Telegram content from the special-referral UI and retain `AmirSNet` only as a non-functional attribution label in the shareable referral URL.
 - [x] Add administrator-configurable maintenance duration and note controls, with a persisted public days/hours/minutes/seconds countdown beneath the announcement banner.
+- [x] Restore visibility of the maintenance countdown controls on the live administrator Operations page and verify the mobile layout.
