@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./db", () => ({
   findActiveApiKey: vi.fn(),
   getClaudeFable5NvidiaRuntimeConfig: vi.fn(),
+  getClaudeOpus5RuntimeConfig: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
   getQuotaStatus: vi.fn(),
   getModelAvailabilitySnapshot: vi.fn(),
@@ -14,7 +15,7 @@ vi.mock("./db", () => ({
   touchApiKey: vi.fn(),
 }));
 
-import { getClaudeFable5NvidiaRuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordUsage, reserveCredit, settleReservedCredit } from "./db";
+import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordUsage, reserveCredit, settleReservedCredit } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
@@ -94,6 +95,11 @@ beforeEach(() => {
     baseUrl: "https://nvidia.example",
     model: "upstream-nvidia-claude-fable-5-model",
     apiKeys: ["server-only-nvidia-fable5-secret-1", "server-only-nvidia-fable5-secret-2", "server-only-nvidia-fable5-secret-3", "server-only-nvidia-fable5-secret-4", "server-only-nvidia-fable5-secret-5"],
+  });
+  vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
+    baseUrl: "https://opencode.example/zen",
+    model: "upstream-claude-opus-5",
+    apiKeys: ["server-only-opencode-opus5-secret", "server-only-opencode-opus5-secret-2", "server-only-opencode-opus5-secret-3", "server-only-opencode-opus5-secret-4", "server-only-opencode-opus5-secret-5", "server-only-opencode-opus5-secret-6", "server-only-opencode-opus5-secret-7"],
   });
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);

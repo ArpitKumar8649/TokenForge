@@ -375,3 +375,4 @@
 - [x] Add administrator reporting for special-referral reservations, successful verified claims, remaining cap, and qualifying-account details.
 - [x] Move Claude Opus 5 to the supplied TokenReply OpenAI-compatible provider, retain all credentials server-side, and validate direct plus Messages compatibility before publishing.
 - [x] Store, validate, and add the six supplied TokenReply Claude Opus 5 credentials to a round-robin pool with retry-aware failover, using only credentials that pass the provider contract.
+- [x] Add encrypted admin-only Claude Opus 5 base URL, credential-pool, and upstream-model controls with masked values and partial updates; verify robust API and Playground identity protection remains enforced.

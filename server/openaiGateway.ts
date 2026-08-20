@@ -3,6 +3,7 @@ import { createHash, createHmac, randomUUID } from "node:crypto";
 import {
   findActiveApiKey,
   getClaudeFable5NvidiaRuntimeConfig,
+  getClaudeOpus5RuntimeConfig,
   getPlatformMaintenanceConfig,
   getQuotaStatus,
   getModelAvailabilitySnapshot,
@@ -265,12 +266,14 @@ async function forwardTokenHarborRequest(input: ChatInput, signal: AbortSignal) 
 
 /** Claude Opus 5 uses an isolated TokenReply credential pool, never the shared TokenRouter pool. */
 async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: AbortSignal) {
-  const configuredBase = process.env.OPENCODE_CLAUDE_OPUS5_BASE_URL?.replace(/\/$/, "");
-  const upstreamModel = process.env.OPENCODE_CLAUDE_OPUS5_MODEL?.trim();
+  const runtime = await getClaudeOpus5RuntimeConfig();
+  const configuredBase = runtime.baseUrl.replace(/\/$/, "");
+  const upstreamModel = runtime.model;
   const url = configuredBase?.endsWith("/chat/completions")
     ? configuredBase
     : configuredBase ? `${configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase}/v1`}/chat/completions` : null;
-  const firstCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot();
+  const credentialEnv = Object.fromEntries(runtime.apiKeys.map((credential, index) => [index === 0 ? "OPENCODE_CLAUDE_OPUS5_API_KEY" : `OPENCODE_CLAUDE_OPUS5_API_KEY_${index + 1}`, credential]));
+  const firstCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot(credentialEnv);
   if (!url || !firstCredential || !upstreamModel) throw new Error("TokenForge Claude Opus 5 inference is not configured");
   const requestBody = { ...input, model: upstreamModel };
   let selectedCredential = firstCredential;
@@ -288,12 +291,12 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
       if (response.ok || !retryableProviderStatus(response.status) || attempt === 2) return response;
       console.warn("[Claude Opus 5 TokenReply provider retry]", { event: "retryable_response_before_stream", upstreamStatus: response.status, attempt });
       response.body?.cancel().catch(() => undefined);
-      selectedCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot() ?? selectedCredential;
+      selectedCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot(credentialEnv) ?? selectedCredential;
     } catch (error) {
       lastError = error;
       if (signal.aborted || !responseStartTimeout.aborted || attempt === 2) throw error;
       console.warn("[Claude Opus 5 TokenReply provider retry]", { event: "response_start_timeout_before_stream", attempt });
-      selectedCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot() ?? selectedCredential;
+      selectedCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot(credentialEnv) ?? selectedCredential;
     }
   }
   throw lastError instanceof Error ? lastError : new Error("The selected provider is temporarily unavailable");

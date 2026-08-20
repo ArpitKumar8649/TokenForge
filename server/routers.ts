@@ -54,6 +54,8 @@ import {
   replaceOrcaRouterCredentialPool,
   getClaudeFable5NvidiaProviderSettings,
   updateClaudeFable5NvidiaProviderSettings,
+  getClaudeOpus5ProviderSettings,
+  updateClaudeOpus5ProviderSettings,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -120,6 +122,11 @@ const claudeFable5ProviderSettingsInput = z.object({
   baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(),
   model: z.string().trim().min(1, "Enter a model ID").max(256).optional(),
   apiKeys: z.array(z.string().trim().max(512)).length(5).optional(),
+}).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined, "Provide at least one setting to update");
+const claudeOpus5ProviderSettingsInput = z.object({
+  baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(),
+  model: z.string().trim().min(1, "Enter a model ID").max(256).optional(),
+  apiKeys: z.array(z.string().trim().max(512)).length(7).optional(),
 }).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined, "Provide at least one setting to update");
 const discordUnverifiedCleanupInput = z.object({
   expectedCount: z.number().int().min(0).max(1_000_000),
@@ -416,6 +423,26 @@ export const appRouter = router({
         return settings;
       } catch (error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "TokenForge could not save Claude Fable 5 provider settings" });
+      }
+    }),
+    claudeOpus5ProviderSettings: adminProcedure.query(() => getClaudeOpus5ProviderSettings()),
+    updateClaudeOpus5ProviderSettings: adminProcedure.input(claudeOpus5ProviderSettingsInput).mutation(async ({ ctx, input }) => {
+      try {
+        const settings = await updateClaudeOpus5ProviderSettings(input, ctx.user.id);
+        await writeAuditEvent({
+          actorUserId: ctx.user.id,
+          action: "provider.claude_opus5.runtime_updated",
+          entityType: "provider",
+          entityId: "claude-opus-5",
+          metadata: {
+            baseUrlChanged: input.baseUrl !== undefined,
+            modelChanged: input.model !== undefined,
+            apiKeySlotsChanged: input.apiKeys?.filter(value => Boolean(value.trim())).length ?? 0,
+          },
+        });
+        return settings;
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "TokenForge could not save Claude Opus 5 provider settings" });
       }
     }),
     replaceOrcaRouterCredentials: adminProcedure
