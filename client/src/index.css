@@ -15,6 +15,15 @@
   50%, 100% { top: 0%; left: 70%; }
 }
 
+@keyframes tokenforge-moving-dot-orbit {
+  0%, 100% { top: 11px; right: 12px; }
+  25% { top: 11px; right: calc(100% - 26px); }
+  50% { top: calc(100% - 25px); right: calc(100% - 26px); }
+  75% { top: calc(100% - 25px); right: 12px; }
+}
+
+.tf-moving-dot-card{position:relative;isolation:isolate;display:grid;place-items:center;min-height:224px;padding:34px;overflow:hidden;border:1px solid rgba(203,255,121,.28);border-radius:24px;background:radial-gradient(circle at 78% 17%,rgba(190,255,96,.16),transparent 24%),radial-gradient(circle at 15% 85%,rgba(112,237,224,.1),transparent 30%),linear-gradient(136deg,rgba(17,33,24,.94),rgba(11,17,15,.97));box-shadow:0 28px 75px rgba(0,0,0,.25),inset 0 1px rgba(255,255,255,.07)}.tf-moving-dot-card__content{position:relative;z-index:2;display:grid;justify-items:center;gap:6px;text-align:center}.tf-moving-dot-card__value{font:800 clamp(46px,7vw,80px)/.92 "DM Mono",monospace;letter-spacing:-.09em;color:#efffcf;text-shadow:0 0 34px rgba(194,255,109,.34)}.tf-moving-dot-card__label{text-transform:uppercase;font:800 11px/1 "DM Mono",monospace;letter-spacing:.18em;color:#d5ff8d}.tf-moving-dot-card__description{font:600 11px/1.45 "DM Mono",monospace;letter-spacing:.03em;color:rgba(229,246,211,.66)}.tf-moving-dot-card__orbit{position:absolute;z-index:3;width:11px;height:11px;border-radius:999px;background:#dfff89;box-shadow:0 0 0 5px rgba(215,255,121,.1),0 0 22px rgba(220,255,135,.95);animation:tokenforge-moving-dot-orbit 5.2s linear infinite;pointer-events:none}.tf-moving-dot-card__ray{position:absolute;z-index:0;inset:-35%;background:linear-gradient(112deg,transparent 46%,rgba(214,255,140,.1) 50%,transparent 54%);transform:translateX(-16%);animation:ani 7s ease-in-out infinite;pointer-events:none}.tf-moving-dot-card__line{position:absolute;z-index:1;background:linear-gradient(90deg,transparent,rgba(219,255,147,.55),transparent);opacity:.72}.tf-moving-dot-card__line--top,.tf-moving-dot-card__line--bottom{left:12%;right:12%;height:1px}.tf-moving-dot-card__line--top{top:11px}.tf-moving-dot-card__line--bottom{bottom:11px}.tf-moving-dot-card__line--left,.tf-moving-dot-card__line--right{top:14%;bottom:14%;width:1px;background:linear-gradient(180deg,transparent,rgba(219,255,147,.45),transparent)}.tf-moving-dot-card__line--left{left:11px}.tf-moving-dot-card__line--right{right:11px}@media(max-width:640px){.tf-moving-dot-card{min-height:190px;padding:28px 20px;border-radius:20px}.tf-moving-dot-card__value{font-size:clamp(43px,15vw,62px)}.tf-moving-dot-card__label{font-size:10px;letter-spacing:.14em}}@media(prefers-reduced-motion:reduce){.tf-moving-dot-card__orbit,.tf-moving-dot-card__ray{animation:none}.tf-moving-dot-card__orbit{top:11px;right:12px}}
+
 /* The durable server-side deletion action is now the single visible control beside each credit grant. */
 [data-admin-account-row] button[aria-label="Permanently delete account"]:not([title]) { display: none; }
 
