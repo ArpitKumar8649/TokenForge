@@ -4,8 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
+import { TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
 import { coalesceDailyUsage } from "../../../shared/usageSeries";
 import { markApiKeyRevoked, prependCreatedApiKey } from "../../../shared/apiKeyListCache";
+import { FEATURED_MODEL_TOKEN_THRESHOLD, selectFeaturedPlatformModels } from "../../../shared/platformMetrics";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { AlertTriangle, ArrowRight, BarChart3, BookOpen, Check, Clipboard, Code2, Copy, Gift, KeyRound, Loader2, LockKeyhole, Plus, RefreshCw, ShieldCheck, Sparkles, Terminal, Trash2, Users, X } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
@@ -149,6 +151,26 @@ function OverviewQuickStart() {
   </section>;
 }
 
+function PlatformUsageMetrics() {
+  const metrics = trpc.public.modelTokenMetrics.useQuery(undefined, {
+    refetchInterval: 15_000,
+    staleTime: 10_000,
+    refetchOnWindowFocus: true,
+  });
+  const featuredModels = useMemo(() => selectFeaturedPlatformModels(TOKENFORGE_MODELS, metrics.data?.byModel ?? {}), [metrics.data?.byModel]);
+  const totalTokens = metrics.data?.totalTokens ?? 0;
+  const refreshedAt = metrics.dataUpdatedAt ? new Date(metrics.dataUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : null;
+
+  return <section className="overflow-hidden rounded-2xl border border-[#79e8ef]/20 bg-[radial-gradient(circle_at_95%_0%,rgba(121,232,239,.12),transparent_38%),linear-gradient(135deg,rgba(14,24,33,.96),rgba(18,19,26,.96))] p-5 sm:p-6" aria-labelledby="platform-usage-title">
+    <div className="flex flex-col gap-4 border-b border-white/10 pb-5 sm:flex-row sm:items-end sm:justify-between">
+      <div><div className="flex items-center gap-2 text-[#8df1f5]"><span className="relative flex h-2.5 w-2.5"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#79e8ef] opacity-50" /><span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#79e8ef]" /></span><p className="text-[10px] font-bold uppercase tracking-[.18em]">Live platform activity</p></div><h2 id="platform-usage-title" className="mt-2 text-xl font-bold tracking-[-.025em] text-white sm:text-2xl">{totalTokens.toLocaleString("en-US")} <span className="text-base font-semibold text-[#a8c8ca]">tokens processed</span></h2><p className="mt-2 max-w-2xl text-xs leading-5 text-[#a9bcc1]">Exact lifetime successful-token total across TokenForge. Refreshes automatically every 15 seconds while this overview is open.</p></div>
+      <div className="flex items-center gap-2 self-start rounded-full border border-[#79e8ef]/20 bg-[#79e8ef]/[.07] px-3 py-1.5 font-mono text-[10px] text-[#b6f7f8] sm:self-auto"><RefreshCw size={12} className={metrics.isFetching ? "animate-spin" : ""} />{metrics.isFetching ? "Refreshing" : refreshedAt ? `Updated ${refreshedAt}` : "Connecting"}</div>
+    </div>
+    <div className="mt-5 flex flex-wrap items-end justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.16em] text-[#9da0af]">Featured models</p><p className="mt-1 text-sm font-semibold text-white">Models with ≥ {FEATURED_MODEL_TOKEN_THRESHOLD.toLocaleString("en-US")} tokens processed</p></div><Link href="/dashboard/models" className="dashboard-outline-action">Explore models <ArrowRight size={14} /></Link></div>
+    {metrics.isLoading ? <div className="grid min-h-32 place-items-center"><Loader2 className="animate-spin text-[#79e8ef]" size={20} /></div> : featuredModels.length ? <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{featuredModels.map(model => <Link href={`/dashboard/models/${model.id}`} key={model.id} className="group rounded-xl border border-white/10 bg-black/15 p-4 transition-colors hover:border-[#79e8ef]/35 hover:bg-[#79e8ef]/[.045]"><div className="flex items-start justify-between gap-3"><div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-[#79e8ef]/20 bg-[#79e8ef]/[.08] text-xs font-black text-[#aaf7f8]">{model.providerMark}</div><span className="rounded-full bg-[#79e8ef]/10 px-2 py-1 font-mono text-[9px] font-bold text-[#aaf7f8]">FEATURED</span></div><h3 className="mt-4 truncate text-sm font-bold text-white">{model.name}</h3><p className="mt-1 text-[10px] text-[#a1b5ba]">{model.provider}</p><p className="mt-4 font-mono text-lg font-bold tabular-nums text-[#d0fbfb]">{model.totalTokens.toLocaleString("en-US")}</p><p className="mt-1 text-[10px] text-[#8fa5aa]">exact tokens processed</p></Link>)}</div> : <div className="mt-4 rounded-xl border border-dashed border-white/15 bg-black/10 px-4 py-6 text-center"><p className="text-sm font-semibold text-white">No models have crossed 100 million tokens yet.</p><p className="mt-1 text-xs leading-5 text-[#99adb1]">Featured models appear here automatically when their exact platform-wide token total reaches the threshold.</p></div>}
+  </section>;
+}
+
 function Overview({ user, loading, usage }: { user: ReturnType<typeof useAuth>["user"]; loading: boolean; usage: { data?: UsageData; isLoading: boolean } }) {
   const quota = usage.data?.quota;
   if (loading || usage.isLoading) return <div className="dashboard-loading-panel"><Loader2 className="animate-spin" /></div>;
@@ -159,6 +181,7 @@ function Overview({ user, loading, usage }: { user: ReturnType<typeof useAuth>["
       <div className="dashboard-allowance-card"><div className="dashboard-panel-kicker"><span><i /> GATEWAY STATUS</span><Badge className={quota?.suspended ? "border-0 bg-red-400/10 text-red-300" : "border-0 bg-[#befe6c]/10 text-[#cbff8b]"}>{quota?.suspended ? "Suspended" : "Active"}</Badge></div><h2>Request without platform caps.</h2><p>TokenForge does not apply per-minute, daily, or concurrent-request admission limits. Usage remains logged and settled against your credit balance.</p><div className="usage-ring-grid"><UsageRing label="Lifetime requests" used={usage.data?.totalRequests ?? 0} limit={Math.max(1, usage.data?.totalRequests ?? 1)} /><UsageRing label="Tokens processed" used={usage.data?.totalTokens ?? 0} limit={Math.max(1, usage.data?.totalTokens ?? 1)} tone="cyan" /></div></div>
       <div className="dashboard-posture-card"><div className="dashboard-panel-kicker"><span><Sparkles size={12} /> GATEWAY POSTURE</span></div><h2>Built to stay legible.</h2><p>Make simultaneous requests without TokenForge request-rate or concurrency caps.</p><div className="dashboard-posture-list"><span><ShieldCheck size={15} /> Keys protected as one-way hashes</span><span><Check size={15} /> No platform request or concurrency cap</span><span><Check size={15} /> Credit balance, maintenance, and model availability still apply</span></div><Link href="/dashboard/playground" className="dashboard-primary-link">Open Playground <ArrowRight size={15} /></Link></div>
     </section>
+    <PlatformUsageMetrics />
     <OverviewQuickStart />
     <section className="dashboard-usage-panel"><div className="dashboard-section-head"><div><p>REQUEST TELEMETRY</p><h2>Transparent activity</h2><span>Inspect model, source, token counts, and promotional-credit charge for each request.</span></div><Link href="/dashboard/usage" className="dashboard-outline-action">Usage logs <ArrowRight size={14} /></Link></div><UsageChart daily={usage.data?.daily ?? []} /></section>
     <section className="dashboard-next-section"><div className="dashboard-section-head"><div><p>BUILD WITH INTENT</p><h2>Your next useful move</h2><span>Everything needed to go from a fresh account to a measured request.</span></div></div><div className="dashboard-next-grid"><Link href="/dashboard/keys" className="dashboard-next-card"><span><KeyRound size={17} /> 01</span><h3>Create a scoped key</h3><p>Label a credential for your project and see it exactly once.</p><b>Manage keys <ArrowRight size={14} /></b></Link><Link href="/dashboard/playground" className="dashboard-next-card"><span><Terminal size={17} /> 02</span><h3>Shape a first prompt</h3><p>Test GLM-5.2 or Grok 4.5 inside the protected Playground.</p><b>Open Playground <ArrowRight size={14} /></b></Link><Link href="/docs" className="dashboard-next-card"><span><Code2 size={17} /> 03</span><h3>Ship the connection</h3><p>Copy a familiar OpenAI-compatible request into your client.</p><b>Read the docs <ArrowRight size={14} /></b></Link></div></section>
