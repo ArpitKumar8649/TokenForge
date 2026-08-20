@@ -7,9 +7,12 @@ import {
 	TOKENFORGE_REFERRAL_REWARD_NANOS,
 	TOKENFORGE_REFERRAL_REWARD_USD,
 	SPECIAL_REFERRAL_CAMPAIGN_CODE,
+	SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_HANDLE,
+	SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_URL,
 	buildReferralInviteUrl,
 	buildSpecialReferralCampaignUrl,
 	isSpecialReferralCampaignCode,
+	normalizeReferralCampaignCode,
 	normalizeReferralCode,
 } from "../shared/referrals";
 
@@ -48,7 +51,7 @@ describe("TokenForge referrals", () => {
     expect(dbSource).toContain("await awardReferralForNewUser(userId, input.referralCode)");
     expect(routerSource).not.toContain("referralCode: z.string().trim().max(100).optional()");
     expect(routerSource).toContain("getReferralOverview(ctx.user.id)");
-    expect(oauthSource).toContain("normalizeReferralCode(cookies[GITHUB_REFERRAL_COOKIE])");
+    expect(oauthSource).toContain("normalizeReferralCampaignCode(cookies[GITHUB_REFERRAL_COOKIE])");
     expect(oauthSource).toContain("resolveGitHubIdentity({ ...identity, referralCode })");
     expect(dbSource).toContain("AFFILIATE_CODE_ALPHABET");
     expect(dbSource).toContain("randomInt(AFFILIATE_CODE_ALPHABET.length)");
@@ -59,21 +62,26 @@ describe("TokenForge referrals", () => {
 	it("captures `aff` separately from pathname routing and preserves it for GitHub sign-in", () => {
     expect(clientSource).toContain("import { Link, useSearch } from \"wouter\"");
     expect(clientSource).toContain("const search = useSearch()");
-    expect(clientSource).toContain("normalizeReferralCode(new URLSearchParams(search).get(\"aff\"))");
+		expect(clientSource).toContain("normalizeReferralCampaignCode(new URLSearchParams(search).get(\"aff\"))");
     expect(clientSource).toContain("const referralQuery = referralCode ? `?aff=${encodeURIComponent(referralCode)}` : \"\";");
     expect(clientSource).not.toContain("register.mutateAsync({ email, password, name: name || undefined, referralCode })");
     expect(clientSource).toContain("window.location.assign(`/api/auth/github${referralQuery}`)");
-    expect(oauthSource).toContain('getQueryParam(req, "aff")');
+		expect(oauthSource).toContain("normalizeReferralCampaignCode(getQueryParam(req, \"aff\"))");
     expect(appSource).toContain('<Route path={"/sign-up"}>{() => <LocalAuth mode="signup" />}</Route>');
 		expect(mainSource).toContain('window.location.pathname !== "/sign-up"');
 	});
 
 	it("builds a reusable special campaign link without treating it as a normal affiliate code", () => {
 		expect(SPECIAL_REFERRAL_CAMPAIGN_CODE).toBe("bonus150");
-		expect(buildSpecialReferralCampaignUrl()).toBe("https://tokengate-cqt9ivzs.manus.space/sign-up?aff=bonus150");
+		expect(SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_HANDLE).toBe("@AmirSNet");
+		expect(SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_URL).toBe("https://t.me/AmirSNet");
+		expect(buildSpecialReferralCampaignUrl()).toBe("https://tokengate-cqt9ivzs.manus.space/sign-up?aff=bonus150&via=telegram&contact=AmirSNet");
 		expect(isSpecialReferralCampaignCode(" BONUS150 ")).toBe(true);
 		expect(isSpecialReferralCampaignCode("bonus151")).toBe(false);
 		expect(normalizeReferralCode(SPECIAL_REFERRAL_CAMPAIGN_CODE)).toBeUndefined();
+		expect(normalizeReferralCampaignCode(SPECIAL_REFERRAL_CAMPAIGN_CODE)).toBe(SPECIAL_REFERRAL_CAMPAIGN_CODE);
+		expect(normalizeReferralCampaignCode(" A7XP ")).toBe("a7xp");
+		expect(clientSource).toContain("Campaign contact: {SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_HANDLE}");
 	});
 
 	it("reserves no more than 150 special slots and credits the bonus exactly once after Discord verification", () => {

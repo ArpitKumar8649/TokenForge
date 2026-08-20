@@ -4,6 +4,8 @@ export const TOKENFORGE_REFERRAL_REWARD_NANOS = TOKENFORGE_REFERRAL_REWARD_USD *
 export const TOKENFORGE_AFFILIATE_CODE_LENGTH = 4;
 /** Public reusable campaign marker; it deliberately does not identify an existing user. */
 export const SPECIAL_REFERRAL_CAMPAIGN_CODE = "bonus150";
+export const SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_HANDLE = "@AmirSNet";
+export const SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_URL = "https://t.me/AmirSNet";
 
 /** Affiliate codes are compact, lowercase, case-insensitive identifiers. Invalid input is ignored rather than persisted. */
 export function normalizeReferralCode(value: string | null | undefined) {
@@ -15,10 +17,15 @@ export function isSpecialReferralCampaignCode(value: string | null | undefined) 
   return value?.trim().toLowerCase() === SPECIAL_REFERRAL_CAMPAIGN_CODE;
 }
 
+/** Accepts either a standard four-character affiliate code or the public special campaign marker. */
+export function normalizeReferralCampaignCode(value: string | null | undefined) {
+  return normalizeReferralCode(value) ?? (isSpecialReferralCampaignCode(value) ? SPECIAL_REFERRAL_CAMPAIGN_CODE : undefined);
+}
+
 export function buildReferralInviteUrl(code: string) {
   return `${TOKENFORGE_PUBLIC_ORIGIN}/sign-up?aff=${encodeURIComponent(code)}`;
 }
 
 export function buildSpecialReferralCampaignUrl() {
-  return `${TOKENFORGE_PUBLIC_ORIGIN}/sign-up?aff=${SPECIAL_REFERRAL_CAMPAIGN_CODE}`;
+  return `${TOKENFORGE_PUBLIC_ORIGIN}/sign-up?aff=${SPECIAL_REFERRAL_CAMPAIGN_CODE}&via=telegram&contact=AmirSNet`;
 }

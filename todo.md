@@ -380,3 +380,4 @@
 - [x] Integrate a scoped, responsive glass-shine treatment around the live Platform Activity token metric without changing the underlying aggregate data or featured-model thresholds.
 - [x] Add a scoped, responsive moving-dot statistic card to the bottom of the landing page using truthful platform aggregate data and reduced-motion support.
 - [x] Remove the experimental moving-dot card from the landing page and relocate its reduced-dot treatment to the live Platform Activity token metric in the user dashboard overview.
+- [x] Add the supplied Telegram contact link (`https://t.me/AmirSNet`) to the special referral campaign experience without changing the existing campaign eligibility, cap, or bonus.

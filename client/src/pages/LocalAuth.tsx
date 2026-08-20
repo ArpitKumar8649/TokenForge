@@ -1,6 +1,11 @@
 import { TokenForgeGlyph } from "@/components/TokenForgeGlyph";
 import { Button } from "@/components/ui/button";
-import { normalizeReferralCode } from "@shared/referrals";
+import {
+  isSpecialReferralCampaignCode,
+  normalizeReferralCampaignCode,
+  SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_HANDLE,
+  SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_URL,
+} from "@shared/referrals";
 import { Github, KeyRound, ShieldCheck } from "lucide-react";
 import { Link, useSearch } from "wouter";
 import "../auth-refresh.css";
@@ -10,7 +15,8 @@ type LocalAuthProps = { mode: "signin" | "signup" };
 export default function LocalAuth({ mode }: LocalAuthProps) {
   const search = useSearch();
   const isSignup = mode === "signup";
-  const referralCode = isSignup ? normalizeReferralCode(new URLSearchParams(search).get("aff")) : undefined;
+  const referralCode = isSignup ? normalizeReferralCampaignCode(new URLSearchParams(search).get("aff")) : undefined;
+  const isSpecialReferralCampaign = isSpecialReferralCampaignCode(referralCode);
   const referralQuery = referralCode ? `?aff=${encodeURIComponent(referralCode)}` : "";
   const githubOutcome = new URLSearchParams(window.location.search).get("github");
   const githubError = githubOutcome === "account-too-new"
@@ -30,7 +36,7 @@ export default function LocalAuth({ mode }: LocalAuthProps) {
     </section>
     <section className="local-auth-form-panel"><div className="local-auth-form-wrap">
       <div className="local-auth-form__heading"><p>TokenForge access</p><h2>Continue with GitHub.</h2><span>GitHub is the only sign-in method. Accounts must be at least 14 days old and provide a verified permanent email address.</span></div>
-      {isSignup && referralCode && <aside className="local-auth-referral-notice" aria-label="Referral invitation"><strong>You were invited to TokenForge.</strong><p>Continue with GitHub and we will validate this invitation. Eligible new members receive a <b>$10 referral credit</b>.</p><a href="https://discord.gg/pnsWamDbe" target="_blank" rel="noopener noreferrer">Join the TokenForge Discord community <span aria-hidden="true">↗</span></a></aside>}
+      {isSignup && referralCode && <aside className="local-auth-referral-notice" aria-label="Referral invitation"><strong>{isSpecialReferralCampaign ? "You unlocked the special TokenForge invitation." : "You were invited to TokenForge."}</strong><p>{isSpecialReferralCampaign ? <>Continue with GitHub, verify Discord, and receive the <b>$150 special referral bonus</b> while campaign slots remain.</> : <>Continue with GitHub and we will validate this invitation. Eligible new members receive a <b>$10 referral credit</b>.</>}</p><a href="https://discord.gg/pnsWamDbe" target="_blank" rel="noopener noreferrer">Join the TokenForge Discord community <span aria-hidden="true">↗</span></a>{isSpecialReferralCampaign && <a href={SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_URL} target="_blank" rel="noopener noreferrer">Campaign contact: {SPECIAL_REFERRAL_CAMPAIGN_TELEGRAM_HANDLE} <span aria-hidden="true">↗</span></a>}</aside>}
       <Button type="button" className="mt-7 h-12 w-full bg-[#ffcf8d] text-[#2a1b40] hover:bg-[#ffe0ae]" onClick={() => window.location.assign(`/api/auth/github${referralQuery}`)}><Github size={18} /> Continue with GitHub</Button>
       {githubError && <p className="local-auth-error mt-3" role="alert">{githubError}</p>}
       <p className="mt-4 text-center text-[10px] leading-5 text-[#86879a]">TokenForge requests only GitHub profile and verified-email permission. It does not request repository access.</p>
