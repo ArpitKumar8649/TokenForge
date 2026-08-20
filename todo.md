@@ -63,6 +63,8 @@
 - [x] Add licensed or generated model-specific visual backdrops for GLM-5.2 and Grok 4.5 catalogue cards without implying provider endorsement.
 - [x] Test, visually verify desktop and mobile public/dashboard/model surfaces, and checkpoint the unified interface update.
 - [x] Save a checkpoint preserving the verified unified TokenForge branding, navigation, dashboard shell, and model catalogue update.
+- [x] Add a database-backed public maintenance countdown with administrator duration and note controls.
+- [x] Show the shared announcement and maintenance countdown on authentication, Discord verification, and fallback public route shells.
 - [x] Research and document a verifiable pricing basis for GLM-5.2 and Grok 4.5 before enabling any TokenForge cost calculations.
 - [x] Add secure account credit balances, immutable credit-ledger entries, a $50 introductory balance for new accounts, and balance safeguards for gateway requests.
 - [x] Replace the basic usage panel with a filterable detailed request-log workspace that shows date, source, model, stream mode, input/output tokens, and the calculated credit charge without inventing log data.
@@ -382,3 +384,4 @@
 - [x] Remove the experimental moving-dot card from the landing page and relocate its reduced-dot treatment to the live Platform Activity token metric in the user dashboard overview.
 - [x] Add the supplied Telegram contact link (`https://t.me/AmirSNet`) to the special referral campaign experience without changing the existing campaign eligibility, cap, or bonus.
 - [x] Remove the mistakenly added Telegram content from the special-referral UI and retain `AmirSNet` only as a non-functional attribution label in the shareable referral URL.
+- [x] Add administrator-configurable maintenance duration and note controls, with a persisted public days/hours/minutes/seconds countdown beneath the announcement banner.

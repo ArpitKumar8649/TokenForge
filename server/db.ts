@@ -51,6 +51,7 @@ const EMAIL_ALLOWLIST_SETTING_KEY = "email_allowlist";
 const ANNOUNCEMENT_TEXT_SETTING_KEY = "announcement_text";
 const SESSION_VERSION_SETTING_KEY = "auth_session_version";
 const PLATFORM_MAINTENANCE_SETTING_KEY = "platform_maintenance";
+const MAINTENANCE_COUNTDOWN_SETTING_KEY = "maintenance_countdown_v1";
 const CLAUDE_FABLE5_NVIDIA_RUNTIME_SETTING_KEY = "claude_fable5_nvidia_runtime_v1";
 const CLAUDE_OPUS5_TOKENREPLY_RUNTIME_SETTING_KEY = "claude_opus5_tokenreply_runtime_v1";
 const SPECIAL_REFERRAL_CAMPAIGN_KEY = "special-referral-150-v1";
@@ -141,6 +142,38 @@ export async function setPlatformMaintenanceConfig(enabled: boolean, updatedByUs
     updatedByUserId,
   }).onDuplicateKeyUpdate({ set: { value: enabled ? "enabled" : "disabled", updatedByUserId, updatedAt: new Date() } });
   return getPlatformMaintenanceConfig();
+}
+
+export type MaintenanceCountdown = { endsAt: number; note: string } | null;
+
+/** Reads the active public maintenance countdown. Expired or malformed settings are intentionally unpublished. */
+export async function getMaintenanceCountdown(): Promise<MaintenanceCountdown> {
+  const db = await getDb();
+  if (!db) return null;
+  const record = (await db.select({ value: platformSettings.value }).from(platformSettings)
+    .where(eq(platformSettings.settingKey, MAINTENANCE_COUNTDOWN_SETTING_KEY)).limit(1))[0];
+  if (!record?.value) return null;
+  try {
+    const parsed = JSON.parse(record.value) as { endsAt?: unknown; note?: unknown };
+    const endsAt = Number(parsed.endsAt);
+    if (!Number.isFinite(endsAt) || endsAt <= Date.now()) return null;
+    return { endsAt, note: String(parsed.note ?? "").trim().slice(0, 200) };
+  } catch {
+    return null;
+  }
+}
+
+/** Starts a countdown from an administrator-provided duration, or clears the public timer when input is null. */
+export async function setMaintenanceCountdown(input: { durationMs: number; note: string } | null, updatedByUserId: number): Promise<MaintenanceCountdown> {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const value = input === null ? "" : JSON.stringify({
+    endsAt: Date.now() + Math.max(0, Math.trunc(input.durationMs)),
+    note: input.note.trim().slice(0, 200),
+  });
+  await db.insert(platformSettings).values({ settingKey: MAINTENANCE_COUNTDOWN_SETTING_KEY, value, updatedByUserId })
+    .onDuplicateKeyUpdate({ set: { value, updatedByUserId, updatedAt: new Date() } });
+  return getMaintenanceCountdown();
 }
 
 async function consumeDiscordUnverifiedCleanupNotice(emailInput: string) {

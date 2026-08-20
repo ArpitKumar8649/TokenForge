@@ -1,5 +1,7 @@
 import { TokenForgeGlyph } from "@/components/TokenForgeGlyph";
 import { Button } from "@/components/ui/button";
+import { AnnouncementBanner } from "@/components/AnnouncementBanner";
+import { MaintenanceCountdownBanner } from "@/components/MaintenanceCountdownBanner";
 import {
   isSpecialReferralCampaignCode,
   normalizeReferralCampaignCode,
@@ -23,7 +25,7 @@ export default function LocalAuth({ mode }: LocalAuthProps) {
       ? "Use a verified permanent GitHub email address to continue."
       : githubOutcome ? "GitHub sign-in could not be completed. Please try again." : null;
 
-  return <main className="local-auth-page">
+  return <><AnnouncementBanner /><MaintenanceCountdownBanner /><main className="local-auth-page">
     <section className="local-auth-showcase" aria-label="TokenForge workspace introduction">
       <Link href="/" className="local-auth-brand"><TokenForgeGlyph className="local-auth-brand__glyph" /><span>Token<span>Forge</span></span></Link>
       <div className="local-auth-showcase__center">
@@ -40,5 +42,5 @@ export default function LocalAuth({ mode }: LocalAuthProps) {
       <p className="mt-4 text-center text-[10px] leading-5 text-[#86879a]">TokenForge requests only GitHub profile and verified-email permission. It does not request repository access.</p>
       <Link href="/" className="local-auth-back">← Back to TokenForge</Link>
     </div></section>
-  </main>;
+  </main></>;
 }

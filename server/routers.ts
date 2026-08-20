@@ -38,6 +38,7 @@ import {
   getAdminAuditExport,
   getAuthSessionVersion,
   getPlatformMaintenanceConfig,
+  getMaintenanceCountdown,
   listAdminAuditEvents,
   countDiscordUnverifiedAccounts,
   deleteDiscordUnverifiedAccounts,
@@ -50,6 +51,7 @@ import {
   getSpecialReferralCampaignAdminOverview,
   resetDiscordVerification,
   setPlatformMaintenanceConfig,
+  setMaintenanceCountdown,
   getOrCreateAdminSessionPrincipal,
   replaceOrcaRouterCredentialPool,
   getClaudeFable5NvidiaProviderSettings,
@@ -115,6 +117,10 @@ const discordVerificationResetInput = z.object({
   }
 });
 const announcementInput = z.object({ text: z.string().max(500, "Announcements must be 500 characters or fewer") });
+const maintenanceCountdownInput = z.object({
+  durationMs: z.number().int().min(1_000, "Choose a countdown duration of at least one second").max(30 * 24 * 60 * 60 * 1_000, "Maintenance countdowns can be no longer than 30 days"),
+  note: z.string().trim().max(200, "Maintenance notes must be 200 characters or fewer"),
+}).nullable();
 const orcaRouterCredentialPoolInput = z.object({
   credentials: z.array(z.string().trim().min(20, "Enter a complete OrcaRouter credential").max(512)).length(ORCA_ROUTER_CREDENTIAL_POOL_SIZE, `Provide exactly ${ORCA_ROUTER_CREDENTIAL_POOL_SIZE} OrcaRouter credentials`),
 });
@@ -157,6 +163,7 @@ export const appRouter = router({
   public: router({
     modelTokenMetrics: publicProcedure.query(() => getPublicModelTokenMetrics()),
     announcement: publicProcedure.query(() => getAnnouncementText()),
+    maintenanceCountdown: publicProcedure.query(() => getMaintenanceCountdown()),
   }),
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -314,6 +321,18 @@ export const appRouter = router({
       const maintenance = await setPlatformMaintenanceConfig(input.enabled, ctx.user.id);
       await writeAuditEvent({ actorUserId: ctx.user.id, action: input.enabled ? "platform.maintenance.enabled" : "platform.maintenance.disabled", entityType: "platform_setting", entityId: "platform_maintenance" });
       return maintenance;
+    }),
+    maintenanceCountdown: adminProcedure.query(() => getMaintenanceCountdown()),
+    setMaintenanceCountdown: adminProcedure.input(maintenanceCountdownInput).mutation(async ({ ctx, input }) => {
+      const countdown = await setMaintenanceCountdown(input, ctx.user.id);
+      await writeAuditEvent({
+        actorUserId: ctx.user.id,
+        action: input ? "platform.maintenance_countdown.started" : "platform.maintenance_countdown.cleared",
+        entityType: "platform_setting",
+        entityId: "maintenance_countdown_v1",
+        metadata: input ? { durationMs: input.durationMs } : undefined,
+      });
+      return countdown;
     }),
     discordVerifiedGiveawayRecipients: adminProcedure.query(async () => ({ count: await countDiscordVerifiedAccounts() })),
     giveawayHistory: adminProcedure.query(() => listCreditGiveawayHistory()),

@@ -28,6 +28,7 @@ import { TOKENFORGE_POST_LOGOUT_PATH } from "../../../shared/authNavigation";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { LoginWelcomeTour } from "./LoginWelcomeTour";
 import { AnnouncementBanner } from "./AnnouncementBanner";
+import { MaintenanceCountdownBanner } from "./MaintenanceCountdownBanner";
 import { TokenForgeGlyph } from "./TokenForgeGlyph";
 import DiscordVerify from "@/pages/DiscordVerify";
 import "./dashboard-shell.css";
@@ -281,6 +282,7 @@ function DashboardLayoutContent({
           </div>
         </header>
         <AnnouncementBanner />
+        <MaintenanceCountdownBanner />
         <main className="dashboard-main">{children}</main>
         <footer className="dashboard-footer">
           <div><TokenForgeGlyph className="dashboard-footer__glyph" /><span>Token<span>Forge</span> developer workspace</span></div>

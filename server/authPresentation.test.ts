@@ -30,4 +30,10 @@ describe("TokenForge authentication presentation", () => {
     expect(authStyles).toContain("@media (max-width: 900px)");
     expect(authStyles).toContain("@media (max-width: 520px)");
   });
+
+  it("renders the shared announcement and maintenance countdown before the auth flow", () => {
+    expect(authPage).toContain('import { AnnouncementBanner } from "@/components/AnnouncementBanner"');
+    expect(authPage).toContain('import { MaintenanceCountdownBanner } from "@/components/MaintenanceCountdownBanner"');
+    expect(authPage).toContain("<AnnouncementBanner /><MaintenanceCountdownBanner /><main className=\"local-auth-page\">");
+  });
 });

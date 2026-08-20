@@ -12,6 +12,13 @@ describe("Discord verification and administrator entry presentation", () => {
     expect(verificationPage).not.toContain("ExternalLink");
   });
 
+  it("shows the shared announcement and maintenance countdown in every verification state", () => {
+    expect(verificationPage).toContain('import { AnnouncementBanner } from "@/components/AnnouncementBanner"');
+    expect(verificationPage).toContain('import { MaintenanceCountdownBanner } from "@/components/MaintenanceCountdownBanner"');
+    expect(verificationPage).toContain("function SystemNotices()");
+    expect(verificationPage).toContain("<SystemNotices /><main");
+  });
+
   it("renders the passcode unlock surface independently of a TokenForge user session", () => {
     expect(administratorPage).toContain("Administrator access is independent of a TokenForge developer account");
     expect(administratorPage).toContain("if (!isAdminSession)");

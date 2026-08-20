@@ -1,5 +1,7 @@
 import { TokenForgeGlyph } from "@/components/TokenForgeGlyph";
 import { Link, useLocation } from "wouter";
+import { AnnouncementBanner } from "./AnnouncementBanner";
+import { MaintenanceCountdownBanner } from "./MaintenanceCountdownBanner";
 
 const navItems = [
   { href: "/models", label: "Models" },
@@ -12,6 +14,7 @@ export function PublicNav() {
   const [location] = useLocation();
 
   return (
+    <>
     <header className="public-nav">
       <div className="public-nav__inner">
         <div className="public-nav__cluster">
@@ -37,5 +40,8 @@ export function PublicNav() {
         </div>
       </div>
     </header>
+    <AnnouncementBanner />
+    <MaintenanceCountdownBanner />
+    </>
   );
 }

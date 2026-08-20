@@ -31,6 +31,7 @@ vi.mock("./db", () => ({
   countDiscordVerifiedAccounts: vi.fn(),
   getAuthSessionVersion: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
+  getMaintenanceCountdown: vi.fn(),
   countDiscordUnverifiedAccounts: vi.fn(),
   deleteDiscordUnverifiedAccounts: vi.fn(),
   getUsageLogs: vi.fn(),
@@ -48,6 +49,7 @@ vi.mock("./db", () => ({
   setAccountControl: vi.fn(),
   setEmailAllowlistConfig: vi.fn(),
   setPlatformMaintenanceConfig: vi.fn(),
+  setMaintenanceCountdown: vi.fn(),
   setModelEnabled: vi.fn(),
   setProviderEnabled: vi.fn(),
   writeAuditEvent: vi.fn(),
@@ -85,6 +87,7 @@ import {
   countDiscordVerifiedAccounts,
   getAuthSessionVersion,
   getPlatformMaintenanceConfig,
+  getMaintenanceCountdown,
   countDiscordUnverifiedAccounts,
   deleteDiscordUnverifiedAccounts,
   DiscordUnverifiedAccountDeletedError,
@@ -94,6 +97,7 @@ import {
   getOrCreateAdminSessionPrincipal,
   setEmailAllowlistConfig,
   setPlatformMaintenanceConfig,
+  setMaintenanceCountdown,
   setProviderEnabled,
   writeAuditEvent,
 } from "./db";
@@ -144,6 +148,8 @@ beforeEach(() => {
   vi.mocked(getAuthSessionVersion).mockResolvedValue(3);
   vi.mocked(getPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
   vi.mocked(setPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
+  vi.mocked(getMaintenanceCountdown).mockResolvedValue(null);
+  vi.mocked(setMaintenanceCountdown).mockResolvedValue(null);
   vi.mocked(countDiscordUnverifiedAccounts).mockResolvedValue(3);
   vi.mocked(deleteDiscordUnverifiedAccounts).mockResolvedValue({ deletedCount: 3 });
   vi.mocked(revokeAllTokenForgeSessions).mockResolvedValue(4);
@@ -390,6 +396,23 @@ describe("protected administrator account directory", () => {
     vi.mocked(getPlatformMaintenanceConfig).mockResolvedValueOnce({ enabled: true, updatedAt: new Date("2026-08-17T00:00:00.000Z") });
     await expect(appRouter.createCaller(makeContext(admin).ctx).admin.setPlatformMaintenance({ enabled: true })).resolves.toMatchObject({ enabled: true });
     expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, action: "platform.maintenance.enabled", entityType: "platform_setting" }));
+  });
+
+  it("exposes, starts, validates, and clears a public maintenance countdown through administrator-only controls", async () => {
+    const admin = { ...localUser, id: 1, isAdminSession: true };
+    const active = { endsAt: Date.now() + 16 * 60 * 60 * 1_000, note: "Site under maintenance" };
+    vi.mocked(getMaintenanceCountdown).mockResolvedValue(active);
+    vi.mocked(setMaintenanceCountdown).mockResolvedValueOnce(active).mockResolvedValueOnce(null);
+
+    await expect(appRouter.createCaller(makeContext().ctx).public.maintenanceCountdown()).resolves.toEqual(active);
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.setMaintenanceCountdown({ durationMs: 16 * 60 * 60 * 1_000, note: "  Site under maintenance  " })).resolves.toEqual(active);
+    expect(setMaintenanceCountdown).toHaveBeenCalledWith({ durationMs: 16 * 60 * 60 * 1_000, note: "Site under maintenance" }, 1);
+    expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, action: "platform.maintenance_countdown.started", entityId: "maintenance_countdown_v1", metadata: { durationMs: 16 * 60 * 60 * 1_000 } }));
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.setMaintenanceCountdown(null)).resolves.toBeNull();
+    expect(setMaintenanceCountdown).toHaveBeenLastCalledWith(null, 1);
+    expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, action: "platform.maintenance_countdown.cleared", entityId: "maintenance_countdown_v1" }));
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.setMaintenanceCountdown({ durationMs: 0, note: "Invalid" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(appRouter.createCaller(makeContext(localUser).ctx).admin.setMaintenanceCountdown({ durationMs: 60_000, note: "Forbidden" })).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
   it("requires the reviewed current count and typed phrase before bulk-deleting Discord-unverified accounts", async () => {
