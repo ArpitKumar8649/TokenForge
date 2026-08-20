@@ -4,6 +4,17 @@
 @import "./brand-unification.css";
 @import "./special-referral-gift.css";
 
+@keyframes ani {
+  0% { transform: translateX(0%) scale(1); }
+  50% { transform: translateX(-100%) scale(.8); }
+  100% { transform: translateX(0%) scale(1); }
+}
+
+@keyframes shine {
+  0% { top: 100%; left: -100%; }
+  50%, 100% { top: 0%; left: 70%; }
+}
+
 /* The durable server-side deletion action is now the single visible control beside each credit grant. */
 [data-admin-account-row] button[aria-label="Permanently delete account"]:not([title]) { display: none; }
 
