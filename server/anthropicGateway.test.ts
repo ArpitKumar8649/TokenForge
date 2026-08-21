@@ -80,12 +80,13 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(translated.messages?.every(message => message.role === "user" || message.role === "assistant")).toBe(true);
   });
 
-  it("translates the supported Claude and GLM 5.3 models through their compatible Chat Completions routes", () => {
+  it("translates the supported Claude, GLM 5.3, and DeepSeek V4 Pro models through their compatible Chat Completions routes", () => {
     expect(isNativeTokenRouterMessagesRequest({ model: "claude-opus-5", system: "Be concise.", messages: [{ role: "user", content: "Hello" }] })).toBe(false);
     expect(isNativeTokenRouterMessagesRequest({ model: "claude-fable-5", system: "Be concise.", messages: [{ role: "user", content: "Hello" }] })).toBe(false);
     expect(translateAnthropicRequest({ model: "claude-opus-5", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "claude-opus-5" });
     expect(translateAnthropicRequest({ model: "claude-fable-5", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "claude-fable-5", reasoning_effort: "xhigh" });
     expect(translateAnthropicRequest({ model: "glm-5.3", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "glm-5.3" });
+    expect(translateAnthropicRequest({ model: "deepseek-v4-pro", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "deepseek-v4-pro" });
     expect(translateAnthropicRequest({ model: "qwen3.8-27b", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "qwen3.8-27b" });
     expect(translateAnthropicRequest({ model: "qwen3.8-max", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "qwen3.8-max" });
     expect(() => translateAnthropicRequest({ model: "glm-5.2", messages: [{ role: "user", content: "Hello" }] })).toThrow(AnthropicBridgeError);
