@@ -35,9 +35,11 @@ describe("LoginWelcomeTour session behavior", () => {
     expect(shouldShowLoginWelcomeTour(laterLogin, firstLogin)).toBe(true);
   });
 
-  it("includes the GLM 5.3 announcement before the required Discord verification step", () => {
+  it("retains only the GLM 5.3 and Discord announcement cards", () => {
     const titles = LOGIN_WELCOME_TOUR_STEPS.map(step => step.title);
-    expect(titles).toContain("GLM 5.3 is available.");
+    expect(titles).toEqual(["GLM 5.3 is available.", "Join the TokenForge Discord."]);
+    expect(titles).not.toContain("Claude Fable 5 is now live.");
+    expect(titles).not.toContain("Qwen 3.8 Max is ready.");
     expect(titles.indexOf("GLM 5.3 is available.")).toBeLessThan(titles.indexOf("Join the TokenForge Discord."));
   });
 });

@@ -402,3 +402,5 @@
 - [x] Add an administrator-configurable timer that activates a platform-wide maintenance pause for Playground and all user API calls at expiry, with a consistent maintenance error and explicit interaction with the existing global model-pause switch.
 - [x] Exempt only matching verified GitHub emails with an administrator pre-provisioned reservation from the 14-day GitHub account-age rule while retaining it for ordinary sign-ins.
 - [x] Exempt only matching verified GitHub emails with an administrator pre-provisioned reservation from the 14-day GitHub account-age rule while retaining it for ordinary sign-ins.
+- [x] Mark activated administrator pre-provisioned accounts as Discord-verified, skip their Discord verification modal and gate, and show that verified status in administrator data.
+- [x] Remove Claude Fable 5 and Qwen 3.8 Max cards from recurring login announcements, retaining only Discord verification and GLM 5.3 cards.

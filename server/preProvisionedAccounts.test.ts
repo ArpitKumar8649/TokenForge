@@ -18,15 +18,19 @@ describe("administrator pre-provisioned accounts", () => {
     expect(provisioner).toContain("introductoryCreditNanos: INTRODUCTORY_CREDIT_NANOS");
   });
 
-  it("claims a pending reservation atomically before settling exactly one reserved welcome credit after GitHub resolution", () => {
+  it("claims a pending reservation atomically before recording trusted Discord verification and settling exactly one reserved welcome credit after GitHub resolution", () => {
     const activation = dbSource.slice(dbSource.indexOf("async function activatePreProvisionedAccount"), dbSource.indexOf("function newReferralCode"));
     const claimIndex = activation.indexOf("const claimed = await tx.update(preProvisionedAccounts)");
+    const verificationIndex = activation.indexOf("discordVerifiedAt: activatedAt");
     const creditIndex = activation.indexOf("await tx.insert(creditAccounts)");
 
     expect(claimIndex).toBeGreaterThan(-1);
+    expect(verificationIndex).toBeGreaterThan(claimIndex);
     expect(creditIndex).toBeGreaterThan(claimIndex);
     expect(activation).toContain("isNull(preProvisionedAccounts.activatedUserId)");
     expect(activation).toContain("if (Number(claimed[0]?.affectedRows ?? 0) !== 1) return false");
+    expect(activation).toContain("tx.insert(accountControls)");
+    expect(activation).toContain("onDuplicateKeyUpdate({ set: { discordVerifiedAt: activatedAt } })");
     expect(activation).toContain('referenceId: `pre-provisioned-introductory:${reservation.id}`');
     expect(dbSource).toContain("const preProvisionedActivation = await activatePreProvisionedAccount(userId, email)");
     expect(dbSource).toContain("preProvisionedActivation ? Promise.resolve() : ensureCreditAccount(userId)");

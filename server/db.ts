@@ -377,7 +377,7 @@ export async function hasPreProvisionedAccountEmail(input: string) {
   return Boolean(reservation);
 }
 
-/** Atomically consumes a matching reservation and grants its reserved introductory credit once. */
+/** Atomically consumes a matching reservation, grants its reserved introductory credit once, and records the administrator-approved Discord-verification exemption. */
 async function activatePreProvisionedAccount(userId: number, email: string) {
   const db = await getDb();
   if (!db) return false;
@@ -390,6 +390,9 @@ async function activatePreProvisionedAccount(userId: number, email: string) {
       .set({ activatedUserId: userId, activatedAt })
       .where(and(eq(preProvisionedAccounts.id, reservation.id), isNull(preProvisionedAccounts.activatedUserId)));
     if (Number(claimed[0]?.affectedRows ?? 0) !== 1) return false;
+    await tx.insert(accountControls)
+      .values({ userId, discordVerifiedAt: activatedAt })
+      .onDuplicateKeyUpdate({ set: { discordVerifiedAt: activatedAt } });
     const currentCreditAccount = (await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).limit(1))[0];
     if (!currentCreditAccount) {
       const creditAmount = Number(reservation.introductoryCreditNanos);

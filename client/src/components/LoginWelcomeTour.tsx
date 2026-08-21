@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ArrowRight, ArrowUpRight, Bot, MessagesSquare, Orbit, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Bot, MessagesSquare } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 const DISCORD_INVITE_URL = "https://discord.gg/pnsWamDbe";
@@ -23,26 +23,6 @@ export function shouldShowLoginWelcomeTour(marker: string, completedMarker: stri
 }
 
 export const LOGIN_WELCOME_TOUR_STEPS = [
-  {
-    eyebrow: "NEW IN THE FORGE",
-    title: "Claude Fable 5 is now live.",
-    description: "A focused route for advanced reasoning, careful coding, streamed completions, and inspectable thinking summaries in the Playground.",
-    detail: "Reasoning · Thinking · Streaming · Coding",
-    icon: Sparkles,
-    accent: "#cbb7ff",
-    iconClassName: "border-[#bda2ff]/35 bg-[#9d79f5]/15 text-[#dfd4ff] shadow-[0_0_0_8px_rgba(157,121,245,.06)]",
-    visual: "fable",
-  },
-  {
-    eyebrow: "AVAILABLE NOW",
-    title: "Qwen 3.8 Max is ready.",
-    description: "Use a high-capacity reasoning route with enforced xhigh reasoning and an expandable Playground thinking view when the provider returns one.",
-    detail: "xhigh reasoning · Messages · Chat Completions",
-    icon: Orbit,
-    accent: "#c9ff73",
-    iconClassName: "border-[#c9ff73]/30 bg-[#c9ff73]/10 text-[#d8ff9c] shadow-[0_0_0_8px_rgba(201,255,115,.05)]",
-    visual: "qwen",
-  },
   {
     eyebrow: "NEW IN THE FORGE",
     title: "GLM 5.3 is available.",
@@ -117,7 +97,7 @@ export function LoginWelcomeTour({ user }: { user: LoginWelcomeUser | null | und
         className="overflow-hidden border-white/10 bg-[#10130f] p-0 text-[#eef3e9] shadow-[0_32px_120px_rgba(0,0,0,.72)] sm:max-w-xl"
       >
         <div className="absolute inset-0 opacity-90" aria-hidden="true">
-          <div className={`absolute -right-14 -top-10 h-60 w-60 rounded-full blur-3xl ${activeStep.visual === "fable" ? "bg-[#9d79f5]/25" : activeStep.visual === "qwen" ? "bg-[#c9ff73]/16" : activeStep.visual === "glm" ? "bg-[#79e2ff]/16" : "bg-[#6172df]/22"}`} />
+          <div className={`absolute -right-14 -top-10 h-60 w-60 rounded-full blur-3xl ${activeStep.visual === "glm" ? "bg-[#79e2ff]/16" : "bg-[#6172df]/22"}`} />
           <div className="absolute -bottom-24 -left-24 h-60 w-60 rounded-full bg-[#fe8e89]/9 blur-3xl" />
           <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,.03)_48%,transparent_100%)]" />
         </div>
