@@ -388,10 +388,10 @@
 - [x] Restore visibility of the maintenance countdown controls on the live administrator Operations page and verify the mobile layout.
 - [x] Replace fixed Claude Opus 5 and Claude Fable 5 API-key slots with secure dynamic add/remove credential pools and variable-length rotation.
 - [x] Validate the supplied OpenAI-compatible endpoint through a temporary local Anthropic translation proxy with Claude Code and tool-use checks, without changing TokenForge routing.
-- [ ] Run an extended isolated Claude Code translation-proxy evaluation for Bash, Edit, parallel tasks, and subagent delegation; document verified results and limitations without changing TokenForge routing.
 - [x] Run an extended isolated Claude Code translation-proxy evaluation for Bash, Edit, parallel tasks, and subagent delegation; document verified results and limitations without changing TokenForge routing.
-- [ ] Compare the incomplete shared-workspace Claude Code subagent workflow using NVIDIA Nemotron 3 Ultra through a temporary local translation bridge, without changing TokenForge routing.
+- [x] Run an extended isolated Claude Code translation-proxy evaluation for Bash, Edit, parallel tasks, and subagent delegation; document verified results and limitations without changing TokenForge routing.
 - [x] Compare the incomplete shared-workspace Claude Code subagent workflow using NVIDIA Nemotron 3 Ultra through a temporary local translation bridge, without changing TokenForge routing.
-- [ ] Run an expanded isolated Nemotron translation-bridge evaluation for multi-file coding, Git, discovery, local server, long context, sustained reliability, and bounded rate-limit behavior; report measurements and limitations without changing TokenForge routing.
+- [x] Compare the incomplete shared-workspace Claude Code subagent workflow using NVIDIA Nemotron 3 Ultra through a temporary local translation bridge, without changing TokenForge routing.
+- [x] Run an expanded isolated Nemotron translation-bridge evaluation for multi-file coding, Git, discovery, local server, long context, sustained reliability, and bounded rate-limit behavior; report measurements and limitations without changing TokenForge routing.
 - [x] Run an expanded isolated Nemotron translation-bridge evaluation for multi-file coding, Git, discovery, local server, long context, sustained reliability, and bounded rate-limit behavior; report measurements and limitations without changing TokenForge routing.
 - [x] Add dynamic encrypted provider configuration for GLM 5.3 and DeepSeek V4 Pro, with a one-model-at-a-time administrator selector and public identity protection in Playground and API forwarding.
