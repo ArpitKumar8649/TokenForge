@@ -166,7 +166,7 @@ export default function Playground() {
             <div className="playground-panel-title"><CircleDollarSign size={15} /><span>Promotional credit</span></div>
             <div className="playground-budget-number"><strong>${creditBalance.toFixed(2)}</strong><span>available to use</span></div>
             <div className="playground-meter"><i style={{ width: `${Math.min(100, Math.max(5, (creditBalance / 50) * 100))}%` }} /></div>
-            <div className="playground-budget-stat"><span><Sparkles size={13} /> Daily calendar check-in</span><strong>+$5.00</strong></div>
+            <div className="playground-budget-stat"><span><Sparkles size={13} /> Daily calendar check-in</span><strong>+$15.00</strong></div>
             <p className="playground-setting-help">Successful requests are debited only from actual provider-reported token usage.</p>
           </section>
 

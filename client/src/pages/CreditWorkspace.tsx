@@ -35,7 +35,7 @@ function WalletHero({ compact = false }: { compact?: boolean }) {
       </div>
       <div className="credit-hero__stats" aria-label="Credit reward details">
         <div><span><Sparkles size={14} /> Starting credit</span><b>$50.00</b><small>for a new wallet</small></div>
-        <div><span><CalendarCheck size={14} /> Daily reward</span><b>+$5.00</b><small>once per UTC day</small></div>
+        <div><span><CalendarCheck size={14} /> Daily reward</span><b>+$15.00</b><small>once per UTC day</small></div>
       </div>
     </section>
   );
@@ -165,7 +165,7 @@ export function Profile() {
   const checkIn = trpc.developer.checkIn.useMutation({
     onSuccess: result => {
       utils.developer.wallet.invalidate();
-      toast.success(result.claimed ? "Daily check-in complete: $5.00 credit added." : "Today’s check-in was already claimed.");
+      toast.success(result.claimed ? "Daily check-in complete: $15.00 credit added." : "Today’s check-in was already claimed.");
     },
     onError: error => toast.error(error.message),
   });
@@ -191,14 +191,14 @@ export function Profile() {
       </section>
       <section className="profile-grid">
         <article className="checkin-card">
-          <div className="checkin-card__heading"><div><p className="credit-kicker"><CalendarDays size={13} /> Daily build ritual</p><h2>Claim your next +$5.</h2><span>Check in once per UTC day to receive non-withdrawable promotional credit for eligible TokenForge usage.</span></div><div className="checkin-reward"><Zap size={16} /><b>+$5</b><small>UTC reward</small></div></div>
+          <div className="checkin-card__heading"><div><p className="credit-kicker"><CalendarDays size={13} /> Daily build ritual</p><h2>Claim your next +$15.</h2><span>Check in once per UTC day to receive non-withdrawable promotional credit for eligible TokenForge usage.</span></div><div className="checkin-reward"><Zap size={16} /><b>+$15</b><small>UTC reward</small></div></div>
           <div className="checkin-calendar" aria-label="Seven day check-in calendar">{days.map(date => { const key = date.toISOString().slice(0, 10); const claimed = checkinDays.has(key); const today = key === wallet.data.today; return <div key={key} className={`checkin-day${today ? " checkin-day--today" : ""}${claimed ? " checkin-day--claimed" : ""}`}><small>{date.toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" }).slice(0, 2)}</small><b>{date.getUTCDate()}</b><span>{claimed ? <CheckCircle2 size={13} /> : today ? "Today" : ""}</span></div>; })}</div>
           <div className="checkin-card__action"><div><span>{wallet.data.canCheckIn ? "Ready for today’s reward" : "Today’s reward is already secured"}</span><small>Resets at 00:00 UTC</small></div><Button className="checkin-button" disabled={checkIn.isPending || !wallet.data.canCheckIn} onClick={() => checkIn.mutate()}>{checkIn.isPending ? <Loader2 className="animate-spin" size={16} /> : <CalendarCheck size={16} />}{wallet.data.canCheckIn ? "Check in now" : "Checked in"}</Button></div>
         </article>
         <article className="profile-credit-card">
           <div className="profile-credit-card__top"><span className="profile-credit-card__icon"><CircleDollarSign size={19} /></span><Badge className="credit-status-badge">Available now</Badge></div>
           <p>Promotional credit</p><h2>{formatCreditWhole(wallet.data.balanceNanos)}</h2><span className="profile-credit-card__label">Ready for eligible model usage</span>
-          <div className="profile-credit-card__facts"><div><span>Starting credit</span><b>$50.00</b></div><div><span>Daily reward</span><b>+$5.00</b></div></div>
+          <div className="profile-credit-card__facts"><div><span>Starting credit</span><b>$50.00</b></div><div><span>Daily reward</span><b>+$15.00</b></div></div>
           <p className="profile-credit-card__note">Credit is not cash or a stored-value balance. It cannot be withdrawn, transferred, or exchanged.</p>
         </article>
       </section>

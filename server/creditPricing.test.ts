@@ -12,7 +12,7 @@ import {
 describe("TokenForge promotional credit pricing", () => {
   it("keeps introductory and daily rewards as exact non-floating dollar amounts", () => {
     expect(INTRODUCTORY_CREDIT_NANOS).toBe(50 * NANODOLLARS_PER_DOLLAR);
-    expect(DAILY_CHECKIN_CREDIT_NANOS).toBe(5 * NANODOLLARS_PER_DOLLAR);
+    expect(DAILY_CHECKIN_CREDIT_NANOS).toBe(15 * NANODOLLARS_PER_DOLLAR);
   });
 
   it("applies the 1.5× platform charge to model-specific input and output settlement in integer nanodollars", () => {
