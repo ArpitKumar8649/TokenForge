@@ -23,6 +23,7 @@ import {
   orcaRouterCredentialSlots,
   passwordCredentials,
   platformSettings,
+  providerKeyMetrics,
   providerConfigs,
   referralAttributions,
   referralCodes,
@@ -1295,6 +1296,81 @@ export async function updateDeepseekV4ProProviderSettings(input: { baseUrl?: str
   return getDeepseekV4ProProviderSettings();
 }
 
+export const MANAGED_PROVIDER_METRIC_MODEL_IDS = ["claude-fable-5", "claude-opus-5", "glm-5.3", "deepseek-v4-pro"] as const;
+export type ManagedProviderMetricModel = typeof MANAGED_PROVIDER_METRIC_MODEL_IDS[number];
+
+export function managedProviderCredentialFingerprint(modelId: ManagedProviderMetricModel, credential: string) {
+  const secret = process.env.JWT_SECRET?.trim();
+  if (!secret) throw new Error("TokenForge provider metric vault is unavailable");
+  return createHmac("sha256", secret).update(`TokenForge:ProviderKeyMetrics:v1\u0000${modelId}\u0000${credential}`).digest("hex");
+}
+
+/** Records a per-key aggregate without storing key material, masks, or upstream identifiers in the database. */
+export async function recordManagedProviderKeyOutcome(modelId: ManagedProviderMetricModel, credential: string, healthy: boolean, occurredAt = new Date()) {
+  const db = await getDb();
+  if (!db || !credential.trim()) return;
+  const credentialFingerprint = managedProviderCredentialFingerprint(modelId, credential);
+  const increments = {
+    requestCount: sql`${providerKeyMetrics.requestCount} + 1`,
+    successCount: healthy ? sql`${providerKeyMetrics.successCount} + 1` : sql`${providerKeyMetrics.successCount}`,
+    failureCount: healthy ? sql`${providerKeyMetrics.failureCount}` : sql`${providerKeyMetrics.failureCount} + 1`,
+    lastRequestAt: occurredAt,
+    lastSuccessAt: healthy ? occurredAt : sql`${providerKeyMetrics.lastSuccessAt}`,
+    lastFailureAt: healthy ? sql`${providerKeyMetrics.lastFailureAt}` : occurredAt,
+  };
+  await db.insert(providerKeyMetrics).values({
+    providerModelId: modelId,
+    credentialFingerprint,
+    requestCount: 1,
+    successCount: healthy ? 1 : 0,
+    failureCount: healthy ? 0 : 1,
+    lastRequestAt: occurredAt,
+    lastSuccessAt: healthy ? occurredAt : null,
+    lastFailureAt: healthy ? null : occurredAt,
+  }).onDuplicateKeyUpdate({ set: increments });
+}
+
+async function getManagedProviderMetricRuntime(modelId: ManagedProviderMetricModel) {
+  if (modelId === "claude-fable-5") return getClaudeFable5NvidiaRuntimeConfig();
+  if (modelId === "claude-opus-5") return getClaudeOpus5RuntimeConfig();
+  if (modelId === "glm-5.3") return getGlm53RuntimeConfig();
+  return getDeepseekV4ProRuntimeConfig();
+}
+
+/** Administrator-only view model: keeps fingerprints and raw credentials server-side, returning only current masks and aggregated counts. */
+export async function getManagedProviderKeyMetrics() {
+  const db = await getDb();
+  const runtimes = await Promise.all(MANAGED_PROVIDER_METRIC_MODEL_IDS.map(async modelId => ({ modelId, runtime: await getManagedProviderMetricRuntime(modelId) })));
+  const rows = db
+    ? await db.select().from(providerKeyMetrics).where(inArray(providerKeyMetrics.providerModelId, [...MANAGED_PROVIDER_METRIC_MODEL_IDS]))
+    : [];
+  const metricsByKey = new Map(rows.map(row => [`${row.providerModelId}:${row.credentialFingerprint}`, row]));
+  const liveTelemetry = getProviderCredentialTelemetry(Object.fromEntries(runtimes.map(({ modelId, runtime }) => [modelId, runtime.apiKeys.length])));
+
+  return runtimes.map(({ modelId, runtime }) => {
+    const liveProvider = liveTelemetry.find(item => item.providerSlug === modelId);
+    return {
+      modelId,
+      slots: runtime.apiKeys.map((credential, index) => {
+        const metric = metricsByKey.get(`${modelId}:${managedProviderCredentialFingerprint(modelId, credential)}`);
+        const liveSlot = liveProvider?.slots[index];
+        return {
+          slot: index + 1,
+          keyMask: maskProviderApiKey(credential),
+          requestCount: Number(metric?.requestCount ?? 0),
+          successCount: Number(metric?.successCount ?? 0),
+          failureCount: Number(metric?.failureCount ?? 0),
+          health: liveSlot?.health ?? "unknown",
+          cooldownUntil: liveSlot?.cooldownUntil ?? null,
+          lastRequestAt: metric?.lastRequestAt ?? null,
+          lastSuccessAt: metric?.lastSuccessAt ?? null,
+          lastFailureAt: metric?.lastFailureAt ?? null,
+        };
+      }),
+    };
+  });
+}
+
 export async function promoteUserToAdmin(userId: number) {
   const db = await getDb();
   if (!db) return false;
@@ -1913,7 +1989,7 @@ export async function getModelAvailabilitySnapshot() {
 export async function getAdminOverview() {
   await ensureCatalogue();
   const db = await getDb();
-  if (!db) return { models: [], providers: [], accounts: [], usage: [], emailProviders: [], allAccountModelUsage: [], totals: { totalTokens: 0, totalRequests: 0 }, providerTelemetry: getProviderCredentialTelemetry({}) };
+  if (!db) return { models: [], providers: [], accounts: [], usage: [], emailProviders: [], allAccountModelUsage: [], totals: { totalTokens: 0, totalRequests: 0 }, providerTelemetry: getProviderCredentialTelemetry({}), managedProviderKeyMetrics: [] };
   // This aggregate queries only `users`; keep this expression unqualified so the SELECT,
   // GROUP BY, and ORDER BY clauses remain byte-for-byte compatible on the deployed MySQL dialect.
   const emailProvider = sql<string>`${sql.raw(ADMIN_EMAIL_PROVIDER_EXPRESSION)}`;
@@ -1934,7 +2010,8 @@ export async function getAdminOverview() {
     [CLAUDE_OPUS5_PROVIDER_SLUG]: process.env.CLAUDE_OPUS5_API_KEY?.trim() ? 1 : 0,
     [TOKENROUTER_PROVIDER_SLUG]: getTokenRouterCredentialPool().length,
   });
-  return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })), emailProviders: normalizeAdminEmailProviderCounts(emailProviderRows), allAccountModelUsage: normalizeAdminGlobalModelUsage(allAccountModelUsageRows), totals: { totalTokens: Number(totals[0]?.totalTokens ?? 0), totalRequests: Number(totals[0]?.totalRequests ?? 0) }, providerTelemetry };
+  const managedProviderKeyMetrics = await getManagedProviderKeyMetrics();
+  return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })), emailProviders: normalizeAdminEmailProviderCounts(emailProviderRows), allAccountModelUsage: normalizeAdminGlobalModelUsage(allAccountModelUsageRows), totals: { totalTokens: Number(totals[0]?.totalTokens ?? 0), totalRequests: Number(totals[0]?.totalRequests ?? 0) }, providerTelemetry, managedProviderKeyMetrics };
 }
 
 /** Deletes a user and every account-owned TokenForge record, retaining only non-reversible hashed identity tombstones. */

@@ -1,6 +1,6 @@
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG } from "./modelCatalogue";
 
-export type CredentialTelemetryProvider = typeof FXQIDIAN_PROVIDER_SLUG | typeof CLUSTER_PROTOCOL_PROVIDER_SLUG | typeof TOKENHARBOR_PROVIDER_SLUG | typeof CLAUDE_OPUS5_PROVIDER_SLUG | typeof TOKENROUTER_PROVIDER_SLUG;
+export type CredentialTelemetryProvider = typeof FXQIDIAN_PROVIDER_SLUG | typeof CLUSTER_PROTOCOL_PROVIDER_SLUG | typeof TOKENHARBOR_PROVIDER_SLUG | typeof CLAUDE_OPUS5_PROVIDER_SLUG | typeof TOKENROUTER_PROVIDER_SLUG | "claude-fable-5" | "claude-opus-5" | "glm-5.3" | "deepseek-v4-pro";
 
 type CredentialSlotHealth = {
   consecutiveFailures: number;
@@ -51,9 +51,9 @@ export function recordCredentialFailover(providerSlug: CredentialTelemetryProvid
 }
 
 export function getProviderCredentialTelemetry(poolSizes: Partial<Record<CredentialTelemetryProvider, number>>, now = Date.now()) {
-  return ([FXQIDIAN_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG, CLAUDE_OPUS5_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG] as const).map(providerSlug => {
+  return ([FXQIDIAN_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG, CLAUDE_OPUS5_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG, "claude-fable-5", "claude-opus-5", "glm-5.3", "deepseek-v4-pro"] as const).map(providerSlug => {
     const poolSize = Math.max(0, poolSizes[providerSlug] ?? 0);
-    const slots = Array.from({ length: poolSize }, (_, slot) => healthFor(providerSlug, slot));
+    const slots = Array.from({ length: poolSize }, (_, slot) => ({ slot: slot + 1, ...healthFor(providerSlug, slot) }));
     const coolingDownSlots = slots.filter(slot => slot.cooldownUntil > now).length;
     const healthySlots = poolSize - coolingDownSlots;
     const lastSuccessAt = slots.reduce<Date | null>((latest, slot) => !latest || (slot.lastSuccessAt && slot.lastSuccessAt > latest) ? slot.lastSuccessAt : latest, null);
@@ -66,6 +66,13 @@ export function getProviderCredentialTelemetry(poolSizes: Partial<Record<Credent
       failoverCount: failoverCounts.get(providerSlug) ?? 0,
       lastSuccessAt,
       lastFailureAt,
+      slots: slots.map(slot => ({
+        slot: slot.slot,
+        health: slot.cooldownUntil > now ? "cooling-down" as const : slot.lastSuccessAt ? "healthy" as const : "unverified" as const,
+        cooldownUntil: slot.cooldownUntil > now ? new Date(slot.cooldownUntil) : null,
+        lastSuccessAt: slot.lastSuccessAt,
+        lastFailureAt: slot.lastFailureAt,
+      })),
     };
   });
 }

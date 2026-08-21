@@ -11,13 +11,14 @@ vi.mock("./db", () => ({
   getModelAvailabilitySnapshot: vi.fn(),
   isModelAvailable: vi.fn(),
   loadOrcaRouterCredentialSlotCiphertexts: vi.fn(),
+  recordManagedProviderKeyOutcome: vi.fn(),
   recordUsage: vi.fn(),
   reserveCredit: vi.fn(),
   settleReservedCredit: vi.fn(),
   touchApiKey: vi.fn(),
 }));
 
-import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordUsage, reserveCredit, settleReservedCredit } from "./db";
+import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordManagedProviderKeyOutcome, recordUsage, reserveCredit, settleReservedCredit } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
@@ -117,6 +118,7 @@ beforeEach(() => {
   });
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
+  vi.mocked(recordManagedProviderKeyOutcome).mockResolvedValue(undefined);
   vi.mocked(recordUsage).mockResolvedValue(undefined);
   vi.mocked(reserveCredit).mockResolvedValue({ authorized: true, balanceNanos: 49_990_000_000 });
   vi.mocked(settleReservedCredit).mockImplementation(async ({ finalChargeNanos }) => ({

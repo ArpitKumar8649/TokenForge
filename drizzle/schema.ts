@@ -362,6 +362,28 @@ export const platformSettings = mysqlTable("platform_settings", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+/** Durable aggregate health and request metrics keyed by a non-reversible provider credential fingerprint. */
+export const providerKeyMetrics = mysqlTable(
+  "provider_key_metrics",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    providerModelId: varchar("providerModelId", { length: 64 }).notNull(),
+    credentialFingerprint: varchar("credentialFingerprint", { length: 64 }).notNull(),
+    requestCount: bigint("requestCount", { mode: "number" }).default(0).notNull(),
+    successCount: bigint("successCount", { mode: "number" }).default(0).notNull(),
+    failureCount: bigint("failureCount", { mode: "number" }).default(0).notNull(),
+    lastRequestAt: timestamp("lastRequestAt"),
+    lastSuccessAt: timestamp("lastSuccessAt"),
+    lastFailureAt: timestamp("lastFailureAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("provider_key_metrics_model_fingerprint_unique_idx").on(table.providerModelId, table.credentialFingerprint),
+    index("provider_key_metrics_model_updated_idx").on(table.providerModelId, table.updatedAt),
+  ],
+);
+
 export const modelConfigs = mysqlTable(
   "model_configs",
   {
@@ -425,6 +447,7 @@ export type AccountFlag = typeof accountFlags.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type PasswordCredential = typeof passwordCredentials.$inferSelect;
 export type PlatformSetting = typeof platformSettings.$inferSelect;
+export type ProviderKeyMetric = typeof providerKeyMetrics.$inferSelect;
 export type DeletedIdentityTombstone = typeof deletedIdentityTombstones.$inferSelect;
 export type ReferralCode = typeof referralCodes.$inferSelect;
 export type ReferralAttribution = typeof referralAttributions.$inferSelect;

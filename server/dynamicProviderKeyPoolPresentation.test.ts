@@ -29,4 +29,14 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain('selectedProvider === "deepseek-v4-pro"');
     expect(source).toContain('{section === "providers" && managedProviderSettingsSection}');
   });
+
+  it("shows only masked, model-specific per-key request and health metrics in the selected panel", () => {
+    expect(source).toContain("function ManagedProviderKeyMetrics");
+    expect(source).toContain("Per-key request & health");
+    expect(source).toContain("Raw API keys never leave the server");
+    expect(source).toContain("managedProviderKeyMetrics.find(item => item.modelId === \"claude-fable-5\")");
+    expect(source).toContain("managedProviderKeyMetrics.find(item => item.modelId === \"claude-opus-5\")");
+    expect(source).toContain("managedProviderKeyMetrics.find(item => item.modelId === \"glm-5.3\")");
+    expect(source).toContain("managedProviderKeyMetrics.find(item => item.modelId === \"deepseek-v4-pro\")");
+  });
 });

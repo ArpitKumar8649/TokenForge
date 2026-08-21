@@ -12,8 +12,10 @@ import {
   isModelAvailable,
   recordUsage,
   reserveCredit,
+  recordManagedProviderKeyOutcome,
   settleReservedCredit,
   touchApiKey,
+  type ManagedProviderMetricModel,
 } from "./db";
 import { selectNextClusterProtocolCredentialWithSlot } from "./clusterProtocolCredentials";
 import { selectNextBluesMindsClaudeFable5CredentialWithSlot } from "./bluesMindsClaudeFable5Credentials";
@@ -195,7 +197,7 @@ function retryableProviderStatus(status: number) {
   return status === 401 || status === 403 || status === 408 || status === 429 || status >= 500;
 }
 
-async function forwardWithCredentialFailover(providerSlug: CredentialTelemetryProvider, input: ChatInput, signal: AbortSignal, selectCredential: () => CredentialSelection | null | Promise<CredentialSelection | null>, request: (credential: string) => Promise<globalThis.Response>) {
+async function forwardWithCredentialFailover(providerSlug: CredentialTelemetryProvider, input: ChatInput, signal: AbortSignal, selectCredential: () => CredentialSelection | null | Promise<CredentialSelection | null>, request: (credential: string) => Promise<globalThis.Response>, managedMetricModel?: ManagedProviderMetricModel) {
   const first = await selectCredential();
   if (!first) throw new Error("TokenForge inference is not configured");
   let candidate = first;
@@ -213,11 +215,14 @@ async function forwardWithCredentialFailover(providerSlug: CredentialTelemetryPr
       lastResponse = response;
       if (response.ok || !retryableProviderStatus(response.status)) {
         recordCredentialSuccess(providerSlug, candidate.slot);
+        if (managedMetricModel) void recordManagedProviderKeyOutcome(managedMetricModel, candidate.credential, true).catch(() => undefined);
         return response;
       }
       recordCredentialFailure(providerSlug, candidate.slot);
+      if (managedMetricModel) void recordManagedProviderKeyOutcome(managedMetricModel, candidate.credential, false).catch(() => undefined);
     } catch (error) {
       recordCredentialFailure(providerSlug, candidate.slot);
+      if (managedMetricModel) void recordManagedProviderKeyOutcome(managedMetricModel, candidate.credential, false).catch(() => undefined);
       if (signal.aborted || attempt === candidate.poolSize - 1) throw error;
     }
     if (attempt < candidate.poolSize - 1) {
@@ -291,12 +296,12 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
   const url = openAiChatCompletionsUrl(runtime.baseUrl);
   if (!url || !runtime.model) throw new Error("TokenForge GLM 5.3 inference is not configured");
   const requestBody = { ...input, model: runtime.model };
-  return forwardWithCredentialFailover(TOKENROUTER_PROVIDER_SLUG, input, signal, () => selectNextGlm53CredentialWithSlot(runtime.apiKeys), credential => fetch(url, {
+  return forwardWithCredentialFailover("glm-5.3", input, signal, () => selectNextGlm53CredentialWithSlot(runtime.apiKeys), credential => fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
     body: JSON.stringify(requestBody),
     signal,
-  }));
+  }), "glm-5.3");
 }
 
 /** DeepSeek V4 Pro uses its own encrypted runtime configuration and credential pool. */
@@ -305,12 +310,12 @@ async function forwardDedicatedDeepseekV4ProRequest(input: ChatInput, signal: Ab
   const url = openAiChatCompletionsUrl(runtime.baseUrl);
   if (!url || !runtime.model) throw new Error("TokenForge DeepSeek V4 Pro inference is not configured");
   const requestBody = { ...input, model: runtime.model };
-  return forwardWithCredentialFailover(TOKENHARBOR_PROVIDER_SLUG, input, signal, () => selectNextDeepseekV4ProCredentialWithSlot(runtime.apiKeys), credential => fetch(url, {
+  return forwardWithCredentialFailover("deepseek-v4-pro", input, signal, () => selectNextDeepseekV4ProCredentialWithSlot(runtime.apiKeys), credential => fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
     body: JSON.stringify(requestBody),
     signal,
-  }));
+  }), "deepseek-v4-pro");
 }
 
 /** Claude Opus 5 uses an isolated TokenReply credential pool, never the shared TokenRouter pool. */
@@ -336,13 +341,25 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
         body: JSON.stringify(requestBody),
         signal: attemptSignal,
       });
-      if (response.ok || !retryableProviderStatus(response.status) || attempt === 2) return response;
+      const healthyResponse = response.ok || !retryableProviderStatus(response.status);
+      if (healthyResponse || attempt === 2) {
+        if (healthyResponse) recordCredentialSuccess("claude-opus-5", selectedCredential.slot);
+        else recordCredentialFailure("claude-opus-5", selectedCredential.slot);
+        void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, healthyResponse).catch(() => undefined);
+        return response;
+      }
+      recordCredentialFailure("claude-opus-5", selectedCredential.slot);
+      void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, false).catch(() => undefined);
+      recordCredentialFailover("claude-opus-5");
       console.warn("[Claude Opus 5 TokenReply provider retry]", { event: "retryable_response_before_stream", upstreamStatus: response.status, attempt });
       response.body?.cancel().catch(() => undefined);
       selectedCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot(runtime.apiKeys) ?? selectedCredential;
     } catch (error) {
       lastError = error;
+      recordCredentialFailure("claude-opus-5", selectedCredential.slot);
+      void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, false).catch(() => undefined);
       if (signal.aborted || !responseStartTimeout.aborted || attempt === 2) throw error;
+      recordCredentialFailover("claude-opus-5");
       console.warn("[Claude Opus 5 TokenReply provider retry]", { event: "response_start_timeout_before_stream", attempt });
       selectedCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot(runtime.apiKeys) ?? selectedCredential;
     }
@@ -373,13 +390,25 @@ async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: Abo
         body: JSON.stringify(requestBody),
         signal: attemptSignal,
       });
-      if (response.ok || !retryableProviderStatus(response.status) || attempt === 2) return response;
+      const healthyResponse = response.ok || !retryableProviderStatus(response.status);
+      if (healthyResponse || attempt === 2) {
+        if (healthyResponse) recordCredentialSuccess("claude-fable-5", selectedCredential.slot);
+        else recordCredentialFailure("claude-fable-5", selectedCredential.slot);
+        void recordManagedProviderKeyOutcome("claude-fable-5", selectedCredential.credential, healthyResponse).catch(() => undefined);
+        return response;
+      }
+      recordCredentialFailure("claude-fable-5", selectedCredential.slot);
+      void recordManagedProviderKeyOutcome("claude-fable-5", selectedCredential.credential, false).catch(() => undefined);
+      recordCredentialFailover("claude-fable-5");
       console.warn("[Claude Fable 5 NVIDIA NIM provider retry]", { event: "retryable_response_before_stream", upstreamStatus: response.status, attempt });
       response.body?.cancel().catch(() => undefined);
       selectedCredential = selectNextNvidiaClaudeFable5CredentialWithSlot(runtime.apiKeys) ?? selectedCredential;
     } catch (error) {
       lastError = error;
+      recordCredentialFailure("claude-fable-5", selectedCredential.slot);
+      void recordManagedProviderKeyOutcome("claude-fable-5", selectedCredential.credential, false).catch(() => undefined);
       if (signal.aborted || !responseStartTimeout.aborted || attempt === 2) throw error;
+      recordCredentialFailover("claude-fable-5");
       console.warn("[Claude Fable 5 NVIDIA NIM provider retry]", { event: "response_start_timeout_before_stream", attempt });
       selectedCredential = selectNextNvidiaClaudeFable5CredentialWithSlot(runtime.apiKeys) ?? selectedCredential;
     }

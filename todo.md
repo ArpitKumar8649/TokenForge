@@ -395,3 +395,4 @@
 - [x] Run an expanded isolated Nemotron translation-bridge evaluation for multi-file coding, Git, discovery, local server, long context, sustained reliability, and bounded rate-limit behavior; report measurements and limitations without changing TokenForge routing.
 - [x] Run an expanded isolated Nemotron translation-bridge evaluation for multi-file coding, Git, discovery, local server, long context, sustained reliability, and bounded rate-limit behavior; report measurements and limitations without changing TokenForge routing.
 - [x] Add dynamic encrypted provider configuration for GLM 5.3 and DeepSeek V4 Pro, with a one-model-at-a-time administrator selector and public identity protection in Playground and API forwarding.
+- [x] Add privacy-safe per-key request-volume and health metrics for GLM 5.3, DeepSeek V4 Pro, Claude Fable 5, and Claude Opus 5 dynamic provider pools.
