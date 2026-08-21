@@ -12,10 +12,12 @@ import {
   getModelAvailabilitySnapshot,
   isModelAvailable,
   recordUsage,
+  reserveCappedManagedProviderCredentialRequest,
   reserveCredit,
   recordManagedProviderKeyOutcome,
   settleReservedCredit,
   touchApiKey,
+  isCappedManagedProviderMetricModel,
   type ManagedProviderMetricModel,
 } from "./db";
 import { selectNextClusterProtocolCredentialWithSlot } from "./clusterProtocolCredentials";
@@ -211,19 +213,28 @@ async function forwardWithCredentialFailover(providerSlug: CredentialTelemetryPr
         continue;
       }
     }
+    if (managedMetricModel && isCappedManagedProviderMetricModel(managedMetricModel)) {
+      const reservation = await reserveCappedManagedProviderCredentialRequest(managedMetricModel, candidate.credential);
+      if (!reservation.allowed) {
+        if (reservation.exhausted) throw new TokenForgePlaygroundError("model_unavailable", "The requested model is currently unavailable in the active TokenForge catalogue.");
+        const next = await selectCredential();
+        if (next) candidate = next;
+        continue;
+      }
+    }
     try {
       const response = await request(candidate.credential);
       lastResponse = response;
       if (response.ok || !retryableProviderStatus(response.status)) {
         recordCredentialSuccess(providerSlug, candidate.slot);
-        if (managedMetricModel) void recordManagedProviderKeyOutcome(managedMetricModel, candidate.credential, true).catch(() => undefined);
+        if (managedMetricModel) void recordManagedProviderKeyOutcome(managedMetricModel, candidate.credential, true, new Date(), !isCappedManagedProviderMetricModel(managedMetricModel)).catch(() => undefined);
         return response;
       }
       recordCredentialFailure(providerSlug, candidate.slot);
-      if (managedMetricModel) void recordManagedProviderKeyOutcome(managedMetricModel, candidate.credential, false).catch(() => undefined);
+      if (managedMetricModel) void recordManagedProviderKeyOutcome(managedMetricModel, candidate.credential, false, new Date(), !isCappedManagedProviderMetricModel(managedMetricModel)).catch(() => undefined);
     } catch (error) {
       recordCredentialFailure(providerSlug, candidate.slot);
-      if (managedMetricModel) void recordManagedProviderKeyOutcome(managedMetricModel, candidate.credential, false).catch(() => undefined);
+      if (managedMetricModel) void recordManagedProviderKeyOutcome(managedMetricModel, candidate.credential, false, new Date(), !isCappedManagedProviderMetricModel(managedMetricModel)).catch(() => undefined);
       if (signal.aborted || attempt === candidate.poolSize - 1) throw error;
     }
     if (attempt < candidate.poolSize - 1) {

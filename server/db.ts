@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, lte, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, lt, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createHmac, randomBytes, randomInt } from "node:crypto";
 import {
@@ -1466,6 +1466,17 @@ export async function updateDeepseekV4ProProviderSettings(input: { baseUrl?: str
 
 export const MANAGED_PROVIDER_METRIC_MODEL_IDS = ["claude-fable-5", "claude-opus-5", "glm-5.3", "deepseek-v4-pro"] as const;
 export type ManagedProviderMetricModel = typeof MANAGED_PROVIDER_METRIC_MODEL_IDS[number];
+export const MANAGED_PROVIDER_KEY_REQUEST_CAP = 82;
+export const CAPPED_MANAGED_PROVIDER_METRIC_MODEL_IDS = ["glm-5.3", "deepseek-v4-pro"] as const;
+export type CappedManagedProviderMetricModel = typeof CAPPED_MANAGED_PROVIDER_METRIC_MODEL_IDS[number];
+
+export function isCappedManagedProviderMetricModel(modelId: ManagedProviderMetricModel): modelId is CappedManagedProviderMetricModel {
+  return CAPPED_MANAGED_PROVIDER_METRIC_MODEL_IDS.includes(modelId as CappedManagedProviderMetricModel);
+}
+
+export function isManagedProviderKeyRetired(modelId: ManagedProviderMetricModel, requestCount: number) {
+  return isCappedManagedProviderMetricModel(modelId) && requestCount >= MANAGED_PROVIDER_KEY_REQUEST_CAP;
+}
 
 export function managedProviderCredentialFingerprint(modelId: ManagedProviderMetricModel, credential: string) {
   const secret = process.env.JWT_SECRET?.trim();
@@ -1474,12 +1485,12 @@ export function managedProviderCredentialFingerprint(modelId: ManagedProviderMet
 }
 
 /** Records a per-key aggregate without storing key material, masks, or upstream identifiers in the database. */
-export async function recordManagedProviderKeyOutcome(modelId: ManagedProviderMetricModel, credential: string, healthy: boolean, occurredAt = new Date()) {
+export async function recordManagedProviderKeyOutcome(modelId: ManagedProviderMetricModel, credential: string, healthy: boolean, occurredAt = new Date(), countRequest = true) {
   const db = await getDb();
   if (!db || !credential.trim()) return;
   const credentialFingerprint = managedProviderCredentialFingerprint(modelId, credential);
   const increments = {
-    requestCount: sql`${providerKeyMetrics.requestCount} + 1`,
+    requestCount: countRequest ? sql`${providerKeyMetrics.requestCount} + 1` : sql`${providerKeyMetrics.requestCount}`,
     successCount: healthy ? sql`${providerKeyMetrics.successCount} + 1` : sql`${providerKeyMetrics.successCount}`,
     failureCount: healthy ? sql`${providerKeyMetrics.failureCount}` : sql`${providerKeyMetrics.failureCount} + 1`,
     lastRequestAt: occurredAt,
@@ -1489,7 +1500,7 @@ export async function recordManagedProviderKeyOutcome(modelId: ManagedProviderMe
   await db.insert(providerKeyMetrics).values({
     providerModelId: modelId,
     credentialFingerprint,
-    requestCount: 1,
+    requestCount: countRequest ? 1 : 0,
     successCount: healthy ? 1 : 0,
     failureCount: healthy ? 0 : 1,
     lastRequestAt: occurredAt,
@@ -1503,6 +1514,45 @@ async function getManagedProviderMetricRuntime(modelId: ManagedProviderMetricMod
   if (modelId === "claude-opus-5") return getClaudeOpus5RuntimeConfig();
   if (modelId === "glm-5.3") return getGlm53RuntimeConfig();
   return getDeepseekV4ProRuntimeConfig();
+}
+
+/** Atomically reserves one of the finite upstream request slots for a capped managed model. */
+export async function reserveCappedManagedProviderCredentialRequest(modelId: CappedManagedProviderMetricModel, credential: string) {
+  const db = await getDb();
+  if (!db || !credential.trim()) return { allowed: false, exhausted: false };
+  const credentialFingerprint = managedProviderCredentialFingerprint(modelId, credential);
+  const now = new Date();
+  return db.transaction(async tx => {
+    await tx.insert(providerKeyMetrics).values({
+      providerModelId: modelId,
+      credentialFingerprint,
+      requestCount: 0,
+      successCount: 0,
+      failureCount: 0,
+    }).onDuplicateKeyUpdate({ set: { providerModelId: sql`${providerKeyMetrics.providerModelId}` } });
+    const claim = await tx.update(providerKeyMetrics)
+      .set({ requestCount: sql`${providerKeyMetrics.requestCount} + 1`, lastRequestAt: now })
+      .where(and(
+        eq(providerKeyMetrics.providerModelId, modelId),
+        eq(providerKeyMetrics.credentialFingerprint, credentialFingerprint),
+        lt(providerKeyMetrics.requestCount, MANAGED_PROVIDER_KEY_REQUEST_CAP),
+      ));
+    const allowed = Boolean(claim[0].affectedRows);
+
+    const runtime = await getManagedProviderMetricRuntime(modelId);
+    const activeFingerprints = runtime.apiKeys.map(key => managedProviderCredentialFingerprint(modelId, key));
+    const activeMetrics = activeFingerprints.length
+      ? await tx.select({ credentialFingerprint: providerKeyMetrics.credentialFingerprint, requestCount: providerKeyMetrics.requestCount })
+        .from(providerKeyMetrics)
+        .where(and(eq(providerKeyMetrics.providerModelId, modelId), inArray(providerKeyMetrics.credentialFingerprint, activeFingerprints)))
+      : [];
+    const requestCountByFingerprint = new Map(activeMetrics.map(item => [item.credentialFingerprint, Number(item.requestCount)]));
+    const exhausted = activeFingerprints.length > 0 && activeFingerprints.every(fingerprint => (requestCountByFingerprint.get(fingerprint) ?? 0) >= MANAGED_PROVIDER_KEY_REQUEST_CAP);
+    if (exhausted) {
+      await tx.update(modelConfigs).set({ enabled: false }).where(and(eq(modelConfigs.modelId, modelId), eq(modelConfigs.enabled, true)));
+    }
+    return { allowed, exhausted };
+  });
 }
 
 /** Administrator-only view model: keeps fingerprints and raw credentials server-side, returning only current masks and aggregated counts. */
@@ -1522,10 +1572,12 @@ export async function getManagedProviderKeyMetrics() {
       slots: runtime.apiKeys.map((credential, index) => {
         const metric = metricsByKey.get(`${modelId}:${managedProviderCredentialFingerprint(modelId, credential)}`);
         const liveSlot = liveProvider?.slots[index];
+        const requestCount = Number(metric?.requestCount ?? 0);
+        const retired = isManagedProviderKeyRetired(modelId, requestCount);
         return {
           slot: index + 1,
           keyMask: maskProviderApiKey(credential),
-          requestCount: Number(metric?.requestCount ?? 0),
+          requestCount,
           successCount: Number(metric?.successCount ?? 0),
           failureCount: Number(metric?.failureCount ?? 0),
           health: liveSlot?.health ?? "unknown",
@@ -1533,6 +1585,8 @@ export async function getManagedProviderKeyMetrics() {
           lastRequestAt: metric?.lastRequestAt ?? null,
           lastSuccessAt: metric?.lastSuccessAt ?? null,
           lastFailureAt: metric?.lastFailureAt ?? null,
+          requestCap: isCappedManagedProviderMetricModel(modelId) ? MANAGED_PROVIDER_KEY_REQUEST_CAP : null,
+          retired,
         };
       }),
     };

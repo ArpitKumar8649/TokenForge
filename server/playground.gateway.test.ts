@@ -7,6 +7,7 @@ vi.mock("./db", () => ({
   getDeepseekV4ProRuntimeConfig: vi.fn(),
   getGlm53RuntimeConfig: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
+  isCappedManagedProviderMetricModel: vi.fn((modelId: string) => modelId === "glm-5.3" || modelId === "deepseek-v4-pro"),
   PLATFORM_MAINTENANCE_ERROR_MESSAGE: "Site entered in maintainence mode due to massive request.",
   getQuotaStatus: vi.fn(),
   getModelAvailabilitySnapshot: vi.fn(),
@@ -14,12 +15,13 @@ vi.mock("./db", () => ({
   loadOrcaRouterCredentialSlotCiphertexts: vi.fn(),
   recordManagedProviderKeyOutcome: vi.fn(),
   recordUsage: vi.fn(),
+  reserveCappedManagedProviderCredentialRequest: vi.fn(),
   reserveCredit: vi.fn(),
   settleReservedCredit: vi.fn(),
   touchApiKey: vi.fn(),
 }));
 
-import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordManagedProviderKeyOutcome, recordUsage, reserveCredit, settleReservedCredit } from "./db";
+import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
@@ -97,6 +99,7 @@ beforeEach(() => {
   process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL = "upstream-claude-opus-5";
   process.env.TOKENROUTER_GLM53_MODEL = "upstream-glm-5.3-model";
   vi.mocked(getPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
+  vi.mocked(reserveCappedManagedProviderCredentialRequest).mockResolvedValue({ allowed: true, exhausted: false });
   vi.mocked(getClaudeFable5NvidiaRuntimeConfig).mockResolvedValue({
     baseUrl: "https://nvidia.example",
     model: "upstream-nvidia-claude-fable-5-model",

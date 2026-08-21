@@ -404,3 +404,4 @@
 - [x] Exempt only matching verified GitHub emails with an administrator pre-provisioned reservation from the 14-day GitHub account-age rule while retaining it for ordinary sign-ins.
 - [x] Mark activated administrator pre-provisioned accounts as Discord-verified, skip their Discord verification modal and gate, and show that verified status in administrator data.
 - [x] Remove Claude Fable 5 and Qwen 3.8 Max cards from recurring login announcements, retaining only Discord verification and GLM 5.3 cards.
+- [x] Enforce an 82-request lifetime cap for each GLM 5.3 and DeepSeek V4 Pro provider key, retire capped keys from rotation, and automatically mark the affected model unavailable when its pool is exhausted.
