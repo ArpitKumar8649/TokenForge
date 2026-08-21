@@ -31,7 +31,7 @@ import {
 import { ENV } from "./_core/env";
 import { hashPassword, normalizeEmail, nextFailedLoginState, normalizeEmailAllowlistEntries, retryAfterSeconds, verifyPassword } from "./localAuth";
 import { DAILY_CHECKIN_CREDIT_NANOS, INTRODUCTORY_CREDIT_NANOS, NANODOLLARS_PER_DOLLAR } from "./creditPricing";
-import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, TOKENFORGE_MODEL_IDS, type TokenForgeModelId } from "./modelCatalogue";
+import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, getTokenForgeUpstreamModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, TOKENFORGE_MODEL_IDS, type TokenForgeModelId } from "./modelCatalogue";
 import { getClusterProtocolCredentialPool } from "./clusterProtocolCredentials";
 import { getFxqidianCredentialPool } from "./fxqidianCredentials";
 import { getTokenRouterCredentialPool } from "./tokenRouterCredentials";
@@ -54,6 +54,8 @@ const PLATFORM_MAINTENANCE_SETTING_KEY = "platform_maintenance";
 const MAINTENANCE_COUNTDOWN_SETTING_KEY = "maintenance_countdown_v1";
 const CLAUDE_FABLE5_NVIDIA_RUNTIME_SETTING_KEY = "claude_fable5_nvidia_runtime_v1";
 const CLAUDE_OPUS5_TOKENREPLY_RUNTIME_SETTING_KEY = "claude_opus5_tokenreply_runtime_v1";
+const GLM53_RUNTIME_SETTING_KEY = "glm53_runtime_v1";
+const DEEPSEEK_V4PRO_RUNTIME_SETTING_KEY = "deepseek_v4pro_runtime_v1";
 const SPECIAL_REFERRAL_CAMPAIGN_KEY = "special-referral-150-v1";
 export const SPECIAL_REFERRAL_CAMPAIGN_CAP = 150;
 export const SPECIAL_REFERRAL_BONUS_NANOS = 150 * NANODOLLARS_PER_DOLLAR;
@@ -1121,6 +1123,176 @@ export async function updateClaudeOpus5ProviderSettings(input: { baseUrl?: strin
     updatedByUserId,
   }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
   return getClaudeOpus5ProviderSettings();
+}
+
+type Glm53RuntimePayload = { baseUrl: string; model: string; apiKeys: string[] };
+
+function glm53RuntimeFromEnvironment(): Glm53RuntimePayload {
+  return {
+    baseUrl: process.env.TOKENROUTER_BASE_URL?.trim() ?? "",
+    model: process.env.TOKENROUTER_GLM53_MODEL?.trim() ?? "",
+    apiKeys: getTokenRouterCredentialPool(),
+  };
+}
+
+async function readGlm53RuntimeOverride() {
+  const db = await getDb();
+  if (!db) return null;
+  const record = (await db.select().from(platformSettings).where(eq(platformSettings.settingKey, GLM53_RUNTIME_SETTING_KEY)).limit(1))[0];
+  if (!record) return null;
+  try {
+    const encoded = JSON.parse(record.value) as { ciphertext?: string; iv?: string; authTag?: string };
+    const decrypted = decryptProviderRuntimeConfig({ ciphertext: String(encoded.ciphertext ?? ""), iv: String(encoded.iv ?? ""), authTag: String(encoded.authTag ?? "") });
+    if (!decrypted || typeof decrypted !== "object") return null;
+    const candidate = decrypted as Partial<Glm53RuntimePayload>;
+    const configuredKeys = Array.isArray(candidate.apiKeys)
+      ? candidate.apiKeys.map(value => typeof value === "string" ? value.trim() : "").filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS)
+      : [];
+    return {
+      payload: {
+        baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl.trim() : "",
+        model: typeof candidate.model === "string" ? candidate.model.trim() : "",
+        apiKeys: configuredKeys,
+      },
+      updatedAt: record.updatedAt,
+      updatedByUserId: record.updatedByUserId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function getGlm53RuntimeConfig(): Promise<Glm53RuntimePayload> {
+  const fallback = glm53RuntimeFromEnvironment();
+  const override = await readGlm53RuntimeOverride();
+  if (!override) return fallback;
+  return {
+    baseUrl: override.payload.baseUrl || fallback.baseUrl,
+    model: override.payload.model || fallback.model,
+    apiKeys: override.payload.apiKeys.length ? override.payload.apiKeys : fallback.apiKeys.filter(Boolean),
+  };
+}
+
+export async function getGlm53ProviderSettings() {
+  const runtime = await getGlm53RuntimeConfig();
+  const override = await readGlm53RuntimeOverride();
+  return {
+    baseUrl: runtime.baseUrl,
+    model: runtime.model,
+    apiKeyMasks: runtime.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+    source: override ? "database" as const : "environment" as const,
+    updatedAt: override?.updatedAt ?? null,
+    updatedByUserId: override?.updatedByUserId ?? null,
+  };
+}
+
+export async function updateGlm53ProviderSettings(input: { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] }, updatedByUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const current = await getGlm53RuntimeConfig();
+  const removedSlots = new Set(input.removeSlots ?? []);
+  const retainedKeys = current.apiKeys.filter((_, index) => !removedSlots.has(index + 1));
+  const submittedKeys = input.apiKeys ?? [];
+  const patchedExistingKeys = retainedKeys.map((key, index) => submittedKeys[index]?.trim() || key);
+  const appendedKeys = submittedKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
+  const next: Glm53RuntimePayload = {
+    baseUrl: input.baseUrl?.trim() || current.baseUrl,
+    model: input.model?.trim() || current.model,
+    apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
+  };
+  if (!next.baseUrl || !next.model || !next.apiKeys.some(Boolean)) throw new Error("A base URL, model ID, and at least one API key are required for GLM 5.3");
+  const encrypted = encryptProviderRuntimeConfig(next);
+  await db.insert(platformSettings).values({
+    settingKey: GLM53_RUNTIME_SETTING_KEY,
+    value: JSON.stringify(encrypted),
+    updatedByUserId,
+  }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+  return getGlm53ProviderSettings();
+}
+
+type DeepseekV4ProRuntimePayload = { baseUrl: string; model: string; apiKeys: string[] };
+
+function deepseekV4ProRuntimeFromEnvironment(): DeepseekV4ProRuntimePayload {
+  return {
+    baseUrl: process.env.TOKENHARBOR_BASE_URL?.trim() ?? "",
+    model: getTokenForgeUpstreamModelId("deepseek-v4-pro") ?? "",
+    apiKeys: [process.env.TOKENHARBOR_API_KEY?.trim() ?? ""].filter(Boolean),
+  };
+}
+
+async function readDeepseekV4ProRuntimeOverride() {
+  const db = await getDb();
+  if (!db) return null;
+  const record = (await db.select().from(platformSettings).where(eq(platformSettings.settingKey, DEEPSEEK_V4PRO_RUNTIME_SETTING_KEY)).limit(1))[0];
+  if (!record) return null;
+  try {
+    const encoded = JSON.parse(record.value) as { ciphertext?: string; iv?: string; authTag?: string };
+    const decrypted = decryptProviderRuntimeConfig({ ciphertext: String(encoded.ciphertext ?? ""), iv: String(encoded.iv ?? ""), authTag: String(encoded.authTag ?? "") });
+    if (!decrypted || typeof decrypted !== "object") return null;
+    const candidate = decrypted as Partial<DeepseekV4ProRuntimePayload>;
+    const configuredKeys = Array.isArray(candidate.apiKeys)
+      ? candidate.apiKeys.map(value => typeof value === "string" ? value.trim() : "").filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS)
+      : [];
+    return {
+      payload: {
+        baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl.trim() : "",
+        model: typeof candidate.model === "string" ? candidate.model.trim() : "",
+        apiKeys: configuredKeys,
+      },
+      updatedAt: record.updatedAt,
+      updatedByUserId: record.updatedByUserId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function getDeepseekV4ProRuntimeConfig(): Promise<DeepseekV4ProRuntimePayload> {
+  const fallback = deepseekV4ProRuntimeFromEnvironment();
+  const override = await readDeepseekV4ProRuntimeOverride();
+  if (!override) return fallback;
+  return {
+    baseUrl: override.payload.baseUrl || fallback.baseUrl,
+    model: override.payload.model || fallback.model,
+    apiKeys: override.payload.apiKeys.length ? override.payload.apiKeys : fallback.apiKeys.filter(Boolean),
+  };
+}
+
+export async function getDeepseekV4ProProviderSettings() {
+  const runtime = await getDeepseekV4ProRuntimeConfig();
+  const override = await readDeepseekV4ProRuntimeOverride();
+  return {
+    baseUrl: runtime.baseUrl,
+    model: runtime.model,
+    apiKeyMasks: runtime.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+    source: override ? "database" as const : "environment" as const,
+    updatedAt: override?.updatedAt ?? null,
+    updatedByUserId: override?.updatedByUserId ?? null,
+  };
+}
+
+export async function updateDeepseekV4ProProviderSettings(input: { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] }, updatedByUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const current = await getDeepseekV4ProRuntimeConfig();
+  const removedSlots = new Set(input.removeSlots ?? []);
+  const retainedKeys = current.apiKeys.filter((_, index) => !removedSlots.has(index + 1));
+  const submittedKeys = input.apiKeys ?? [];
+  const patchedExistingKeys = retainedKeys.map((key, index) => submittedKeys[index]?.trim() || key);
+  const appendedKeys = submittedKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
+  const next: DeepseekV4ProRuntimePayload = {
+    baseUrl: input.baseUrl?.trim() || current.baseUrl,
+    model: input.model?.trim() || current.model,
+    apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
+  };
+  if (!next.baseUrl || !next.model || !next.apiKeys.some(Boolean)) throw new Error("A base URL, model ID, and at least one API key are required for DeepSeek V4 Pro");
+  const encrypted = encryptProviderRuntimeConfig(next);
+  await db.insert(platformSettings).values({
+    settingKey: DEEPSEEK_V4PRO_RUNTIME_SETTING_KEY,
+    value: JSON.stringify(encrypted),
+    updatedByUserId,
+  }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+  return getDeepseekV4ProProviderSettings();
 }
 
 export async function promoteUserToAdmin(userId: number) {

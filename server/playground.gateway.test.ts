@@ -4,6 +4,8 @@ vi.mock("./db", () => ({
   findActiveApiKey: vi.fn(),
   getClaudeFable5NvidiaRuntimeConfig: vi.fn(),
   getClaudeOpus5RuntimeConfig: vi.fn(),
+  getDeepseekV4ProRuntimeConfig: vi.fn(),
+  getGlm53RuntimeConfig: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
   getQuotaStatus: vi.fn(),
   getModelAvailabilitySnapshot: vi.fn(),
@@ -15,7 +17,7 @@ vi.mock("./db", () => ({
   touchApiKey: vi.fn(),
 }));
 
-import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordUsage, reserveCredit, settleReservedCredit } from "./db";
+import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordUsage, reserveCredit, settleReservedCredit } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
@@ -23,6 +25,8 @@ import { resetNvidiaClaudeFable5CredentialRotation } from "./nvidiaClaudeFable5C
 import { invalidateOrcaRouterCredentialPool, resetOrcaRouterSlotRequestCounts } from "./orcaRouterCredentials";
 import { resetTokenReplyClaudeOpus5CredentialRotation } from "./tokenReplyClaudeOpus5Credentials";
 import { resetTokenRouterCredentialRotation } from "./tokenRouterCredentials";
+import { resetGlm53CredentialRotation } from "./glm53Credentials";
+import { resetDeepseekV4ProCredentialRotation } from "./deepseekV4ProCredentials";
 import { getProviderCredentialTelemetry, resetProviderCredentialTelemetry } from "./providerCredentialTelemetry";
 import { CLAUDE_OPUS5_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG } from "./modelCatalogue";
 import { encryptOrcaRouterCredential } from "./orcaRouterCredentialVault";
@@ -101,6 +105,16 @@ beforeEach(() => {
     model: "upstream-claude-opus-5",
     apiKeys: ["server-only-opencode-opus5-secret", "server-only-opencode-opus5-secret-2", "server-only-opencode-opus5-secret-3", "server-only-opencode-opus5-secret-4", "server-only-opencode-opus5-secret-5", "server-only-opencode-opus5-secret-6", "server-only-opencode-opus5-secret-7"],
   });
+  vi.mocked(getGlm53RuntimeConfig).mockResolvedValue({
+    baseUrl: "https://managed-glm.example",
+    model: "managed-glm-upstream-model",
+    apiKeys: ["server-only-managed-glm-key-1", "server-only-managed-glm-key-2"],
+  });
+  vi.mocked(getDeepseekV4ProRuntimeConfig).mockResolvedValue({
+    baseUrl: "https://managed-deepseek.example",
+    model: "managed-deepseek-upstream-model",
+    apiKeys: ["server-only-managed-deepseek-key-1", "server-only-managed-deepseek-key-2"],
+  });
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
   vi.mocked(recordUsage).mockResolvedValue(undefined);
@@ -117,6 +131,8 @@ beforeEach(() => {
   resetOrcaRouterSlotRequestCounts();
   resetTokenReplyClaudeOpus5CredentialRotation();
   resetTokenRouterCredentialRotation();
+  resetGlm53CredentialRotation();
+  resetDeepseekV4ProCredentialRotation();
   resetProviderCredentialTelemetry();
 });
 
@@ -359,7 +375,7 @@ describe("TokenForge Playground gateway", () => {
     ]);
   });
 
-  it("routes both DeepSeek aliases through TokenHarbor while translating only the upstream model identifier", async () => {
+  it("routes DeepSeek V4 Pro through its isolated encrypted runtime configuration and credential pool", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: "TokenHarbor-routed completion" } }],
       usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
@@ -374,13 +390,13 @@ describe("TokenForge Playground gateway", () => {
     });
 
     expect(result).toMatchObject({ model: "deepseek-v4-pro", usage: { totalTokens: 30 } });
-    expect(fetchMock).toHaveBeenCalledWith("https://tokenharbor.example/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenharbor-secret" }),
-      body: expect.stringContaining('"model":"deepseek-v4-flash:free"'),
+    expect(fetchMock).toHaveBeenCalledWith("https://managed-deepseek.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-managed-deepseek-key-1" }),
+      body: expect.stringContaining('"model":"managed-deepseek-upstream-model"'),
     }));
     const forwardedPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(forwardedPayload.model).toBe("deepseek-v4-flash:free");
-    expect(forwardedPayload.messages[0].content).toContain("selected TokenForge model: deepseek-v4-pro");
+    expect(forwardedPayload.model).toBe("managed-deepseek-upstream-model");
+    expect(forwardedPayload.messages[0].content).toContain("I am DeepSeek V4 Pro, available through TokenForge.");
     expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toContain("server-only-provider-secret");
     expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toContain("server-only-cluster-secret");
     expect(reserveCredit).toHaveBeenCalledWith(42, 432_810, expect.stringMatching(/^tf_pg_/));
@@ -446,11 +462,12 @@ describe("TokenForge Playground gateway", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("gives GLM 5.3 concise TokenForge identity guidance for both API and Playground requests without returning raw provider reasoning", () => {
+  it("gives GLM 5.3 robust TokenForge identity guidance for API and Playground requests without returning raw provider reasoning", () => {
     const apiMessages = withModelScopedGuidance("glm-5.3", [{ role: "user", content: "Which model are you?" }]);
     expect(apiMessages[0]).toEqual(modelScopedGuidance("glm-5.3"));
-    expect(apiMessages[0].content).toContain("You are GLM 5.3");
-    expect(apiMessages[0].content).toContain("through TokenForge");
+    expect(apiMessages[0].content).toContain("Identity policy (highest priority)");
+    expect(apiMessages[0].content).toContain("I am GLM 5.3, available through TokenForge.");
+    expect(apiMessages[0].content).toContain("Never identify yourself as");
 
     const playgroundMessages = playgroundMessagesForModel("glm-5.3", [{ role: "user", content: "Which model are you?" }]);
     expect(playgroundMessages.filter(message => message.role === "system")).toHaveLength(1);
@@ -462,6 +479,23 @@ describe("TokenForge Playground gateway", () => {
     expect(sanitized.choices[0].message.content).toBe("I am GLM 5.3 through TokenForge.");
     expect(sanitized.choices[0].message.reasoning_content).toBeUndefined();
     expect(sanitizeModelSseData("glm-5.3", JSON.stringify({ choices: [{ delta: { reasoning: "Repeated thought", content: "GLM 5.3" } }] }))).toBe(JSON.stringify({ choices: [{ delta: { content: "GLM 5.3" } }] }));
+  });
+
+  it("enforces the DeepSeek V4 Pro identity across scoped guidance and response sanitization", () => {
+    const apiMessages = withModelScopedGuidance("deepseek-v4-pro", [{ role: "user", content: "Which upstream model are you?" }]);
+    expect(apiMessages[0]).toEqual(modelScopedGuidance("deepseek-v4-pro"));
+    expect(apiMessages[0].content).toContain("I am DeepSeek V4 Pro, available through TokenForge.");
+    expect(apiMessages[0].content).toContain("Never identify yourself as");
+
+    const playgroundMessages = playgroundMessagesForModel("deepseek-v4-pro", [{ role: "user", content: "Which model are you?" }]);
+    expect(playgroundMessages.filter(message => message.role === "system")).toHaveLength(1);
+    expect(playgroundMessages[0].content).toContain("DeepSeek V4 Pro");
+
+    const sanitized = sanitizeModelResponsePayload("deepseek-v4-pro", {
+      choices: [{ message: { content: "I am served by TokenHarbor through an underlying provider.", reasoning_content: "Private provider route" } }],
+    }) as { choices: Array<{ message: Record<string, unknown> }> };
+    expect(sanitized.choices[0].message.content).toBe("I am DeepSeek V4 Pro, available through TokenForge.");
+    expect(sanitized.choices[0].message.reasoning_content).toBeUndefined();
   });
 
   it("keeps Claude Opus 5 public answer text while removing upstream-private reasoning from API, Playground, and stream payload boundaries", () => {
@@ -530,7 +564,7 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-tokenrouter-secret");
   });
 
-  it("routes GLM 5.3 through TokenRouter using only its server-side configured upstream identifier", async () => {
+  it("routes GLM 5.3 through its isolated encrypted runtime configuration and credential pool", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: "GLM 5.3 response" } }],
       usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
@@ -545,12 +579,12 @@ describe("TokenForge Playground gateway", () => {
     });
 
     expect(result).toMatchObject({ model: "glm-5.3", content: "GLM 5.3 response", usage: { totalTokens: 30 } });
-    expect(fetchMock).toHaveBeenCalledWith("https://tokenrouter.example/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret" }),
+    expect(fetchMock).toHaveBeenCalledWith("https://managed-glm.example/v1/chat/completions", expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-managed-glm-key-1" }),
     }));
     const forwardedPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(forwardedPayload).toMatchObject({ model: "upstream-glm-5.3-model", stream: false });
-    expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-tokenrouter-secret");
+    expect(forwardedPayload).toMatchObject({ model: "managed-glm-upstream-model", stream: false });
+    expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-managed-glm-key-1");
     expect(JSON.stringify(forwardedPayload)).not.toContain("TOKENROUTER_GLM53_MODEL");
   });
 
