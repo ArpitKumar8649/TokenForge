@@ -41,4 +41,18 @@ describe("TokenReply Claude Opus 5 credential rotation", () => {
       { credential: "credential-one", slot: 0, poolSize: 7 },
     ]);
   });
+
+  it("rotates a shortened runtime key array after an administrator removes slots", () => {
+    expect(Array.from({ length: 5 }, () => selectNextTokenReplyClaudeOpus5CredentialWithSlot([
+      "credential-one",
+      "credential-four",
+      "credential-seven",
+    ]))).toEqual([
+      { credential: "credential-one", slot: 0, poolSize: 3 },
+      { credential: "credential-four", slot: 1, poolSize: 3 },
+      { credential: "credential-seven", slot: 2, poolSize: 3 },
+      { credential: "credential-one", slot: 0, poolSize: 3 },
+      { credential: "credential-four", slot: 1, poolSize: 3 },
+    ]);
+  });
 });

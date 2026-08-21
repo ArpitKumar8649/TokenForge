@@ -31,4 +31,16 @@ describe("NVIDIA Claude Fable 5 credential rotation", () => {
       { credential: "credential-one", slot: 0, poolSize: 5 },
     ]);
   });
+
+  it("rotates only the remaining runtime credentials after an administrator removes slots", () => {
+    expect(Array.from({ length: 4 }, () => selectNextNvidiaClaudeFable5CredentialWithSlot([
+      "credential-two",
+      "credential-five",
+    ]))).toEqual([
+      { credential: "credential-two", slot: 0, poolSize: 2 },
+      { credential: "credential-five", slot: 1, poolSize: 2 },
+      { credential: "credential-two", slot: 0, poolSize: 2 },
+      { credential: "credential-five", slot: 1, poolSize: 2 },
+    ]);
+  });
 });

@@ -272,8 +272,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
   const url = configuredBase?.endsWith("/chat/completions")
     ? configuredBase
     : configuredBase ? `${configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase}/v1`}/chat/completions` : null;
-  const credentialEnv = Object.fromEntries(runtime.apiKeys.map((credential, index) => [index === 0 ? "OPENCODE_CLAUDE_OPUS5_API_KEY" : `OPENCODE_CLAUDE_OPUS5_API_KEY_${index + 1}`, credential]));
-  const firstCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot(credentialEnv);
+  const firstCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot(runtime.apiKeys);
   if (!url || !firstCredential || !upstreamModel) throw new Error("TokenForge Claude Opus 5 inference is not configured");
   const requestBody = { ...input, model: upstreamModel };
   let selectedCredential = firstCredential;
@@ -291,12 +290,12 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
       if (response.ok || !retryableProviderStatus(response.status) || attempt === 2) return response;
       console.warn("[Claude Opus 5 TokenReply provider retry]", { event: "retryable_response_before_stream", upstreamStatus: response.status, attempt });
       response.body?.cancel().catch(() => undefined);
-      selectedCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot(credentialEnv) ?? selectedCredential;
+      selectedCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot(runtime.apiKeys) ?? selectedCredential;
     } catch (error) {
       lastError = error;
       if (signal.aborted || !responseStartTimeout.aborted || attempt === 2) throw error;
       console.warn("[Claude Opus 5 TokenReply provider retry]", { event: "response_start_timeout_before_stream", attempt });
-      selectedCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot(credentialEnv) ?? selectedCredential;
+      selectedCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot(runtime.apiKeys) ?? selectedCredential;
     }
   }
   throw lastError instanceof Error ? lastError : new Error("The selected provider is temporarily unavailable");
@@ -310,8 +309,7 @@ async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: Abo
   const url = configuredBase?.endsWith("/chat/completions")
     ? configuredBase
     : configuredBase ? `${configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase}/v1`}/chat/completions` : null;
-  const credentialEnv = Object.fromEntries(runtime.apiKeys.map((credential, index) => [index === 0 ? "NVIDIA_CLAUDE_FABLE5_API_KEY" : `NVIDIA_CLAUDE_FABLE5_API_KEY_${index + 1}`, credential]));
-  const firstCredential = selectNextNvidiaClaudeFable5CredentialWithSlot(credentialEnv);
+  const firstCredential = selectNextNvidiaClaudeFable5CredentialWithSlot(runtime.apiKeys);
   if (!url || !firstCredential || !upstreamModel) throw new Error("TokenForge Claude Fable 5 inference is not configured");
   const requestBody = { ...input, model: upstreamModel };
   let selectedCredential = firstCredential;
@@ -329,12 +327,12 @@ async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: Abo
       if (response.ok || !retryableProviderStatus(response.status) || attempt === 2) return response;
       console.warn("[Claude Fable 5 NVIDIA NIM provider retry]", { event: "retryable_response_before_stream", upstreamStatus: response.status, attempt });
       response.body?.cancel().catch(() => undefined);
-      selectedCredential = selectNextNvidiaClaudeFable5CredentialWithSlot(credentialEnv) ?? selectedCredential;
+      selectedCredential = selectNextNvidiaClaudeFable5CredentialWithSlot(runtime.apiKeys) ?? selectedCredential;
     } catch (error) {
       lastError = error;
       if (signal.aborted || !responseStartTimeout.aborted || attempt === 2) throw error;
       console.warn("[Claude Fable 5 NVIDIA NIM provider retry]", { event: "response_start_timeout_before_stream", attempt });
-      selectedCredential = selectNextNvidiaClaudeFable5CredentialWithSlot(credentialEnv) ?? selectedCredential;
+      selectedCredential = selectNextNvidiaClaudeFable5CredentialWithSlot(runtime.apiKeys) ?? selectedCredential;
     }
   }
   throw lastError instanceof Error ? lastError : new Error("The selected provider is temporarily unavailable");

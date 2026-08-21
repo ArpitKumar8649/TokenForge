@@ -127,13 +127,15 @@ const orcaRouterCredentialPoolInput = z.object({
 const claudeFable5ProviderSettingsInput = z.object({
   baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(),
   model: z.string().trim().min(1, "Enter a model ID").max(256).optional(),
-  apiKeys: z.array(z.string().trim().max(512)).length(5).optional(),
-}).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined, "Provide at least one setting to update");
+  apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys").optional(),
+  removeSlots: z.array(z.number().int().positive()).max(50).optional(),
+}).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined || input.removeSlots !== undefined, "Provide at least one setting to update");
 const claudeOpus5ProviderSettingsInput = z.object({
   baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(),
   model: z.string().trim().min(1, "Enter a model ID").max(256).optional(),
-  apiKeys: z.array(z.string().trim().max(512)).length(7).optional(),
-}).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined, "Provide at least one setting to update");
+  apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys").optional(),
+  removeSlots: z.array(z.number().int().positive()).max(50).optional(),
+}).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined || input.removeSlots !== undefined, "Provide at least one setting to update");
 const discordUnverifiedCleanupInput = z.object({
   expectedCount: z.number().int().min(0).max(1_000_000),
   confirmation: z.string().trim().max(128),
@@ -436,7 +438,7 @@ export const appRouter = router({
           metadata: {
             baseUrlChanged: input.baseUrl !== undefined,
             modelChanged: input.model !== undefined,
-            apiKeySlotsChanged: input.apiKeys?.filter(value => Boolean(value.trim())).length ?? 0,
+            apiKeySlotsChanged: (input.apiKeys?.filter(value => Boolean(value.trim())).length ?? 0) + (input.removeSlots?.length ?? 0),
           },
         });
         return settings;
@@ -456,7 +458,7 @@ export const appRouter = router({
           metadata: {
             baseUrlChanged: input.baseUrl !== undefined,
             modelChanged: input.model !== undefined,
-            apiKeySlotsChanged: input.apiKeys?.filter(value => Boolean(value.trim())).length ?? 0,
+            apiKeySlotsChanged: (input.apiKeys?.filter(value => Boolean(value.trim())).length ?? 0) + (input.removeSlots?.length ?? 0),
           },
         });
         return settings;

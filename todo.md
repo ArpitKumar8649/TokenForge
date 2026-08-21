@@ -386,3 +386,4 @@
 - [x] Remove the mistakenly added Telegram content from the special-referral UI and retain `AmirSNet` only as a non-functional attribution label in the shareable referral URL.
 - [x] Add administrator-configurable maintenance duration and note controls, with a persisted public days/hours/minutes/seconds countdown beneath the announcement banner.
 - [x] Restore visibility of the maintenance countdown controls on the live administrator Operations page and verify the mobile layout.
+- [x] Replace fixed Claude Opus 5 and Claude Fable 5 API-key slots with secure dynamic add/remove credential pools and variable-length rotation.

@@ -931,6 +931,8 @@ export async function setAnnouncementText(text: string, updatedByUserId: number)
   return value || null;
 }
 
+const MAX_MANAGED_PROVIDER_API_KEYS = 50;
+
 type ClaudeFable5RuntimePayload = { baseUrl: string; model: string; apiKeys: string[] };
 
 function claudeFable5RuntimeFromEnvironment(): ClaudeFable5RuntimePayload {
@@ -964,13 +966,13 @@ async function readClaudeFable5RuntimeOverride() {
     if (!decrypted || typeof decrypted !== "object") return null;
     const candidate = decrypted as Partial<ClaudeFable5RuntimePayload>;
     const configuredKeys = Array.isArray(candidate.apiKeys)
-      ? candidate.apiKeys.map(value => typeof value === "string" ? value.trim() : "").slice(0, 5)
+      ? candidate.apiKeys.map(value => typeof value === "string" ? value.trim() : "").filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS)
       : [];
     return {
       payload: {
         baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl.trim() : "",
         model: typeof candidate.model === "string" ? candidate.model.trim() : "",
-        apiKeys: [...configuredKeys, ...Array(Math.max(0, 5 - configuredKeys.length)).fill("")],
+        apiKeys: configuredKeys,
       },
       updatedAt: record.updatedAt,
       updatedByUserId: record.updatedByUserId,
@@ -987,7 +989,7 @@ export async function getClaudeFable5NvidiaRuntimeConfig(): Promise<ClaudeFable5
   return {
     baseUrl: override.payload.baseUrl || fallback.baseUrl,
     model: override.payload.model || fallback.model,
-    apiKeys: fallback.apiKeys.map((value, index) => override.payload.apiKeys[index] || value),
+    apiKeys: override.payload.apiKeys.length ? override.payload.apiKeys : fallback.apiKeys.filter(Boolean),
   };
 }
 
@@ -1004,14 +1006,19 @@ export async function getClaudeFable5NvidiaProviderSettings() {
   };
 }
 
-export async function updateClaudeFable5NvidiaProviderSettings(input: { baseUrl?: string; model?: string; apiKeys?: string[] }, updatedByUserId: number) {
+export async function updateClaudeFable5NvidiaProviderSettings(input: { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getClaudeFable5NvidiaRuntimeConfig();
+  const removedSlots = new Set(input.removeSlots ?? []);
+  const retainedKeys = current.apiKeys.filter((_, index) => !removedSlots.has(index + 1));
+  const submittedKeys = input.apiKeys ?? [];
+  const patchedExistingKeys = retainedKeys.map((key, index) => submittedKeys[index]?.trim() || key);
+  const appendedKeys = submittedKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
   const next: ClaudeFable5RuntimePayload = {
     baseUrl: input.baseUrl?.trim() || current.baseUrl,
     model: input.model?.trim() || current.model,
-    apiKeys: current.apiKeys.map((key, index) => input.apiKeys?.[index]?.trim() || key),
+    apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
   };
   if (!next.baseUrl || !next.model || !next.apiKeys.some(Boolean)) throw new Error("A base URL, model ID, and at least one API key are required for Claude Fable 5");
   const encrypted = encryptProviderRuntimeConfig(next);
@@ -1052,13 +1059,13 @@ async function readClaudeOpus5RuntimeOverride() {
     if (!decrypted || typeof decrypted !== "object") return null;
     const candidate = decrypted as Partial<ClaudeOpus5RuntimePayload>;
     const configuredKeys = Array.isArray(candidate.apiKeys)
-      ? candidate.apiKeys.map(value => typeof value === "string" ? value.trim() : "").slice(0, 7)
+      ? candidate.apiKeys.map(value => typeof value === "string" ? value.trim() : "").filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS)
       : [];
     return {
       payload: {
         baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl.trim() : "",
         model: typeof candidate.model === "string" ? candidate.model.trim() : "",
-        apiKeys: [...configuredKeys, ...Array(Math.max(0, 7 - configuredKeys.length)).fill("")],
+        apiKeys: configuredKeys,
       },
       updatedAt: record.updatedAt,
       updatedByUserId: record.updatedByUserId,
@@ -1075,7 +1082,7 @@ export async function getClaudeOpus5RuntimeConfig(): Promise<ClaudeOpus5RuntimeP
   return {
     baseUrl: override.payload.baseUrl || fallback.baseUrl,
     model: override.payload.model || fallback.model,
-    apiKeys: fallback.apiKeys.map((value, index) => override.payload.apiKeys[index] || value),
+    apiKeys: override.payload.apiKeys.length ? override.payload.apiKeys : fallback.apiKeys.filter(Boolean),
   };
 }
 
@@ -1092,14 +1099,19 @@ export async function getClaudeOpus5ProviderSettings() {
   };
 }
 
-export async function updateClaudeOpus5ProviderSettings(input: { baseUrl?: string; model?: string; apiKeys?: string[] }, updatedByUserId: number) {
+export async function updateClaudeOpus5ProviderSettings(input: { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getClaudeOpus5RuntimeConfig();
+  const removedSlots = new Set(input.removeSlots ?? []);
+  const retainedKeys = current.apiKeys.filter((_, index) => !removedSlots.has(index + 1));
+  const submittedKeys = input.apiKeys ?? [];
+  const patchedExistingKeys = retainedKeys.map((key, index) => submittedKeys[index]?.trim() || key);
+  const appendedKeys = submittedKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
   const next: ClaudeOpus5RuntimePayload = {
     baseUrl: input.baseUrl?.trim() || current.baseUrl,
     model: input.model?.trim() || current.model,
-    apiKeys: current.apiKeys.map((key, index) => input.apiKeys?.[index]?.trim() || key),
+    apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
   };
   if (!next.baseUrl || !next.model || !next.apiKeys.some(Boolean)) throw new Error("A base URL, model ID, and at least one API key are required for Claude Opus 5");
   const encrypted = encryptProviderRuntimeConfig(next);
