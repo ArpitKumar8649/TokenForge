@@ -2,7 +2,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { parse as parseCookieHeader } from "cookie";
 import type { Express, Request, Response } from "express";
-import { getAuthSessionVersion, getEmailAllowlistConfig, resolveGitHubIdentity } from "./db";
+import { getAuthSessionVersion, getEmailAllowlistConfig, hasPreProvisionedAccountEmail, resolveGitHubIdentity } from "./db";
 import { isPermanentEmailAddress } from "./localAuth";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -93,6 +93,11 @@ export function isGitHubAccountOldEnough(createdAt: string | null | undefined, n
   return Number.isFinite(createdAtMs) && createdAtMs <= now - MINIMUM_GITHUB_ACCOUNT_AGE_MS;
 }
 
+/** A reservation may waive account age only after GitHub has supplied the matching verified email. */
+export function mayBypassGitHubAccountAge(input: { verifiedEmail: string | null | undefined; hasPreProvisionedReservation: boolean }) {
+  return Boolean(input.verifiedEmail?.trim()) && input.hasPreProvisionedReservation;
+}
+
 async function exchangeCode(input: { code: string; verifier: string; redirectUri: string }) {
   const clientId = process.env.GITHUB_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GITHUB_OAUTH_CLIENT_SECRET;
@@ -152,7 +157,9 @@ export function registerGitHubOAuthRoutes(app: Express) {
     try {
       const accessToken = await exchangeCode({ code, verifier, redirectUri: callbackUrl(req) });
       const identity = await getGitHubIdentity(accessToken);
-      if (!isGitHubAccountOldEnough(identity.accountCreatedAt)) {
+      const hasPreProvisionedReservation = await hasPreProvisionedAccountEmail(identity.email);
+      const mayBypassAge = mayBypassGitHubAccountAge({ verifiedEmail: identity.email, hasPreProvisionedReservation });
+      if (!mayBypassAge && !isGitHubAccountOldEnough(identity.accountCreatedAt)) {
         res.redirect(302, "/signin?github=account-too-new");
         return;
       }

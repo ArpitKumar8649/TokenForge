@@ -400,3 +400,5 @@
 - [x] Increase the daily check-in reward from $5 to $15 and verify the active referral-credit amounts.
 - [x] Add an administrator-only pre-provisioned account workflow with email availability validation, a one-time $50 introductory credit, and activation only on a matching verified GitHub email.
 - [x] Add an administrator-configurable timer that activates a platform-wide maintenance pause for Playground and all user API calls at expiry, with a consistent maintenance error and explicit interaction with the existing global model-pause switch.
+- [x] Exempt only matching verified GitHub emails with an administrator pre-provisioned reservation from the 14-day GitHub account-age rule while retaining it for ordinary sign-ins.
+- [x] Exempt only matching verified GitHub emails with an administrator pre-provisioned reservation from the 14-day GitHub account-age rule while retaining it for ordinary sign-ins.

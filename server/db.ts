@@ -364,6 +364,19 @@ export async function listAdminPreProvisionedAccounts(limit = 20): Promise<PrePr
   }));
 }
 
+/** Checks only the administrator-created email reservation; no OAuth identity data is stored or matched here. */
+export async function hasPreProvisionedAccountEmail(input: string) {
+  const db = await getDb();
+  if (!db) return false;
+  const email = normalizeEmail(input);
+  if (!email) return false;
+  const reservation = (await db.select({ id: preProvisionedAccounts.id })
+    .from(preProvisionedAccounts)
+    .where(eq(preProvisionedAccounts.email, email))
+    .limit(1))[0];
+  return Boolean(reservation);
+}
+
 /** Atomically consumes a matching reservation and grants its reserved introductory credit once. */
 async function activatePreProvisionedAccount(userId: number, email: string) {
   const db = await getDb();

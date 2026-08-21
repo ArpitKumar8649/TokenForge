@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appOrigin, buildGitHubAuthorizationUrl, isGitHubAccountOldEnough, MINIMUM_GITHUB_ACCOUNT_AGE_MS, selectVerifiedGitHubEmail } from "./githubOAuth";
+import { appOrigin, buildGitHubAuthorizationUrl, isGitHubAccountOldEnough, mayBypassGitHubAccountAge, MINIMUM_GITHUB_ACCOUNT_AGE_MS, selectVerifiedGitHubEmail } from "./githubOAuth";
 
 describe("GitHub OAuth flow primitives", () => {
   it("creates a PKCE authorization request without exposing a client secret", () => {
@@ -39,5 +39,11 @@ describe("GitHub OAuth flow primitives", () => {
     expect(isGitHubAccountOldEnough(new Date(now - MINIMUM_GITHUB_ACCOUNT_AGE_MS + 1).toISOString(), now)).toBe(false);
     expect(isGitHubAccountOldEnough("not-a-date", now)).toBe(false);
     expect(isGitHubAccountOldEnough(null, now)).toBe(false);
+  });
+
+  it("waives GitHub account age only for a matching verified-email pre-provisioned reservation", () => {
+    expect(mayBypassGitHubAccountAge({ verifiedEmail: "reserved@example.com", hasPreProvisionedReservation: true })).toBe(true);
+    expect(mayBypassGitHubAccountAge({ verifiedEmail: "", hasPreProvisionedReservation: true })).toBe(false);
+    expect(mayBypassGitHubAccountAge({ verifiedEmail: "ordinary@example.com", hasPreProvisionedReservation: false })).toBe(false);
   });
 });
