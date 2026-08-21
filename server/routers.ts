@@ -62,6 +62,8 @@ import {
   updateGlm53ProviderSettings,
   getDeepseekV4ProProviderSettings,
   updateDeepseekV4ProProviderSettings,
+  listAdminPreProvisionedAccounts,
+  preProvisionAccountEmail,
 } from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -95,6 +97,9 @@ const adminAccountDirectoryInput = z.object({
   search: z.string().trim().max(120).default(""),
   status: z.enum(["all", "active", "suspended", "flagged"]).default("all"),
   sort: z.enum(["latestJoin", "mostTokens", "discordVerified", "mostCredit", "specialReferral"]).default("latestJoin"),
+});
+const adminPreProvisionAccountInput = z.object({
+  email: z.string().trim().email("Enter a valid email address").max(320, "Email addresses must be 320 characters or fewer"),
 });
 const permanentAccountDeleteInput = z.object({ userId: z.number().int().positive(), confirmation: z.string().trim().max(64).optional() });
 const adminCreditGrantInput = z.object({
@@ -331,6 +336,21 @@ export const appRouter = router({
     overview: adminProcedure.query(() => getAdminOverview()),
     specialReferralCampaign: adminProcedure.query(async () => ({ ...(await getSpecialReferralCampaignAdminOverview()), link: buildSpecialReferralCampaignUrl(), bonusUsd: 150 })),
     accounts: adminProcedure.input(adminAccountDirectoryInput).query(({ input }) => listAdminAccounts(input)),
+    preProvisionedAccounts: adminProcedure.query(() => listAdminPreProvisionedAccounts()),
+    preProvisionAccount: adminProcedure.input(adminPreProvisionAccountInput).mutation(async ({ ctx, input }) => {
+      const result = await preProvisionAccountEmail({ email: input.email, provisionedByUserId: ctx.user.id });
+      if (result.kind === "created") {
+        const emailDomain = result.email.split("@")[1] ?? "unknown";
+        await writeAuditEvent({
+          actorUserId: ctx.user.id,
+          action: "account.pre_provisioned",
+          entityType: "pre_provisioned_account",
+          entityId: String(result.reservationId),
+          metadata: { emailDomain, introductoryCreditNanos: result.introductoryCreditNanos },
+        });
+      }
+      return result;
+    }),
     accountModelUsage: adminProcedure.input(z.object({ userIds: z.array(z.number().int().positive()).min(1).max(10) })).query(({ input }) => getAdminAccountModelUsage(input.userIds)),
     activity: adminProcedure.input(z.object({ limit: z.number().int().min(1).max(100).default(40) }).optional()).query(({ input }) => listAdminAuditEvents(input?.limit ?? 40)),
     auditExport: adminProcedure.query(() => getAdminAuditExport()),

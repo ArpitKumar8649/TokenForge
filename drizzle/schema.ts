@@ -38,6 +38,27 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
+/**
+ * Administrator-created account reservations. A reservation is activated only after GitHub OAuth
+ * returns the exact same verified email address; no OAuth subject or credential is stored here.
+ */
+export const preProvisionedAccounts = mysqlTable(
+  "pre_provisioned_accounts",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    email: varchar("email", { length: 320 }).notNull(),
+    introductoryCreditNanos: bigint("introductoryCreditNanos", { mode: "number" }).notNull(),
+    provisionedByUserId: int("provisionedByUserId").references(() => users.id, { onDelete: "set null" }),
+    activatedUserId: int("activatedUserId").unique().references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    activatedAt: timestamp("activatedAt"),
+  },
+  table => [
+    uniqueIndex("pre_provisioned_accounts_email_unique_idx").on(table.email),
+    index("pre_provisioned_accounts_activation_idx").on(table.activatedAt, table.createdAt),
+  ],
+);
+
 /** One compact shareable affiliate code per account. The user relationship and code are both unique. */
 export const referralCodes = mysqlTable(
   "referral_codes",

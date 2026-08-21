@@ -398,3 +398,4 @@
 - [x] Add privacy-safe per-key request-volume and health metrics for GLM 5.3, DeepSeek V4 Pro, Claude Fable 5, and Claude Opus 5 dynamic provider pools.
 - [x] Route GLM 5.3 and DeepSeek V4 Pro through the Anthropic-compatible Messages translation path while preserving their isolated provider routes and public identities.
 - [x] Increase the daily check-in reward from $5 to $15 and verify the active referral-credit amounts.
+- [x] Add an administrator-only pre-provisioned account workflow with email availability validation, a one-time $50 introductory credit, and activation only on a matching verified GitHub email.

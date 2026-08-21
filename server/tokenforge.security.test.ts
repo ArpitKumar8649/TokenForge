@@ -77,14 +77,15 @@ describe("TokenForge credential and gateway safeguards", () => {
     const deleteWhere = vi.fn()
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce([{ affectedRows: 1 }]);
     const remove = vi.fn(() => ({ where: deleteWhere }));
     const transaction = vi.fn(async (callback: (tx: unknown) => unknown) => callback({ select, insert, delete: remove }));
     const database = { transaction };
 
     await expect(deleteAccountPermanently(55, database as NonNullable<Parameters<typeof deleteAccountPermanently>[1]>)).resolves.toBe(true);
-    expect(remove).toHaveBeenNthCalledWith(2, apiKeys);
-    expect(remove).toHaveBeenNthCalledWith(3, users);
+    expect(remove).toHaveBeenNthCalledWith(3, apiKeys);
+    expect(remove).toHaveBeenNthCalledWith(4, users);
   });
 
   it("keeps the Discord-unverified cleanup notice kind within its persisted column bound", () => {

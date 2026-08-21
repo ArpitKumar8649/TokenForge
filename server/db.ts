@@ -23,6 +23,7 @@ import {
   orcaRouterCredentialSlots,
   passwordCredentials,
   platformSettings,
+  preProvisionedAccounts,
   providerKeyMetrics,
   providerConfigs,
   referralAttributions,
@@ -30,7 +31,7 @@ import {
   specialReferralClaims,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
-import { hashPassword, normalizeEmail, nextFailedLoginState, normalizeEmailAllowlistEntries, retryAfterSeconds, verifyPassword } from "./localAuth";
+import { hashPassword, isPermanentEmailAddress, normalizeEmail, nextFailedLoginState, normalizeEmailAllowlistEntries, retryAfterSeconds, verifyPassword } from "./localAuth";
 import { DAILY_CHECKIN_CREDIT_NANOS, INTRODUCTORY_CREDIT_NANOS, NANODOLLARS_PER_DOLLAR } from "./creditPricing";
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, getTokenForgeUpstreamModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, TOKENFORGE_MODEL_IDS, type TokenForgeModelId } from "./modelCatalogue";
 import { getClusterProtocolCredentialPool } from "./clusterProtocolCredentials";
@@ -240,6 +241,106 @@ export async function ensureCreditAccount(userId: number) {
     if (error?.code !== "ER_DUP_ENTRY") throw error;
     return (await db.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).limit(1))[0] ?? null;
   }
+}
+
+export type PreProvisionedAccountSummary = {
+  id: number;
+  email: string;
+  introductoryCreditNanos: number;
+  createdAt: Date;
+  activatedAt: Date | null;
+  activatedUserId: number | null;
+  activatedUserName: string | null;
+};
+
+/** Creates an administrator-owned email reservation without storing an OAuth subject or credential. */
+export async function preProvisionAccountEmail(input: { email: string; provisionedByUserId: number }) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const email = normalizeEmail(input.email);
+  const emailPolicy = await getEmailAllowlistConfig();
+  if (!email || !isPermanentEmailAddress(email, emailPolicy?.entries)) {
+    throw new Error("Enter an eligible permanent email address");
+  }
+  const existingUser = (await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1))[0];
+  if (existingUser) return { kind: "existing_user" as const };
+  const existingReservation = (await db.select({ id: preProvisionedAccounts.id }).from(preProvisionedAccounts).where(eq(preProvisionedAccounts.email, email)).limit(1))[0];
+  if (existingReservation) return { kind: "already_pre_provisioned" as const, reservationId: Number(existingReservation.id) };
+  try {
+    const inserted = await db.insert(preProvisionedAccounts).values({
+      email,
+      introductoryCreditNanos: INTRODUCTORY_CREDIT_NANOS,
+      provisionedByUserId: input.provisionedByUserId,
+    });
+    return { kind: "created" as const, reservationId: Number(inserted[0].insertId), email, introductoryCreditNanos: INTRODUCTORY_CREDIT_NANOS };
+  } catch (error: any) {
+    if (error?.code !== "ER_DUP_ENTRY") throw error;
+    const concurrentUser = (await db.select({ id: users.id }).from(users).where(eq(users.email, email)).limit(1))[0];
+    if (concurrentUser) return { kind: "existing_user" as const };
+    const concurrentReservation = (await db.select({ id: preProvisionedAccounts.id }).from(preProvisionedAccounts).where(eq(preProvisionedAccounts.email, email)).limit(1))[0];
+    if (concurrentReservation) return { kind: "already_pre_provisioned" as const, reservationId: Number(concurrentReservation.id) };
+    throw error;
+  }
+}
+
+/** Returns recent pending and activated reservations for the administrator account workspace. */
+export async function listAdminPreProvisionedAccounts(limit = 20): Promise<PreProvisionedAccountSummary[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 50);
+  const rows = await db
+    .select({
+      id: preProvisionedAccounts.id,
+      email: preProvisionedAccounts.email,
+      introductoryCreditNanos: preProvisionedAccounts.introductoryCreditNanos,
+      createdAt: preProvisionedAccounts.createdAt,
+      activatedAt: preProvisionedAccounts.activatedAt,
+      activatedUserId: preProvisionedAccounts.activatedUserId,
+      activatedUserName: users.name,
+    })
+    .from(preProvisionedAccounts)
+    .leftJoin(users, eq(preProvisionedAccounts.activatedUserId, users.id))
+    .orderBy(desc(preProvisionedAccounts.createdAt))
+    .limit(boundedLimit);
+  return rows.map(row => ({
+    id: Number(row.id),
+    email: row.email,
+    introductoryCreditNanos: Number(row.introductoryCreditNanos),
+    createdAt: row.createdAt,
+    activatedAt: row.activatedAt,
+    activatedUserId: row.activatedUserId ?? null,
+    activatedUserName: row.activatedUserName ?? null,
+  }));
+}
+
+/** Atomically consumes a matching reservation and grants its reserved introductory credit once. */
+async function activatePreProvisionedAccount(userId: number, email: string) {
+  const db = await getDb();
+  if (!db) return false;
+  return db.transaction(async tx => {
+    const reservation = (await tx.select().from(preProvisionedAccounts)
+      .where(and(eq(preProvisionedAccounts.email, email), isNull(preProvisionedAccounts.activatedUserId))).limit(1))[0];
+    if (!reservation) return false;
+    const activatedAt = new Date();
+    const claimed = await tx.update(preProvisionedAccounts)
+      .set({ activatedUserId: userId, activatedAt })
+      .where(and(eq(preProvisionedAccounts.id, reservation.id), isNull(preProvisionedAccounts.activatedUserId)));
+    if (Number(claimed[0]?.affectedRows ?? 0) !== 1) return false;
+    const currentCreditAccount = (await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).limit(1))[0];
+    if (!currentCreditAccount) {
+      const creditAmount = Number(reservation.introductoryCreditNanos);
+      await tx.insert(creditAccounts).values({ userId, balanceNanos: creditAmount });
+      await tx.insert(creditLedger).values({
+        userId,
+        kind: "introductory_grant",
+        amountNanos: creditAmount,
+        balanceAfterNanos: creditAmount,
+        referenceId: `pre-provisioned-introductory:${reservation.id}`,
+        note: "Administrator pre-provisioned welcome credit",
+      });
+    }
+    return true;
+  });
 }
 
 function newReferralCode() {
@@ -1957,7 +2058,12 @@ export async function resolveGitHubIdentity(input: GitHubIdentityInput) {
       await tx.insert(oauthIdentities).values({ userId: createdUserId, provider, providerUserId: input.providerUserId });
       return createdUserId;
     });
-    await Promise.all([ensureAccountControl(userId), ensureCreditAccount(userId), getOrCreateReferralCode(userId)]);
+    const preProvisionedActivation = await activatePreProvisionedAccount(userId, email);
+    await Promise.all([
+      ensureAccountControl(userId),
+      preProvisionedActivation ? Promise.resolve() : ensureCreditAccount(userId),
+      getOrCreateReferralCode(userId),
+    ]);
     await awardReferralForNewUser(userId, input.referralCode);
     await reserveSpecialReferralCampaignSlot(userId, input.referralCode);
     const user = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
@@ -2029,6 +2135,7 @@ export async function deleteAccountPermanently(userId: number, database?: Accoun
     ];
     await tx.insert(deletedIdentityTombstones).values(tombstones).onDuplicateKeyUpdate({ set: { deletedAt: new Date() } });
     await tx.delete(auditEvents).where(or(eq(auditEvents.actorUserId, userId), eq(auditEvents.targetUserId, userId)));
+    await tx.delete(preProvisionedAccounts).where(eq(preProvisionedAccounts.activatedUserId, userId));
     await tx.delete(apiKeys).where(eq(apiKeys.userId, userId));
     const deleted = await tx.delete(users).where(eq(users.id, userId));
     return deleted[0].affectedRows > 0;
