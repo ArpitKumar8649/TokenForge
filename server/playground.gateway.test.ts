@@ -7,6 +7,7 @@ vi.mock("./db", () => ({
   getDeepseekV4ProRuntimeConfig: vi.fn(),
   getGlm53RuntimeConfig: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
+  PLATFORM_MAINTENANCE_ERROR_MESSAGE: "Site entered in maintainence mode due to massive request.",
   getQuotaStatus: vi.fn(),
   getModelAvailabilitySnapshot: vi.fn(),
   isModelAvailable: vi.fn(),

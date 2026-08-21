@@ -7,6 +7,7 @@ import {
   getDeepseekV4ProRuntimeConfig,
   getGlm53RuntimeConfig,
   getPlatformMaintenanceConfig,
+  PLATFORM_MAINTENANCE_ERROR_MESSAGE,
   getQuotaStatus,
   getModelAvailabilitySnapshot,
   isModelAvailable,
@@ -686,7 +687,7 @@ export async function runPlaygroundCompletion(input: {
     throw new TokenForgePlaygroundError("invalid_messages", "Send a non-empty array of conversation messages.");
   }
   if ((await getPlatformMaintenanceConfig()).enabled) {
-    throw new TokenForgePlaygroundError("platform_maintenance", "TokenForge is under maintenance. Inference requests are temporarily unavailable; retry shortly.");
+    throw new TokenForgePlaygroundError("platform_maintenance", PLATFORM_MAINTENANCE_ERROR_MESSAGE);
   }
   if (!(await isModelAvailable(input.model))) {
     throw new TokenForgePlaygroundError("model_unavailable", "The requested model is currently unavailable in the active TokenForge catalogue.");
@@ -772,7 +773,7 @@ async function streamPlaygroundCompletion(input: {
 }) {
   const requestId = `tf_pg_${randomUUID().replaceAll("-", "")}`;
   if ((await getPlatformMaintenanceConfig()).enabled) {
-    throw new TokenForgePlaygroundError("platform_maintenance", "TokenForge is under maintenance. Inference requests are temporarily unavailable; retry shortly.");
+    throw new TokenForgePlaygroundError("platform_maintenance", PLATFORM_MAINTENANCE_ERROR_MESSAGE);
   }
   if (!(await isModelAvailable(input.model))) {
     throw new TokenForgePlaygroundError("model_unavailable", "The requested model is currently unavailable in the active TokenForge catalogue.");
@@ -912,7 +913,7 @@ export function registerOpenAiGateway(app: Express) {
     const key = await findActiveApiKey(secret);
     if (!key) return errorResponse(res, requestId, 401, "The supplied TokenForge key is missing, invalid, or revoked.", "invalid_api_key");
     if ((await getPlatformMaintenanceConfig()).enabled) {
-      return errorResponse(res, requestId, 503, "TokenForge is under maintenance. Inference requests are temporarily unavailable; retry shortly.", "platform_maintenance");
+      return errorResponse(res, requestId, 503, PLATFORM_MAINTENANCE_ERROR_MESSAGE, "platform_maintenance");
     }
 
     const input = (req.body ?? {}) as ChatInput;

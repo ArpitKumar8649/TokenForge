@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   findActiveApiKey,
   getPlatformMaintenanceConfig,
+  PLATFORM_MAINTENANCE_ERROR_MESSAGE,
   getQuotaStatus,
   isModelAvailable,
   loadGlmToolContinuations,
@@ -501,7 +502,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
     const key = await findActiveApiKey(secret);
     if (!key) return respondError(res, requestId, 401, "authentication_error", "The supplied TokenForge key is missing, invalid, or revoked.");
     if ((await getPlatformMaintenanceConfig()).enabled) {
-      return respondError(res, requestId, 503, "overloaded_error", "TokenForge is under maintenance. Inference requests are temporarily unavailable; retry shortly.");
+      return respondError(res, requestId, 503, "overloaded_error", PLATFORM_MAINTENANCE_ERROR_MESSAGE);
     }
 
     const raw = (req.body ?? {}) as AnthropicRequest;

@@ -54,6 +54,7 @@ const ANNOUNCEMENT_TEXT_SETTING_KEY = "announcement_text";
 const SESSION_VERSION_SETTING_KEY = "auth_session_version";
 const PLATFORM_MAINTENANCE_SETTING_KEY = "platform_maintenance";
 const MAINTENANCE_COUNTDOWN_SETTING_KEY = "maintenance_countdown_v1";
+export const PLATFORM_MAINTENANCE_ERROR_MESSAGE = "Site entered in maintainence mode due to massive request.";
 const CLAUDE_FABLE5_NVIDIA_RUNTIME_SETTING_KEY = "claude_fable5_nvidia_runtime_v1";
 const CLAUDE_OPUS5_TOKENREPLY_RUNTIME_SETTING_KEY = "claude_opus5_tokenreply_runtime_v1";
 const GLM53_RUNTIME_SETTING_KEY = "glm53_runtime_v1";
@@ -128,10 +129,40 @@ export async function getAuthSessionVersion() {
 
 export type PlatformMaintenanceConfig = { enabled: boolean; updatedAt: Date | null; updatedByUserId: number | null };
 
+type StoredMaintenanceCountdown = { endsAt: number; note: string };
+
+function parseMaintenanceCountdown(value: string | null | undefined): StoredMaintenanceCountdown | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as { endsAt?: unknown; note?: unknown };
+    const endsAt = Number(parsed.endsAt);
+    if (!Number.isFinite(endsAt)) return null;
+    return { endsAt, note: String(parsed.note ?? "").trim().slice(0, 200) };
+  } catch {
+    return null;
+  }
+}
+
+/** Atomically converts a completed public countdown into a global inference pause without touching model or provider flags. */
+async function activateExpiredMaintenanceCountdown(database: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
+  const record = (await database.select({ value: platformSettings.value, updatedByUserId: platformSettings.updatedByUserId })
+    .from(platformSettings).where(eq(platformSettings.settingKey, MAINTENANCE_COUNTDOWN_SETTING_KEY)).limit(1))[0];
+  const countdown = parseMaintenanceCountdown(record?.value);
+  if (!countdown || countdown.endsAt > Date.now()) return false;
+  await database.transaction(async tx => {
+    await tx.insert(platformSettings).values({ settingKey: MAINTENANCE_COUNTDOWN_SETTING_KEY, value: "", updatedByUserId: record?.updatedByUserId ?? null })
+      .onDuplicateKeyUpdate({ set: { value: "", updatedByUserId: record?.updatedByUserId ?? null, updatedAt: new Date() } });
+    await tx.insert(platformSettings).values({ settingKey: PLATFORM_MAINTENANCE_SETTING_KEY, value: "enabled", updatedByUserId: record?.updatedByUserId ?? null })
+      .onDuplicateKeyUpdate({ set: { value: "enabled", updatedByUserId: record?.updatedByUserId ?? null, updatedAt: new Date() } });
+  });
+  return true;
+}
+
 /** Returns the global inference admission state. Model catalogues and administration remain available during maintenance. */
 export async function getPlatformMaintenanceConfig(): Promise<PlatformMaintenanceConfig> {
   const db = await getDb();
   if (!db) return { enabled: false, updatedAt: null, updatedByUserId: null };
+  await activateExpiredMaintenanceCountdown(db);
   const record = (await db.select().from(platformSettings).where(eq(platformSettings.settingKey, PLATFORM_MAINTENANCE_SETTING_KEY)).limit(1))[0];
   return { enabled: record?.value === "enabled", updatedAt: record?.updatedAt ?? null, updatedByUserId: record?.updatedByUserId ?? null };
 }
@@ -140,6 +171,15 @@ export async function getPlatformMaintenanceConfig(): Promise<PlatformMaintenanc
 export async function setPlatformMaintenanceConfig(enabled: boolean, updatedByUserId: number): Promise<PlatformMaintenanceConfig> {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
+  if (!enabled) {
+    const countdown = (await db.select({ value: platformSettings.value }).from(platformSettings)
+      .where(eq(platformSettings.settingKey, MAINTENANCE_COUNTDOWN_SETTING_KEY)).limit(1))[0];
+    const parsed = parseMaintenanceCountdown(countdown?.value);
+    if (parsed && parsed.endsAt <= Date.now()) {
+      await db.insert(platformSettings).values({ settingKey: MAINTENANCE_COUNTDOWN_SETTING_KEY, value: "", updatedByUserId })
+        .onDuplicateKeyUpdate({ set: { value: "", updatedByUserId, updatedAt: new Date() } });
+    }
+  }
   await db.insert(platformSettings).values({
     settingKey: PLATFORM_MAINTENANCE_SETTING_KEY,
     value: enabled ? "enabled" : "disabled",
@@ -148,23 +188,34 @@ export async function setPlatformMaintenanceConfig(enabled: boolean, updatedByUs
   return getPlatformMaintenanceConfig();
 }
 
+/** Clears a scheduled or elapsed countdown and restores global inference admission; individual model availability stays unchanged. */
+export async function resumePlatformAfterTimedMaintenance(updatedByUserId: number): Promise<PlatformMaintenanceConfig> {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  await db.transaction(async tx => {
+    await tx.insert(platformSettings).values({ settingKey: MAINTENANCE_COUNTDOWN_SETTING_KEY, value: "", updatedByUserId })
+      .onDuplicateKeyUpdate({ set: { value: "", updatedByUserId, updatedAt: new Date() } });
+    await tx.insert(platformSettings).values({ settingKey: PLATFORM_MAINTENANCE_SETTING_KEY, value: "disabled", updatedByUserId })
+      .onDuplicateKeyUpdate({ set: { value: "disabled", updatedByUserId, updatedAt: new Date() } });
+  });
+  return getPlatformMaintenanceConfig();
+}
+
 export type MaintenanceCountdown = { endsAt: number; note: string } | null;
 
-/** Reads the active public maintenance countdown. Expired or malformed settings are intentionally unpublished. */
+/** Reads the active public maintenance countdown. Expiry durably pauses inference before the timer is unpublished. */
 export async function getMaintenanceCountdown(): Promise<MaintenanceCountdown> {
   const db = await getDb();
   if (!db) return null;
   const record = (await db.select({ value: platformSettings.value }).from(platformSettings)
     .where(eq(platformSettings.settingKey, MAINTENANCE_COUNTDOWN_SETTING_KEY)).limit(1))[0];
-  if (!record?.value) return null;
-  try {
-    const parsed = JSON.parse(record.value) as { endsAt?: unknown; note?: unknown };
-    const endsAt = Number(parsed.endsAt);
-    if (!Number.isFinite(endsAt) || endsAt <= Date.now()) return null;
-    return { endsAt, note: String(parsed.note ?? "").trim().slice(0, 200) };
-  } catch {
+  const countdown = parseMaintenanceCountdown(record?.value);
+  if (!countdown) return null;
+  if (countdown.endsAt <= Date.now()) {
+    await activateExpiredMaintenanceCountdown(db);
     return null;
   }
+  return countdown;
 }
 
 /** Starts a countdown from an administrator-provided duration, or clears the public timer when input is null. */

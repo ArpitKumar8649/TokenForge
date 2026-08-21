@@ -51,6 +51,7 @@ import {
   getSpecialReferralCampaignAdminOverview,
   resetDiscordVerification,
   setPlatformMaintenanceConfig,
+  resumePlatformAfterTimedMaintenance,
   setMaintenanceCountdown,
   getOrCreateAdminSessionPrincipal,
   replaceOrcaRouterCredentialPool,
@@ -358,6 +359,11 @@ export const appRouter = router({
     setPlatformMaintenance: adminProcedure.input(z.object({ enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
       const maintenance = await setPlatformMaintenanceConfig(input.enabled, ctx.user.id);
       await writeAuditEvent({ actorUserId: ctx.user.id, action: input.enabled ? "platform.maintenance.enabled" : "platform.maintenance.disabled", entityType: "platform_setting", entityId: "platform_maintenance" });
+      return maintenance;
+    }),
+    resumeTimedMaintenance: adminProcedure.mutation(async ({ ctx }) => {
+      const maintenance = await resumePlatformAfterTimedMaintenance(ctx.user.id);
+      await writeAuditEvent({ actorUserId: ctx.user.id, action: "platform.maintenance.timed_resumed", entityType: "platform_setting", entityId: "platform_maintenance" });
       return maintenance;
     }),
     maintenanceCountdown: adminProcedure.query(() => getMaintenanceCountdown()),
