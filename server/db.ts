@@ -37,7 +37,7 @@ import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PR
 import { getClusterProtocolCredentialPool } from "./clusterProtocolCredentials";
 import { getFxqidianCredentialPool } from "./fxqidianCredentials";
 import { getTokenRouterCredentialPool } from "./tokenRouterCredentials";
-import { getProviderCredentialTelemetry } from "./providerCredentialTelemetry";
+import { getCredentialSlotTelemetry, getProviderCredentialTelemetry } from "./providerCredentialTelemetry";
 import { encryptOrcaRouterCredential } from "./orcaRouterCredentialVault";
 import { decryptGlmToolContinuation, encryptGlmToolContinuation, type GlmPrivateToolContinuation } from "./glmToolContinuationVault";
 import { decryptProviderRuntimeConfig, encryptProviderRuntimeConfig } from "./providerRuntimeConfigVault";
@@ -1201,21 +1201,65 @@ export async function updateClaudeFable5NvidiaProviderSettings(input: { baseUrl?
   return getClaudeFable5NvidiaProviderSettings();
 }
 
-type ClaudeOpus5RuntimePayload = { baseUrl: string; model: string; apiKeys: string[] };
+export type ClaudeOpus5ProviderRuntime = {
+  id: string;
+  label: string;
+  baseUrl: string;
+  model: string;
+  apiKeys: string[];
+};
+
+export type ClaudeOpus5RuntimePayload = { providers: ClaudeOpus5ProviderRuntime[] };
+const MAX_CLAUDE_OPUS5_PROVIDERS = 12;
+
+function normalizeClaudeOpus5ProviderId(value: unknown, fallback: string) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return /^[a-z0-9][a-z0-9_-]{0,63}$/.test(normalized) ? normalized : fallback;
+}
+
+function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5ProviderRuntime[]) {
+  if (!Array.isArray(value)) return fallback;
+  const seen = new Set<string>();
+  const providers = value.flatMap((candidate, index) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const raw = candidate as Partial<ClaudeOpus5ProviderRuntime>;
+    const id = normalizeClaudeOpus5ProviderId(raw.id, `provider-${index + 1}`);
+    if (seen.has(id)) return [];
+    seen.add(id);
+    const apiKeys = Array.isArray(raw.apiKeys)
+      ? raw.apiKeys.map(key => typeof key === "string" ? key.trim() : "").filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS)
+      : [];
+    const baseUrl = typeof raw.baseUrl === "string" ? raw.baseUrl.trim() : "";
+    const model = typeof raw.model === "string" ? raw.model.trim() : "";
+    if (!baseUrl || !model || !apiKeys.length) return [];
+    return [{
+      id,
+      label: typeof raw.label === "string" && raw.label.trim() ? raw.label.trim().slice(0, 80) : `Provider ${index + 1}`,
+      baseUrl,
+      model,
+      apiKeys,
+    }];
+  }).slice(0, MAX_CLAUDE_OPUS5_PROVIDERS);
+  return providers.length ? providers : fallback;
+}
 
 function claudeOpus5RuntimeFromEnvironment(): ClaudeOpus5RuntimePayload {
   return {
-    baseUrl: process.env.OPENCODE_CLAUDE_OPUS5_BASE_URL?.trim() ?? "",
-    model: process.env.OPENCODE_CLAUDE_OPUS5_MODEL?.trim() ?? "",
-    apiKeys: [
-      process.env.OPENCODE_CLAUDE_OPUS5_API_KEY,
-      process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_2,
-      process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_3,
-      process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_4,
-      process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_5,
-      process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_6,
-      process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_7,
-    ].map(value => value?.trim() ?? ""),
+    providers: normalizeClaudeOpus5Providers([{
+      id: "environment-default",
+      label: "Environment default",
+      baseUrl: process.env.OPENCODE_CLAUDE_OPUS5_BASE_URL?.trim() ?? "",
+      model: process.env.OPENCODE_CLAUDE_OPUS5_MODEL?.trim() ?? "",
+      apiKeys: [
+        process.env.OPENCODE_CLAUDE_OPUS5_API_KEY,
+        process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_2,
+        process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_3,
+        process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_4,
+        process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_5,
+        process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_6,
+        process.env.OPENCODE_CLAUDE_OPUS5_API_KEY_7,
+      ].map(value => value?.trim() ?? ""),
+    }], []),
   };
 }
 
@@ -1228,16 +1272,16 @@ async function readClaudeOpus5RuntimeOverride() {
     const encoded = JSON.parse(record.value) as { ciphertext?: string; iv?: string; authTag?: string };
     const decrypted = decryptProviderRuntimeConfig({ ciphertext: String(encoded.ciphertext ?? ""), iv: String(encoded.iv ?? ""), authTag: String(encoded.authTag ?? "") });
     if (!decrypted || typeof decrypted !== "object") return null;
-    const candidate = decrypted as Partial<ClaudeOpus5RuntimePayload>;
-    const configuredKeys = Array.isArray(candidate.apiKeys)
-      ? candidate.apiKeys.map(value => typeof value === "string" ? value.trim() : "").filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS)
-      : [];
+    const candidate = decrypted as Partial<ClaudeOpus5RuntimePayload> & { baseUrl?: unknown; model?: unknown; apiKeys?: unknown };
+    const legacyProvider = {
+      id: "primary",
+      label: "Primary provider",
+      baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl.trim() : "",
+      model: typeof candidate.model === "string" ? candidate.model.trim() : "",
+      apiKeys: Array.isArray(candidate.apiKeys) ? candidate.apiKeys : [],
+    };
     return {
-      payload: {
-        baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl.trim() : "",
-        model: typeof candidate.model === "string" ? candidate.model.trim() : "",
-        apiKeys: configuredKeys,
-      },
+      payload: { providers: normalizeClaudeOpus5Providers(candidate.providers, normalizeClaudeOpus5Providers([legacyProvider], [])) },
       updatedAt: record.updatedAt,
       updatedByUserId: record.updatedByUserId,
     };
@@ -1250,41 +1294,50 @@ export async function getClaudeOpus5RuntimeConfig(): Promise<ClaudeOpus5RuntimeP
   const fallback = claudeOpus5RuntimeFromEnvironment();
   const override = await readClaudeOpus5RuntimeOverride();
   if (!override) return fallback;
-  return {
-    baseUrl: override.payload.baseUrl || fallback.baseUrl,
-    model: override.payload.model || fallback.model,
-    apiKeys: override.payload.apiKeys.length ? override.payload.apiKeys : fallback.apiKeys.filter(Boolean),
-  };
+  return { providers: override.payload.providers.length ? override.payload.providers : fallback.providers };
 }
 
 export async function getClaudeOpus5ProviderSettings() {
   const runtime = await getClaudeOpus5RuntimeConfig();
   const override = await readClaudeOpus5RuntimeOverride();
   return {
-    baseUrl: runtime.baseUrl,
-    model: runtime.model,
-    apiKeyMasks: runtime.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+    providers: runtime.providers.map(provider => ({
+      id: provider.id,
+      label: provider.label,
+      baseUrl: provider.baseUrl,
+      model: provider.model,
+      apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+    })),
     source: override ? "database" as const : "environment" as const,
     updatedAt: override?.updatedAt ?? null,
     updatedByUserId: override?.updatedByUserId ?? null,
   };
 }
 
-export async function updateClaudeOpus5ProviderSettings(input: { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] }, updatedByUserId: number) {
+export async function updateClaudeOpus5ProviderSettings(input: { providers: Array<{ id: string; label: string; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] }> }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getClaudeOpus5RuntimeConfig();
-  const removedSlots = new Set(input.removeSlots ?? []);
-  const retainedKeys = current.apiKeys.filter((_, index) => !removedSlots.has(index + 1));
-  const submittedKeys = input.apiKeys ?? [];
-  const patchedExistingKeys = retainedKeys.map((key, index) => submittedKeys[index]?.trim() || key);
-  const appendedKeys = submittedKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
-  const next: ClaudeOpus5RuntimePayload = {
-    baseUrl: input.baseUrl?.trim() || current.baseUrl,
-    model: input.model?.trim() || current.model,
-    apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
-  };
-  if (!next.baseUrl || !next.model || !next.apiKeys.some(Boolean)) throw new Error("A base URL, model ID, and at least one API key are required for Claude Opus 5");
+  const currentById = new Map(current.providers.map(provider => [provider.id, provider]));
+  const nextProviders = input.providers.map((submitted, index) => {
+    const existing = currentById.get(submitted.id);
+    const removedSlots = new Set(submitted.removeSlots ?? []);
+    const retainedKeys = (existing?.apiKeys ?? []).filter((_, keyIndex) => !removedSlots.has(keyIndex + 1));
+    const patchedExistingKeys = retainedKeys.map((key, keyIndex) => submitted.apiKeys[keyIndex]?.trim() || key);
+    const appendedKeys = submitted.apiKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
+    return {
+      id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`),
+      label: submitted.label.trim() || `Provider ${index + 1}`,
+      baseUrl: submitted.baseUrl.trim(),
+      model: submitted.model.trim(),
+      apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
+    };
+  });
+  const ids = new Set(nextProviders.map(provider => provider.id));
+  if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length)) {
+    throw new Error("Each Claude Opus 5 provider needs a unique identifier, base URL, model ID, and at least one API key");
+  }
+  const next: ClaudeOpus5RuntimePayload = { providers: nextProviders };
   const encrypted = encryptProviderRuntimeConfig(next);
   await db.insert(platformSettings).values({
     settingKey: CLAUDE_OPUS5_TOKENREPLY_RUNTIME_SETTING_KEY,
@@ -1478,17 +1531,18 @@ export function isManagedProviderKeyRetired(modelId: ManagedProviderMetricModel,
   return isCappedManagedProviderMetricModel(modelId) && requestCount >= MANAGED_PROVIDER_KEY_REQUEST_CAP;
 }
 
-export function managedProviderCredentialFingerprint(modelId: ManagedProviderMetricModel, credential: string) {
+export function managedProviderCredentialFingerprint(modelId: ManagedProviderMetricModel, credential: string, providerGroupId?: string) {
   const secret = process.env.JWT_SECRET?.trim();
   if (!secret) throw new Error("TokenForge provider metric vault is unavailable");
-  return createHmac("sha256", secret).update(`TokenForge:ProviderKeyMetrics:v1\u0000${modelId}\u0000${credential}`).digest("hex");
+  const groupScope = modelId === "claude-opus-5" && providerGroupId && providerGroupId !== "primary" ? `\u0000provider:${providerGroupId}` : "";
+  return createHmac("sha256", secret).update(`TokenForge:ProviderKeyMetrics:v1\u0000${modelId}${groupScope}\u0000${credential}`).digest("hex");
 }
 
 /** Records a per-key aggregate without storing key material, masks, or upstream identifiers in the database. */
-export async function recordManagedProviderKeyOutcome(modelId: ManagedProviderMetricModel, credential: string, healthy: boolean, occurredAt = new Date(), countRequest = true) {
+export async function recordManagedProviderKeyOutcome(modelId: ManagedProviderMetricModel, credential: string, healthy: boolean, occurredAt = new Date(), countRequest = true, providerGroupId?: string) {
   const db = await getDb();
   if (!db || !credential.trim()) return;
-  const credentialFingerprint = managedProviderCredentialFingerprint(modelId, credential);
+  const credentialFingerprint = managedProviderCredentialFingerprint(modelId, credential, providerGroupId);
   const increments = {
     requestCount: countRequest ? sql`${providerKeyMetrics.requestCount} + 1` : sql`${providerKeyMetrics.requestCount}`,
     successCount: healthy ? sql`${providerKeyMetrics.successCount} + 1` : sql`${providerKeyMetrics.successCount}`,
@@ -1509,9 +1563,12 @@ export async function recordManagedProviderKeyOutcome(modelId: ManagedProviderMe
   }).onDuplicateKeyUpdate({ set: increments });
 }
 
-async function getManagedProviderMetricRuntime(modelId: ManagedProviderMetricModel) {
+async function getManagedProviderMetricRuntime(modelId: ManagedProviderMetricModel): Promise<{ apiKeys: string[] }> {
   if (modelId === "claude-fable-5") return getClaudeFable5NvidiaRuntimeConfig();
-  if (modelId === "claude-opus-5") return getClaudeOpus5RuntimeConfig();
+  if (modelId === "claude-opus-5") {
+    const runtime = await getClaudeOpus5RuntimeConfig();
+    return { apiKeys: runtime.providers.flatMap(provider => provider.apiKeys) };
+  }
   if (modelId === "glm-5.3") return getGlm53RuntimeConfig();
   return getDeepseekV4ProRuntimeConfig();
 }
@@ -1558,14 +1615,15 @@ export async function reserveCappedManagedProviderCredentialRequest(modelId: Cap
 /** Administrator-only view model: keeps fingerprints and raw credentials server-side, returning only current masks and aggregated counts. */
 export async function getManagedProviderKeyMetrics() {
   const db = await getDb();
-  const runtimes = await Promise.all(MANAGED_PROVIDER_METRIC_MODEL_IDS.map(async modelId => ({ modelId, runtime: await getManagedProviderMetricRuntime(modelId) })));
+  const runtimes = await Promise.all(MANAGED_PROVIDER_METRIC_MODEL_IDS.filter(modelId => modelId !== "claude-opus-5").map(async modelId => ({ modelId, runtime: await getManagedProviderMetricRuntime(modelId) })));
+  const opusRuntime = await getClaudeOpus5RuntimeConfig();
   const rows = db
     ? await db.select().from(providerKeyMetrics).where(inArray(providerKeyMetrics.providerModelId, [...MANAGED_PROVIDER_METRIC_MODEL_IDS]))
     : [];
   const metricsByKey = new Map(rows.map(row => [`${row.providerModelId}:${row.credentialFingerprint}`, row]));
   const liveTelemetry = getProviderCredentialTelemetry(Object.fromEntries(runtimes.map(({ modelId, runtime }) => [modelId, runtime.apiKeys.length])));
 
-  return runtimes.map(({ modelId, runtime }) => {
+  const standardMetrics = runtimes.map(({ modelId, runtime }) => {
     const liveProvider = liveTelemetry.find(item => item.providerSlug === modelId);
     return {
       modelId,
@@ -1591,6 +1649,29 @@ export async function getManagedProviderKeyMetrics() {
       }),
     };
   });
+  const opusProviders = opusRuntime.providers.map(provider => ({
+    id: provider.id,
+    label: provider.label,
+    slots: provider.apiKeys.map((credential, index) => {
+      const metric = metricsByKey.get(`claude-opus-5:${managedProviderCredentialFingerprint("claude-opus-5", credential, provider.id)}`);
+      const liveSlot = getCredentialSlotTelemetry(`claude-opus-5:${provider.id}`, index);
+      return {
+        slot: index + 1,
+        keyMask: maskProviderApiKey(credential),
+        requestCount: Number(metric?.requestCount ?? 0),
+        successCount: Number(metric?.successCount ?? 0),
+        failureCount: Number(metric?.failureCount ?? 0),
+        health: liveSlot.health,
+        cooldownUntil: liveSlot.cooldownUntil,
+        lastRequestAt: metric?.lastRequestAt ?? null,
+        lastSuccessAt: metric?.lastSuccessAt ?? null,
+        lastFailureAt: metric?.lastFailureAt ?? null,
+        requestCap: null,
+        retired: false,
+      };
+    }),
+  }));
+  return [...standardMetrics, { modelId: "claude-opus-5", slots: [], providers: opusProviders }];
 }
 
 export async function promoteUserToAdmin(userId: number) {

@@ -9,12 +9,14 @@ describe("dynamic managed provider API-key pool controls", () => {
   it("provides masked add and remove controls for all managed provider pools", () => {
     expect(source).toContain("function DynamicProviderKeyPool");
     expect(source).toContain("function ManagedProviderSettingsPanel");
-    expect(source).toContain('providerName="Claude Opus 5"');
+    expect(source).toContain("function ClaudeOpus5ProviderBalancerPanel");
+    expect(source).toContain("Add provider");
+    expect(source).toContain("Save load balancer");
     expect(source).toContain('providerName="Claude Fable 5"');
     expect(source).toContain('providerName="GLM 5.3"');
     expect(source).toContain('providerName="DeepSeek V4 Pro"');
     expect(source).toContain("onRemove={index =>");
-    expect(source).toContain("removeSlots: opusRemovedSlots");
+    expect(source).toContain("removedSlots: saved?.apiKeyMasks[keyIndex]?.slot");
     expect(source).toContain("removeSlots: fableRemovedSlots");
     expect(source).toContain("removeSlots: glm53RemovedSlots");
     expect(source).toContain("removeSlots: deepseekV4ProRemovedSlots");
@@ -32,6 +34,8 @@ describe("dynamic managed provider API-key pool controls", () => {
 
   it("shows only masked, model-specific per-key request and health metrics in the selected panel", () => {
     expect(source).toContain("function ManagedProviderKeyMetrics");
+    expect(source).toContain("Provider & key metrics");
+    expect(source).toContain("Provider and credential observability");
     expect(source).toContain("Per-key request & health");
     expect(source).toContain("Raw API keys never leave the server");
     expect(source).toContain("managedProviderKeyMetrics.find(item => item.modelId === \"claude-fable-5\")");

@@ -1,6 +1,6 @@
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG } from "./modelCatalogue";
 
-export type CredentialTelemetryProvider = typeof FXQIDIAN_PROVIDER_SLUG | typeof CLUSTER_PROTOCOL_PROVIDER_SLUG | typeof TOKENHARBOR_PROVIDER_SLUG | typeof CLAUDE_OPUS5_PROVIDER_SLUG | typeof TOKENROUTER_PROVIDER_SLUG | "claude-fable-5" | "claude-opus-5" | "glm-5.3" | "deepseek-v4-pro";
+export type CredentialTelemetryProvider = typeof FXQIDIAN_PROVIDER_SLUG | typeof CLUSTER_PROTOCOL_PROVIDER_SLUG | typeof TOKENHARBOR_PROVIDER_SLUG | typeof CLAUDE_OPUS5_PROVIDER_SLUG | typeof TOKENROUTER_PROVIDER_SLUG | "claude-fable-5" | "claude-opus-5" | "glm-5.3" | "deepseek-v4-pro" | `claude-opus-5:${string}`;
 
 type CredentialSlotHealth = {
   consecutiveFailures: number;
@@ -48,6 +48,17 @@ export function recordCredentialFailure(providerSlug: CredentialTelemetryProvide
 
 export function recordCredentialFailover(providerSlug: CredentialTelemetryProvider) {
   failoverCounts.set(providerSlug, (failoverCounts.get(providerSlug) ?? 0) + 1);
+}
+
+/** Returns a single opaque slot health view for dynamically configured provider groups. */
+export function getCredentialSlotTelemetry(providerSlug: CredentialTelemetryProvider, slot: number, now = Date.now()) {
+  const health = healthFor(providerSlug, slot);
+  return {
+    health: health.cooldownUntil > now ? "cooling-down" as const : health.lastSuccessAt ? "healthy" as const : "unverified" as const,
+    cooldownUntil: health.cooldownUntil > now ? new Date(health.cooldownUntil) : null,
+    lastSuccessAt: health.lastSuccessAt,
+    lastFailureAt: health.lastFailureAt,
+  };
 }
 
 export function getProviderCredentialTelemetry(poolSizes: Partial<Record<CredentialTelemetryProvider, number>>, now = Date.now()) {

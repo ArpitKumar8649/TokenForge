@@ -25,7 +25,6 @@ import { selectNextBluesMindsClaudeFable5CredentialWithSlot } from "./bluesMinds
 import { selectNextFxqidianCredentialWithSlot } from "./fxqidianCredentials";
 import { selectNextNvidiaClaudeFable5CredentialWithSlot } from "./nvidiaClaudeFable5Credentials";
 import { selectNextOrcaRouterCredentialWithSlot } from "./orcaRouterCredentials";
-import { selectNextTokenReplyClaudeOpus5CredentialWithSlot } from "./tokenReplyClaudeOpus5Credentials";
 import { selectNextTokenRouterCredentialWithSlot } from "./tokenRouterCredentials";
 import { selectNextGlm53CredentialWithSlot } from "./glm53Credentials";
 import { selectNextDeepseekV4ProCredentialWithSlot } from "./deepseekV4ProCredentials";
@@ -330,53 +329,69 @@ async function forwardDedicatedDeepseekV4ProRequest(input: ChatInput, signal: Ab
   }), "deepseek-v4-pro");
 }
 
-/** Claude Opus 5 uses an isolated TokenReply credential pool, never the shared TokenRouter pool. */
+let claudeOpus5ProviderCursor = 0;
+const claudeOpus5KeyCursors = new Map<string, number>();
+
+export function resetClaudeOpus5ProviderBalancing() {
+  claudeOpus5ProviderCursor = 0;
+  claudeOpus5KeyCursors.clear();
+}
+
+function selectNextClaudeOpus5Credential(provider: { id: string; apiKeys: string[] }) {
+  const telemetryProvider: CredentialTelemetryProvider = `claude-opus-5:${provider.id}`;
+  const start = claudeOpus5KeyCursors.get(provider.id) ?? 0;
+  for (let offset = 0; offset < provider.apiKeys.length; offset += 1) {
+    const index = (start + offset) % provider.apiKeys.length;
+    if (!isCredentialSlotEligible(telemetryProvider, index)) continue;
+    claudeOpus5KeyCursors.set(provider.id, (index + 1) % provider.apiKeys.length);
+    return { credential: provider.apiKeys[index]!, slot: index, telemetryProvider };
+  }
+  return null;
+}
+
+/** Claude Opus 5 balances each new call evenly across configured provider groups, then across eligible keys in that group. */
 async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: AbortSignal) {
   const runtime = await getClaudeOpus5RuntimeConfig();
-  const configuredBase = runtime.baseUrl.replace(/\/$/, "");
-  const upstreamModel = runtime.model;
-  const url = configuredBase?.endsWith("/chat/completions")
-    ? configuredBase
-    : configuredBase ? `${configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase}/v1`}/chat/completions` : null;
-  const firstCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot(runtime.apiKeys);
-  if (!url || !firstCredential || !upstreamModel) throw new Error("TokenForge Claude Opus 5 inference is not configured");
-  const requestBody = { ...input, model: upstreamModel };
-  let selectedCredential = firstCredential;
+  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeOpus5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.apiKeys.length);
+  claudeOpus5ProviderCursor = runtime.providers.length ? (claudeOpus5ProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const responseStartTimeout = AbortSignal.timeout(50_000);
-    const attemptSignal = AbortSignal.any([signal, responseStartTimeout]);
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
-        body: JSON.stringify(requestBody),
-        signal: attemptSignal,
-      });
-      const healthyResponse = response.ok || !retryableProviderStatus(response.status);
-      if (healthyResponse || attempt === 2) {
-        if (healthyResponse) recordCredentialSuccess("claude-opus-5", selectedCredential.slot);
-        else recordCredentialFailure("claude-opus-5", selectedCredential.slot);
-        void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, healthyResponse).catch(() => undefined);
-        return response;
+  for (const provider of orderedProviders) {
+    const configuredBase = provider.baseUrl.replace(/\/$/, "");
+    const url = configuredBase?.endsWith("/chat/completions") ? configuredBase : configuredBase ? `${configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase}/v1`}/chat/completions` : null;
+    if (!url || !provider.model) continue;
+    for (let attempt = 0; attempt < provider.apiKeys.length; attempt += 1) {
+      const selectedCredential = selectNextClaudeOpus5Credential(provider);
+      if (!selectedCredential) break;
+      const responseStartTimeout = AbortSignal.timeout(50_000);
+      const attemptSignal = AbortSignal.any([signal, responseStartTimeout]);
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
+          body: JSON.stringify({ ...input, model: provider.model }),
+          signal: attemptSignal,
+        });
+        const healthyResponse = response.ok || !retryableProviderStatus(response.status);
+        if (healthyResponse) {
+          recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
+          void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
+          return response;
+        }
+        recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
+        void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+        lastError = new Error(`Claude Opus 5 provider returned ${response.status}`);
+        response.body?.cancel().catch(() => undefined);
+      } catch (error) {
+        lastError = error;
+        recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
+        void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+        if (signal.aborted) throw error;
       }
-      recordCredentialFailure("claude-opus-5", selectedCredential.slot);
-      void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, false).catch(() => undefined);
-      recordCredentialFailover("claude-opus-5");
-      console.warn("[Claude Opus 5 TokenReply provider retry]", { event: "retryable_response_before_stream", upstreamStatus: response.status, attempt });
-      response.body?.cancel().catch(() => undefined);
-      selectedCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot(runtime.apiKeys) ?? selectedCredential;
-    } catch (error) {
-      lastError = error;
-      recordCredentialFailure("claude-opus-5", selectedCredential.slot);
-      void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, false).catch(() => undefined);
-      if (signal.aborted || !responseStartTimeout.aborted || attempt === 2) throw error;
-      recordCredentialFailover("claude-opus-5");
-      console.warn("[Claude Opus 5 TokenReply provider retry]", { event: "response_start_timeout_before_stream", attempt });
-      selectedCredential = selectNextTokenReplyClaudeOpus5CredentialWithSlot(runtime.apiKeys) ?? selectedCredential;
+      recordCredentialFailover(selectedCredential.telemetryProvider);
+      console.warn("[Claude Opus 5 provider key retry]", { event: "retryable_response_before_stream", provider: provider.id });
     }
   }
-  throw lastError instanceof Error ? lastError : new Error("The selected provider is temporarily unavailable");
+  throw lastError instanceof Error ? lastError : new Error("TokenForge Claude Opus 5 inference is not configured or every provider is temporarily unavailable");
 }
 
 /** Claude Fable 5 uses its own OpenAI-compatible NVIDIA NIM route, never the shared TokenRouter pool. */

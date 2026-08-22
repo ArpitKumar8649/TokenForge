@@ -22,7 +22,7 @@ vi.mock("./db", () => ({
 }));
 
 import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
-import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
+import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, resetClaudeOpus5ProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 import { resetNvidiaClaudeFable5CredentialRotation } from "./nvidiaClaudeFable5Credentials";
@@ -106,9 +106,13 @@ beforeEach(() => {
     apiKeys: ["server-only-nvidia-fable5-secret-1", "server-only-nvidia-fable5-secret-2", "server-only-nvidia-fable5-secret-3", "server-only-nvidia-fable5-secret-4", "server-only-nvidia-fable5-secret-5"],
   });
   vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
-    baseUrl: "https://opencode.example/zen",
-    model: "upstream-claude-opus-5",
-    apiKeys: ["server-only-opencode-opus5-secret", "server-only-opencode-opus5-secret-2", "server-only-opencode-opus5-secret-3", "server-only-opencode-opus5-secret-4", "server-only-opencode-opus5-secret-5", "server-only-opencode-opus5-secret-6", "server-only-opencode-opus5-secret-7"],
+    providers: [{
+      id: "primary",
+      label: "Primary provider",
+      baseUrl: "https://opencode.example/zen",
+      model: "upstream-claude-opus-5",
+      apiKeys: ["server-only-opencode-opus5-secret", "server-only-opencode-opus5-secret-2", "server-only-opencode-opus5-secret-3", "server-only-opencode-opus5-secret-4", "server-only-opencode-opus5-secret-5", "server-only-opencode-opus5-secret-6", "server-only-opencode-opus5-secret-7"],
+    }],
   });
   vi.mocked(getGlm53RuntimeConfig).mockResolvedValue({
     baseUrl: "https://managed-glm.example",
@@ -132,6 +136,7 @@ beforeEach(() => {
   vi.mocked(loadOrcaRouterCredentialSlotCiphertexts).mockResolvedValue([]);
   resetClusterProtocolCredentialRotation();
   resetNvidiaClaudeFable5CredentialRotation();
+  resetClaudeOpus5ProviderBalancing();
   resetFxqidianCredentialRotation();
   invalidateOrcaRouterCredentialPool();
   resetOrcaRouterSlotRequestCounts();
@@ -299,6 +304,38 @@ describe("TokenForge Playground gateway", () => {
       "Bearer server-only-opencode-opus5-secret-7",
       "Bearer server-only-opencode-opus5-secret",
     ]);
+  });
+
+  it("balances Claude Opus 5 calls equally across provider groups before advancing each group’s independent key pool", async () => {
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
+      providers: [
+        { id: "provider-a", label: "Provider A", baseUrl: "https://provider-a.example", model: "upstream-a", apiKeys: ["provider-a-key-1", "provider-a-key-2"] },
+        { id: "provider-b", label: "Provider B", baseUrl: "https://provider-b.example", model: "upstream-b", apiKeys: ["provider-b-key-1", "provider-b-key-2"] },
+      ],
+    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const signal = new AbortController().signal;
+
+    for (let call = 0; call < 5; call += 1) {
+      await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Balance safely." }] }, signal);
+    }
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://provider-a.example/v1/chat/completions",
+      "https://provider-b.example/v1/chat/completions",
+      "https://provider-a.example/v1/chat/completions",
+      "https://provider-b.example/v1/chat/completions",
+      "https://provider-a.example/v1/chat/completions",
+    ]);
+    expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
+      "Bearer provider-a-key-1",
+      "Bearer provider-b-key-1",
+      "Bearer provider-a-key-2",
+      "Bearer provider-b-key-2",
+      "Bearer provider-a-key-1",
+    ]);
+    expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body as string).model)).toEqual(["upstream-a", "upstream-b", "upstream-a", "upstream-b", "upstream-a"]);
   });
 
   it("fails over to the next FXQidian pool slot after a retryable provider response without exposing credentials in telemetry", async () => {

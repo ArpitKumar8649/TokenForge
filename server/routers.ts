@@ -141,11 +141,15 @@ const claudeFable5ProviderSettingsInput = z.object({
   removeSlots: z.array(z.number().int().positive()).max(50).optional(),
 }).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined || input.removeSlots !== undefined, "Provide at least one setting to update");
 const claudeOpus5ProviderSettingsInput = z.object({
-  baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(),
-  model: z.string().trim().min(1, "Enter a model ID").max(256).optional(),
-  apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys").optional(),
-  removeSlots: z.array(z.number().int().positive()).max(50).optional(),
-}).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined || input.removeSlots !== undefined, "Provide at least one setting to update");
+  providers: z.array(z.object({
+    id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, "Use letters, numbers, hyphens, or underscores for the provider ID"),
+    label: z.string().trim().min(1, "Enter a provider label").max(80),
+    baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512),
+    model: z.string().trim().min(1, "Enter a model ID").max(256),
+    apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys"),
+    removeSlots: z.array(z.number().int().positive()).max(50).optional(),
+  })).min(1, "Keep at least one Claude Opus 5 provider").max(12, "At most 12 Claude Opus 5 providers may be configured"),
+});
 const glm53ProviderSettingsInput = z.object({
   baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(),
   model: z.string().trim().min(1, "Enter a model ID").max(256).optional(),
@@ -498,9 +502,9 @@ export const appRouter = router({
           entityType: "provider",
           entityId: "claude-opus-5",
           metadata: {
-            baseUrlChanged: input.baseUrl !== undefined,
-            modelChanged: input.model !== undefined,
-            apiKeySlotsChanged: (input.apiKeys?.filter(value => Boolean(value.trim())).length ?? 0) + (input.removeSlots?.length ?? 0),
+            providerCount: input.providers.length,
+            providerIds: input.providers.map(provider => provider.id),
+            configuredKeySlots: input.providers.reduce((count, provider) => count + provider.apiKeys.filter(value => Boolean(value.trim())).length, 0),
           },
         });
         return settings;
