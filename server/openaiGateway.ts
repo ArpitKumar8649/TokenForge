@@ -6,17 +6,20 @@ import {
   getClaudeOpus5RuntimeConfig,
   getDeepseekV4ProRuntimeConfig,
   getGlm53RuntimeConfig,
+  getRenderNimProxyRuntimeConfig,
   getPlatformMaintenanceConfig,
   PLATFORM_MAINTENANCE_ERROR_MESSAGE,
   getQuotaStatus,
   getModelAvailabilitySnapshot,
   isModelAvailable,
   recordUsage,
+  releaseRenderNimProxyEndpoint,
   reserveCappedManagedProviderCredentialRequest,
   reserveCredit,
   recordManagedProviderKeyOutcome,
   settleReservedCredit,
   touchApiKey,
+  tryAcquireRenderNimProxyEndpoint,
   isCappedManagedProviderMetricModel,
   type ManagedProviderMetricModel,
 } from "./db";
@@ -349,8 +352,64 @@ function selectNextClaudeOpus5Credential(provider: { id: string; apiKeys: string
   return null;
 }
 
+let renderNimProxyEndpointCursor = 0;
+
+/**
+ * Uses only administrator-authorized Render endpoints, atomically limiting each endpoint to seven active requests.
+ * No browser-identity spoofing is performed; ordinary truthful integration headers are sent.
+ */
+async function tryForwardClaudeOpus5ThroughRenderSwarm(input: ChatInput, signal: AbortSignal): Promise<globalThis.Response | undefined> {
+  const runtime = await getRenderNimProxyRuntimeConfig();
+  if (!runtime.enabled || !runtime.apiKey || !runtime.model) return undefined;
+  const endpoints = runtime.endpoints.filter(endpoint => endpoint.enabled !== false);
+  if (!endpoints.length) return undefined;
+
+  for (let offset = 0; offset < endpoints.length; offset += 1) {
+    const endpoint = endpoints[(renderNimProxyEndpointCursor + offset) % endpoints.length]!;
+    if (!(await tryAcquireRenderNimProxyEndpoint(endpoint))) continue;
+    renderNimProxyEndpointCursor = (renderNimProxyEndpointCursor + offset + 1) % endpoints.length;
+    const targetUrl = openAiChatCompletionsUrl(endpoint.url);
+    if (!targetUrl) {
+      await releaseRenderNimProxyEndpoint(endpoint.id, { success: false, cooldown: true });
+      continue;
+    }
+    const responseStartTimeout = AbortSignal.timeout(55_000);
+    const requestSignal = AbortSignal.any([signal, responseStartTimeout]);
+    try {
+      const response = await fetch(targetUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${runtime.apiKey}`,
+          "Content-Type": "application/json",
+          Accept: input.stream ? "text/event-stream" : "application/json",
+          "X-TokenForge-Integration": "authorized-render-capacity-router",
+        },
+        body: JSON.stringify({ ...input, model: runtime.model }),
+        signal: requestSignal,
+      });
+      if (response.ok || !retryableProviderStatus(response.status)) {
+        await releaseRenderNimProxyEndpoint(endpoint.id, { success: response.ok });
+        return response;
+      }
+      response.body?.cancel().catch(() => undefined);
+      await releaseRenderNimProxyEndpoint(endpoint.id, { success: false, cooldown: true });
+    } catch (error) {
+      if (signal.aborted) {
+        await releaseRenderNimProxyEndpoint(endpoint.id, { success: false });
+        throw error;
+      }
+      const timeout = responseStartTimeout.aborted;
+      await releaseRenderNimProxyEndpoint(endpoint.id, { success: false, timeout, cooldown: true });
+      console.warn("[Render NIM proxy failover]", { endpoint: endpoint.id, timeout });
+    }
+  }
+  return undefined;
+}
+
 /** Claude Opus 5 balances each new call evenly across configured provider groups, then across eligible keys in that group. */
 async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: AbortSignal) {
+  const renderResponse = await tryForwardClaudeOpus5ThroughRenderSwarm(input, signal);
+  if (renderResponse) return renderResponse;
   const runtime = await getClaudeOpus5RuntimeConfig();
   const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeOpus5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
   claudeOpus5ProviderCursor = runtime.providers.length ? (claudeOpus5ProviderCursor + 1) % runtime.providers.length : 0;

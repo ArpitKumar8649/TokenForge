@@ -405,6 +405,27 @@ export const providerKeyMetrics = mysqlTable(
   ],
 );
 
+/** Durable request-capacity and health telemetry for the administrator-authorized Render proxy endpoints. */
+export const renderProxyEndpointMetrics = mysqlTable(
+  "render_proxy_endpoint_metrics",
+  {
+    endpointId: varchar("endpointId", { length: 96 }).primaryKey(),
+    endpointUrl: varchar("endpointUrl", { length: 512 }).notNull(),
+    activeRequests: int("activeRequests").default(0).notNull(),
+    peakActiveRequests: int("peakActiveRequests").default(0).notNull(),
+    requestCount: bigint("requestCount", { mode: "number" }).default(0).notNull(),
+    successCount: bigint("successCount", { mode: "number" }).default(0).notNull(),
+    failureCount: bigint("failureCount", { mode: "number" }).default(0).notNull(),
+    timeoutCount: bigint("timeoutCount", { mode: "number" }).default(0).notNull(),
+    cooldownUntil: timestamp("cooldownUntil"),
+    lastRequestAt: timestamp("lastRequestAt"),
+    lastSuccessAt: timestamp("lastSuccessAt"),
+    lastFailureAt: timestamp("lastFailureAt"),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("render_proxy_endpoint_metrics_updated_idx").on(table.updatedAt)],
+);
+
 export const modelConfigs = mysqlTable(
   "model_configs",
   {
@@ -469,6 +490,7 @@ export type AuditEvent = typeof auditEvents.$inferSelect;
 export type PasswordCredential = typeof passwordCredentials.$inferSelect;
 export type PlatformSetting = typeof platformSettings.$inferSelect;
 export type ProviderKeyMetric = typeof providerKeyMetrics.$inferSelect;
+export type RenderProxyEndpointMetric = typeof renderProxyEndpointMetrics.$inferSelect;
 export type DeletedIdentityTombstone = typeof deletedIdentityTombstones.$inferSelect;
 export type ReferralCode = typeof referralCodes.$inferSelect;
 export type ReferralAttribution = typeof referralAttributions.$inferSelect;

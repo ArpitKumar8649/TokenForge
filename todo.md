@@ -407,3 +407,5 @@
 - [x] Enforce an 82-request lifetime cap for each GLM 5.3 and DeepSeek V4 Pro provider key, retire capped keys from rotation, and automatically mark the affected model unavailable when its pool is exhausted.
 - [x] Add equal-share multi-provider load balancing for Claude Opus 5, with separate encrypted API-key pools per provider, provider failover, and administrator per-provider/per-key request, success, failure, and health metrics.
 - [x] Add administrator enable/disable switches for individual Claude Opus 5 provider groups, preserving their keys and metrics while excluding disabled groups from balancing and failover.
+- [x] Add safe capacity protection for the six authorized Render Claude Opus 5 endpoints: enforce seven active requests per endpoint, route overflow to available endpoints then existing eligible providers, record cooldown/error outcomes, and show live administrator capacity and failure metrics without header spoofing.
+- [x] Add the Render endpoint swarm as an editable Claude Opus 5 provider configuration in Administrator Provider Settings, including server-only underlying-model configuration and endpoint editing controls.

@@ -26,6 +26,7 @@ import {
   preProvisionedAccounts,
   providerKeyMetrics,
   providerConfigs,
+  renderProxyEndpointMetrics,
   referralAttributions,
   referralCodes,
   specialReferralClaims,
@@ -59,6 +60,7 @@ const CLAUDE_FABLE5_NVIDIA_RUNTIME_SETTING_KEY = "claude_fable5_nvidia_runtime_v
 const CLAUDE_OPUS5_TOKENREPLY_RUNTIME_SETTING_KEY = "claude_opus5_tokenreply_runtime_v1";
 const GLM53_RUNTIME_SETTING_KEY = "glm53_runtime_v1";
 const DEEPSEEK_V4PRO_RUNTIME_SETTING_KEY = "deepseek_v4pro_runtime_v1";
+const RENDER_NIM_PROXY_SWARM_SETTING_KEY = "render_nim_proxy_swarm_v1";
 const SPECIAL_REFERRAL_CAMPAIGN_KEY = "special-referral-150-v1";
 export const SPECIAL_REFERRAL_CAMPAIGN_CAP = 150;
 export const SPECIAL_REFERRAL_BONUS_NANOS = 150 * NANODOLLARS_PER_DOLLAR;
@@ -1212,6 +1214,169 @@ export type ClaudeOpus5ProviderRuntime = {
 
 export type ClaudeOpus5RuntimePayload = { providers: ClaudeOpus5ProviderRuntime[] };
 const MAX_CLAUDE_OPUS5_PROVIDERS = 12;
+
+export const RENDER_NIM_PROXY_MAX_CONCURRENT_REQUESTS = 7;
+const DEFAULT_RENDER_NIM_PROXY_ENDPOINTS = [
+  "https://nim-playground-proxy.onrender.com",
+  "https://nim-playground-proxy-2.onrender.com",
+  "https://nim-playground-proxy-3.onrender.com",
+  "https://nim-playground-proxy-4.onrender.com",
+  "https://nim-playground-proxy-5.onrender.com",
+  "https://nim-playground-proxy-6.onrender.com",
+];
+
+export type RenderNimProxyEndpoint = { id: string; url: string; enabled: boolean };
+type RenderNimProxyRuntimePayload = { enabled: boolean; model: string; endpoints: RenderNimProxyEndpoint[] };
+
+function normalizeRenderNimProxyEndpointUrl(value: unknown) {
+  if (typeof value !== "string") return "";
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" ? url.toString().replace(/\/$/, "") : "";
+  } catch {
+    return "";
+  }
+}
+
+function normalizeRenderNimProxyEndpoints(value: unknown, fallback: RenderNimProxyEndpoint[]) {
+  if (!Array.isArray(value)) return fallback;
+  const seen = new Set<string>();
+  const endpoints = value.flatMap((candidate, index) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const raw = candidate as Partial<RenderNimProxyEndpoint>;
+    const id = typeof raw.id === "string" && /^[a-z0-9][a-z0-9_-]{0,63}$/i.test(raw.id.trim()) ? raw.id.trim().toLowerCase() : `render-${index + 1}`;
+    const url = normalizeRenderNimProxyEndpointUrl(raw.url);
+    if (!url || seen.has(id)) return [];
+    seen.add(id);
+    return [{ id, url, enabled: raw.enabled !== false }];
+  }).slice(0, DEFAULT_RENDER_NIM_PROXY_ENDPOINTS.length);
+  return endpoints.length ? endpoints : fallback;
+}
+
+function renderNimProxyRuntimeFromEnvironment(): RenderNimProxyRuntimePayload {
+  return {
+    enabled: Boolean(process.env.RENDER_NIM_PROXY_API_KEY?.trim() && process.env.RENDER_NIM_PROXY_MODEL?.trim()),
+    model: process.env.RENDER_NIM_PROXY_MODEL?.trim() ?? "",
+    endpoints: DEFAULT_RENDER_NIM_PROXY_ENDPOINTS.map((url, index) => ({ id: `render-${index + 1}`, url, enabled: true })),
+  };
+}
+
+async function readRenderNimProxyRuntimeOverride() {
+  const db = await getDb();
+  if (!db) return null;
+  const record = (await db.select().from(platformSettings).where(eq(platformSettings.settingKey, RENDER_NIM_PROXY_SWARM_SETTING_KEY)).limit(1))[0];
+  if (!record) return null;
+  try {
+    const encoded = JSON.parse(record.value) as { ciphertext?: string; iv?: string; authTag?: string };
+    const payload = decryptProviderRuntimeConfig({ ciphertext: String(encoded.ciphertext ?? ""), iv: String(encoded.iv ?? ""), authTag: String(encoded.authTag ?? "") }) as Partial<RenderNimProxyRuntimePayload> | null;
+    if (!payload || typeof payload !== "object") return null;
+    const fallback = renderNimProxyRuntimeFromEnvironment();
+    return {
+      payload: {
+        enabled: payload.enabled !== false,
+        model: typeof payload.model === "string" && payload.model.trim() ? payload.model.trim() : fallback.model,
+        endpoints: normalizeRenderNimProxyEndpoints(payload.endpoints, fallback.endpoints),
+      },
+      updatedAt: record.updatedAt,
+      updatedByUserId: record.updatedByUserId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function getRenderNimProxyRuntimeConfig(): Promise<RenderNimProxyRuntimePayload & { apiKey: string }> {
+  const fallback = renderNimProxyRuntimeFromEnvironment();
+  const override = await readRenderNimProxyRuntimeOverride();
+  const payload = override?.payload ?? fallback;
+  return { ...payload, apiKey: process.env.RENDER_NIM_PROXY_API_KEY?.trim() ?? "" };
+}
+
+async function ensureRenderNimProxyMetricRows(endpoints: RenderNimProxyEndpoint[]) {
+  const db = await getDb();
+  if (!db) return;
+  await Promise.all(endpoints.map(endpoint => db.insert(renderProxyEndpointMetrics).values({ endpointId: endpoint.id, endpointUrl: endpoint.url }).onDuplicateKeyUpdate({ set: { endpointUrl: endpoint.url } })));
+}
+
+export async function getRenderNimProxySwarmSettings() {
+  const runtime = await getRenderNimProxyRuntimeConfig();
+  const override = await readRenderNimProxyRuntimeOverride();
+  await ensureRenderNimProxyMetricRows(runtime.endpoints);
+  const db = await getDb();
+  const metrics = db ? await db.select().from(renderProxyEndpointMetrics).where(inArray(renderProxyEndpointMetrics.endpointId, runtime.endpoints.map(endpoint => endpoint.id))) : [];
+  const metricsById = new Map(metrics.map(metric => [metric.endpointId, metric]));
+  return {
+    enabled: runtime.enabled,
+    model: runtime.model,
+    apiKeyConfigured: Boolean(runtime.apiKey),
+    maxConcurrentRequests: RENDER_NIM_PROXY_MAX_CONCURRENT_REQUESTS,
+    endpoints: runtime.endpoints.map(endpoint => {
+      const metric = metricsById.get(endpoint.id);
+      return {
+        ...endpoint,
+        activeRequests: Number(metric?.activeRequests ?? 0),
+        availableSlots: Math.max(0, RENDER_NIM_PROXY_MAX_CONCURRENT_REQUESTS - Number(metric?.activeRequests ?? 0)),
+        peakActiveRequests: Number(metric?.peakActiveRequests ?? 0),
+        requestCount: Number(metric?.requestCount ?? 0),
+        successCount: Number(metric?.successCount ?? 0),
+        failureCount: Number(metric?.failureCount ?? 0),
+        timeoutCount: Number(metric?.timeoutCount ?? 0),
+        cooldownUntil: metric?.cooldownUntil ?? null,
+        lastRequestAt: metric?.lastRequestAt ?? null,
+        lastSuccessAt: metric?.lastSuccessAt ?? null,
+        lastFailureAt: metric?.lastFailureAt ?? null,
+      };
+    }),
+    source: override ? "database" as const : "environment" as const,
+    updatedAt: override?.updatedAt ?? null,
+  };
+}
+
+export async function updateRenderNimProxySwarmSettings(input: { enabled?: boolean; model: string; endpoints: RenderNimProxyEndpoint[] }, updatedByUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const endpoints = normalizeRenderNimProxyEndpoints(input.endpoints, []);
+  const model = input.model.trim();
+  if (!model || !endpoints.length) throw new Error("A Render proxy model ID and at least one HTTPS endpoint are required");
+  const payload: RenderNimProxyRuntimePayload = { enabled: input.enabled !== false, model, endpoints };
+  const encrypted = encryptProviderRuntimeConfig(payload);
+  await db.insert(platformSettings).values({ settingKey: RENDER_NIM_PROXY_SWARM_SETTING_KEY, value: JSON.stringify(encrypted), updatedByUserId }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+  await ensureRenderNimProxyMetricRows(endpoints);
+  return getRenderNimProxySwarmSettings();
+}
+
+export async function tryAcquireRenderNimProxyEndpoint(endpoint: RenderNimProxyEndpoint) {
+  const db = await getDb();
+  if (!db) return false;
+  await ensureRenderNimProxyMetricRows([endpoint]);
+  const now = new Date();
+  const result = await db.update(renderProxyEndpointMetrics).set({
+    activeRequests: sql`${renderProxyEndpointMetrics.activeRequests} + 1`,
+    peakActiveRequests: sql`GREATEST(${renderProxyEndpointMetrics.peakActiveRequests}, ${renderProxyEndpointMetrics.activeRequests} + 1)`,
+    requestCount: sql`${renderProxyEndpointMetrics.requestCount} + 1`,
+    lastRequestAt: now,
+  }).where(and(
+    eq(renderProxyEndpointMetrics.endpointId, endpoint.id),
+    lt(renderProxyEndpointMetrics.activeRequests, RENDER_NIM_PROXY_MAX_CONCURRENT_REQUESTS),
+    or(isNull(renderProxyEndpointMetrics.cooldownUntil), lte(renderProxyEndpointMetrics.cooldownUntil, now)),
+  ));
+  return Number(result[0]?.affectedRows ?? 0) === 1;
+}
+
+export async function releaseRenderNimProxyEndpoint(endpointId: string, outcome: { success: boolean; timeout?: boolean; cooldown?: boolean }) {
+  const db = await getDb();
+  if (!db) return;
+  const now = new Date();
+  const cooldownUntil = outcome.cooldown ? new Date(now.getTime() + 60_000) : null;
+  await db.update(renderProxyEndpointMetrics).set({
+    activeRequests: sql`GREATEST(${renderProxyEndpointMetrics.activeRequests} - 1, 0)`,
+    ...(outcome.success
+      ? { successCount: sql`${renderProxyEndpointMetrics.successCount} + 1`, lastSuccessAt: now }
+      : { failureCount: sql`${renderProxyEndpointMetrics.failureCount} + 1`, lastFailureAt: now }),
+    ...(outcome.timeout ? { timeoutCount: sql`${renderProxyEndpointMetrics.timeoutCount} + 1` } : {}),
+    ...(cooldownUntil ? { cooldownUntil } : {}),
+  }).where(eq(renderProxyEndpointMetrics.endpointId, endpointId));
+}
 
 function normalizeClaudeOpus5ProviderId(value: unknown, fallback: string) {
   const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";

@@ -6,6 +6,7 @@ vi.mock("./db", () => ({
   getClaudeOpus5RuntimeConfig: vi.fn(),
   getDeepseekV4ProRuntimeConfig: vi.fn(),
   getGlm53RuntimeConfig: vi.fn(),
+  getRenderNimProxyRuntimeConfig: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
   isCappedManagedProviderMetricModel: vi.fn((modelId: string) => modelId === "glm-5.3" || modelId === "deepseek-v4-pro"),
   PLATFORM_MAINTENANCE_ERROR_MESSAGE: "Site entered in maintainence mode due to massive request.",
@@ -14,14 +15,16 @@ vi.mock("./db", () => ({
   isModelAvailable: vi.fn(),
   loadOrcaRouterCredentialSlotCiphertexts: vi.fn(),
   recordManagedProviderKeyOutcome: vi.fn(),
+  releaseRenderNimProxyEndpoint: vi.fn(),
   recordUsage: vi.fn(),
   reserveCappedManagedProviderCredentialRequest: vi.fn(),
   reserveCredit: vi.fn(),
   settleReservedCredit: vi.fn(),
   touchApiKey: vi.fn(),
+  tryAcquireRenderNimProxyEndpoint: vi.fn(),
 }));
 
-import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
+import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, resetClaudeOpus5ProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
@@ -50,6 +53,7 @@ const availableQuota = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(getRenderNimProxyRuntimeConfig).mockResolvedValue({ enabled: false, apiKey: "", model: "", endpoints: [] });
   process.env.FXQIDIAN_BASE_URL = "https://provider.example";
   process.env.FXQIDIAN_API_KEY = "server-only-provider-secret";
   process.env.FXQIDIAN_API_KEY_2 = "server-only-provider-secret-2";
