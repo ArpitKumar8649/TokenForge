@@ -425,3 +425,5 @@
 - [x] Query the configured OpenCode Zen models endpoint and report currently supported free model identifiers, including ox-alpha-free status.
 - [x] Run one user-authorized direct OpenCode Zen request to deepseek-v4-flash-free and report the safe result.
 - [x] Probe all currently listed OpenCode Zen free models and report completion availability, latency, and safe failure reasons.
+- [x] Permanently clear all stored DeepSeek V4 Pro provider API keys while retaining provider groups for new credentials.
+- [x] Verify DeepSeek V4 Pro credential deletion survives reload without restoring stale database keys.

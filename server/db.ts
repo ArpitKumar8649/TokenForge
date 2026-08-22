@@ -1489,7 +1489,7 @@ function normalizeClaudeOpus5ProviderId(value: unknown, fallback: string) {
   return /^[a-z0-9][a-z0-9_-]{0,63}$/.test(normalized) ? normalized : fallback;
 }
 
-function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5ProviderRuntime[]) {
+function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5ProviderRuntime[], allowEmptyCredentialPools = false) {
   if (!Array.isArray(value)) return fallback;
   const seen = new Set<string>();
   const providers = value.flatMap((candidate, index) => {
@@ -1503,7 +1503,7 @@ function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5Prov
       : [];
     const baseUrl = typeof raw.baseUrl === "string" ? raw.baseUrl.trim() : "";
     const model = typeof raw.model === "string" ? raw.model.trim() : "";
-    if (!baseUrl || !model || !apiKeys.length) return [];
+    if (!baseUrl || !model || (!allowEmptyCredentialPools && !apiKeys.length)) return [];
     return [{
       id,
       label: typeof raw.label === "string" && raw.label.trim() ? raw.label.trim().slice(0, 80) : `Provider ${index + 1}`,
@@ -1714,7 +1714,7 @@ type DeepseekV4ProRuntimePayload = { providers: DeepseekV4ProProviderRuntime[] }
 const MAX_DEEPSEEK_V4PRO_PROVIDERS = 12;
 
 function normalizeDeepseekV4ProProviders(value: unknown, fallback: DeepseekV4ProProviderRuntime[]) {
-  return normalizeClaudeOpus5Providers(value, fallback).slice(0, MAX_DEEPSEEK_V4PRO_PROVIDERS);
+  return normalizeClaudeOpus5Providers(value, fallback, true).slice(0, MAX_DEEPSEEK_V4PRO_PROVIDERS);
 }
 
 function deepseekV4ProRuntimeFromEnvironment(): DeepseekV4ProRuntimePayload {
@@ -1824,8 +1824,8 @@ export async function updateDeepseekV4ProProviderSettings(input: { providers: De
     };
   });
   const ids = new Set(nextProviders.map(provider => provider.id));
-  if (!nextProviders.length || nextProviders.length > MAX_DEEPSEEK_V4PRO_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length)) {
-    throw new Error("Each DeepSeek V4 Pro provider needs a unique identifier, base URL, model ID, and at least one API key");
+  if (!nextProviders.length || nextProviders.length > MAX_DEEPSEEK_V4PRO_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model)) {
+    throw new Error("Each DeepSeek V4 Pro provider needs a unique identifier, base URL, and model ID");
   }
   const encrypted = encryptProviderRuntimeConfig({ providers: nextProviders } satisfies DeepseekV4ProRuntimePayload);
   await db.insert(platformSettings).values({

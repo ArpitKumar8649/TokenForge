@@ -176,7 +176,7 @@ const deepseekV4ProProviderGroupInput = z.object({
   enabled: z.boolean().optional(),
   baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512),
   model: z.string().trim().min(1, "Enter a model ID").max(256),
-  apiKeys: z.array(z.string().trim().max(512)).min(1).max(50, "A provider pool can contain at most 50 API keys"),
+  apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys"),
   removeSlots: z.array(z.number().int().positive()).max(50).optional(),
 });
 const deepseekV4ProProviderSettingsInput = z.union([

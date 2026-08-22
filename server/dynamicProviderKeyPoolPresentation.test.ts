@@ -58,5 +58,9 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("setInitialized(true);");
     expect(source).not.toContain("setInitialized(false);");
     expect(source).toContain("removedSlots: saved?.apiKeyMasks[keyIndex]?.slot");
+    expect(source).toContain('const valid = drafts.length > 0 && drafts.every(draft => Boolean(draft.label.trim() && draft.baseUrl.trim() && draft.model.trim()));');
+    expect(source).toContain("const activeMasks = (saved?.apiKeyMasks ?? []).filter(mask => !draft.removedSlots.includes(mask.slot));");
+    expect(source).toContain("masks={activeMasks}");
+    expect(source).toContain("disabled={disabled} allowEmpty");
   });
 });
