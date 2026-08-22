@@ -419,3 +419,5 @@
 - [x] Add durable administrator-visible sanitized DeepSeek V4 Pro failure history with originating provider-group details.
 - [x] Do not compact Render HTTP 403 blocked-page diagnostics; the administrator explicitly chose raw-body display with mandatory credential redaction.
 - [x] Preserve raw, credential-redacted Render and DeepSeek failure bodies in administrator diagnostics so the actual upstream error remains visible.
+- [x] Run controlled all-six direct Render endpoint probes with a response window greater than 120 seconds while preserving routing state.
+- [x] Make the Claude Opus 5 and DeepSeek V4 Pro administrator failure histories fixed-height independently scrollable log boxes.
