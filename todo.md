@@ -421,3 +421,4 @@
 - [x] Preserve raw, credential-redacted Render and DeepSeek failure bodies in administrator diagnostics so the actual upstream error remains visible.
 - [x] Run controlled all-six direct Render endpoint probes with a response window greater than 120 seconds while preserving routing state.
 - [x] Make the Claude Opus 5 and DeepSeek V4 Pro administrator failure histories fixed-height independently scrollable log boxes.
+- [x] Fix DeepSeek V4 Pro provider API-key deletion so saving a one-key pool does not restore the removed key on reload.

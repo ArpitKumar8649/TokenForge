@@ -135,7 +135,7 @@ function DeepseekV4ProProviderBalancerPanel({ metrics }: { metrics?: ManagedProv
   }, [initialized, settings.data]);
   const save = trpc.admin.updateDeepseekV4ProProviderSettings.useMutation({
     onSuccess: async () => {
-      setInitialized(false);
+      setInitialized(true);
       await Promise.all([utils.admin.deepseekV4ProProviderSettings.invalidate(), utils.admin.overview.invalidate(), utils.admin.activity.invalidate()]);
       toast.success("DeepSeek V4 Pro load balancer updated");
     },

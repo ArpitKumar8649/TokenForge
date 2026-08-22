@@ -53,4 +53,10 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("DeepSeek V4 Pro has no TokenForge 82-request lifetime retirement");
     expect(source).toContain("DeepSeek request counters remain informational rather than admission caps");
   });
+
+  it("keeps a locally deleted DeepSeek provider key removed after the successful save response", () => {
+    expect(source).toContain("setInitialized(true);");
+    expect(source).not.toContain("setInitialized(false);");
+    expect(source).toContain("removedSlots: saved?.apiKeyMasks[keyIndex]?.slot");
+  });
 });
