@@ -406,3 +406,4 @@
 - [x] Remove Claude Fable 5 and Qwen 3.8 Max cards from recurring login announcements, retaining only Discord verification and GLM 5.3 cards.
 - [x] Enforce an 82-request lifetime cap for each GLM 5.3 and DeepSeek V4 Pro provider key, retire capped keys from rotation, and automatically mark the affected model unavailable when its pool is exhausted.
 - [x] Add equal-share multi-provider load balancing for Claude Opus 5, with separate encrypted API-key pools per provider, provider failover, and administrator per-provider/per-key request, success, failure, and health metrics.
+- [x] Add administrator enable/disable switches for individual Claude Opus 5 provider groups, preserving their keys and metrics while excluding disabled groups from balancing and failover.

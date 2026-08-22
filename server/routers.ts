@@ -144,6 +144,7 @@ const claudeOpus5ProviderSettingsInput = z.object({
   providers: z.array(z.object({
     id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, "Use letters, numbers, hyphens, or underscores for the provider ID"),
     label: z.string().trim().min(1, "Enter a provider label").max(80),
+    enabled: z.boolean().optional(),
     baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512),
     model: z.string().trim().min(1, "Enter a model ID").max(256),
     apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys"),

@@ -352,7 +352,7 @@ function selectNextClaudeOpus5Credential(provider: { id: string; apiKeys: string
 /** Claude Opus 5 balances each new call evenly across configured provider groups, then across eligible keys in that group. */
 async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: AbortSignal) {
   const runtime = await getClaudeOpus5RuntimeConfig();
-  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeOpus5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.apiKeys.length);
+  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeOpus5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
   claudeOpus5ProviderCursor = runtime.providers.length ? (claudeOpus5ProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
   for (const provider of orderedProviders) {

@@ -12,6 +12,10 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("function ClaudeOpus5ProviderBalancerPanel");
     expect(source).toContain("Add provider");
     expect(source).toContain("Save load balancer");
+    expect(source).toContain("enabled provider groups");
+    expect(source).toContain("excluded from new calls and failover");
+    expect(source).toContain("enabled: provider.enabled");
+    expect(source).toContain("enabled: true, baseUrl");
     expect(source).toContain('providerName="Claude Fable 5"');
     expect(source).toContain('providerName="GLM 5.3"');
     expect(source).toContain('providerName="DeepSeek V4 Pro"');

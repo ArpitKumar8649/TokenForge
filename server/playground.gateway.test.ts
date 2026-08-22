@@ -338,6 +338,30 @@ describe("TokenForge Playground gateway", () => {
     expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body as string).model)).toEqual(["upstream-a", "upstream-b", "upstream-a", "upstream-b", "upstream-a"]);
   });
 
+  it("excludes disabled Claude Opus 5 provider groups from equal-share routing and failover", async () => {
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
+      providers: [
+        { id: "provider-a", label: "Provider A", enabled: true, baseUrl: "https://provider-a.example", model: "upstream-a", apiKeys: ["provider-a-key-1", "provider-a-key-2"] },
+        { id: "provider-b", label: "Provider B", enabled: false, baseUrl: "https://provider-b.example", model: "upstream-b", apiKeys: ["provider-b-key-1"] },
+      ],
+    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const signal = new AbortController().signal;
+
+    await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Use only enabled capacity." }] }, signal);
+    await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Use only enabled capacity." }] }, signal);
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "https://provider-a.example/v1/chat/completions",
+      "https://provider-a.example/v1/chat/completions",
+    ]);
+    expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
+      "Bearer provider-a-key-1",
+      "Bearer provider-a-key-2",
+    ]);
+  });
+
   it("fails over to the next FXQidian pool slot after a retryable provider response without exposing credentials in telemetry", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "temporarily saturated" } }), { status: 429 }))

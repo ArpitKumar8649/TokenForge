@@ -1204,6 +1204,7 @@ export async function updateClaudeFable5NvidiaProviderSettings(input: { baseUrl?
 export type ClaudeOpus5ProviderRuntime = {
   id: string;
   label: string;
+  enabled: boolean;
   baseUrl: string;
   model: string;
   apiKeys: string[];
@@ -1235,6 +1236,7 @@ function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5Prov
     return [{
       id,
       label: typeof raw.label === "string" && raw.label.trim() ? raw.label.trim().slice(0, 80) : `Provider ${index + 1}`,
+      enabled: raw.enabled !== false,
       baseUrl,
       model,
       apiKeys,
@@ -1248,6 +1250,7 @@ function claudeOpus5RuntimeFromEnvironment(): ClaudeOpus5RuntimePayload {
     providers: normalizeClaudeOpus5Providers([{
       id: "environment-default",
       label: "Environment default",
+      enabled: true,
       baseUrl: process.env.OPENCODE_CLAUDE_OPUS5_BASE_URL?.trim() ?? "",
       model: process.env.OPENCODE_CLAUDE_OPUS5_MODEL?.trim() ?? "",
       apiKeys: [
@@ -1276,6 +1279,7 @@ async function readClaudeOpus5RuntimeOverride() {
     const legacyProvider = {
       id: "primary",
       label: "Primary provider",
+      enabled: candidate.providers?.[0]?.enabled !== false,
       baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl.trim() : "",
       model: typeof candidate.model === "string" ? candidate.model.trim() : "",
       apiKeys: Array.isArray(candidate.apiKeys) ? candidate.apiKeys : [],
@@ -1304,6 +1308,7 @@ export async function getClaudeOpus5ProviderSettings() {
     providers: runtime.providers.map(provider => ({
       id: provider.id,
       label: provider.label,
+      enabled: provider.enabled,
       baseUrl: provider.baseUrl,
       model: provider.model,
       apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
@@ -1314,7 +1319,7 @@ export async function getClaudeOpus5ProviderSettings() {
   };
 }
 
-export async function updateClaudeOpus5ProviderSettings(input: { providers: Array<{ id: string; label: string; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] }> }, updatedByUserId: number) {
+export async function updateClaudeOpus5ProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] }> }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getClaudeOpus5RuntimeConfig();
@@ -1328,6 +1333,7 @@ export async function updateClaudeOpus5ProviderSettings(input: { providers: Arra
     return {
       id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`),
       label: submitted.label.trim() || `Provider ${index + 1}`,
+      enabled: submitted.enabled !== false,
       baseUrl: submitted.baseUrl.trim(),
       model: submitted.model.trim(),
       apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
