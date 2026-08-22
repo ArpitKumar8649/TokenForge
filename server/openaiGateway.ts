@@ -32,7 +32,6 @@ import { selectNextNvidiaClaudeFable5CredentialWithSlot } from "./nvidiaClaudeFa
 import { selectNextOrcaRouterCredentialWithSlot } from "./orcaRouterCredentials";
 import { selectNextTokenRouterCredentialWithSlot } from "./tokenRouterCredentials";
 import { selectNextGlm53CredentialWithSlot } from "./glm53Credentials";
-import { selectNextDeepseekV4ProCredentialWithSlot } from "./deepseekV4ProCredentials";
 import { isCredentialSlotEligible, recordCredentialFailover, recordCredentialFailure, recordCredentialSuccess, type CredentialTelemetryProvider } from "./providerCredentialTelemetry";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, getTokenForgeProviderSlug, getTokenForgeUpstreamModelId, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, type TokenForgeModelId } from "./modelCatalogue";
@@ -322,18 +321,70 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
   }), "glm-5.3");
 }
 
-/** DeepSeek V4 Pro uses its own encrypted runtime configuration and credential pool. */
+let deepseekV4ProProviderCursor = 0;
+const deepseekV4ProKeyCursors = new Map<string, number>();
+
+export function resetDeepseekV4ProProviderBalancing() {
+  deepseekV4ProProviderCursor = 0;
+  deepseekV4ProKeyCursors.clear();
+}
+
+function selectNextDeepseekV4ProCredential(provider: { id: string; apiKeys: string[] }) {
+  const telemetryProvider = `deepseek-v4-pro:${provider.id}` as CredentialTelemetryProvider;
+  const start = deepseekV4ProKeyCursors.get(provider.id) ?? 0;
+  for (let offset = 0; offset < provider.apiKeys.length; offset += 1) {
+    const index = (start + offset) % provider.apiKeys.length;
+    if (!isCredentialSlotEligible(telemetryProvider, index)) continue;
+    deepseekV4ProKeyCursors.set(provider.id, (index + 1) % provider.apiKeys.length);
+    return { credential: provider.apiKeys[index]!, slot: index, telemetryProvider };
+  }
+  return null;
+}
+
+/** DeepSeek V4 Pro uses equal-share encrypted provider groups, each with an independent key pool and retry failover. */
 async function forwardDedicatedDeepseekV4ProRequest(input: ChatInput, signal: AbortSignal) {
   const runtime = await getDeepseekV4ProRuntimeConfig();
-  const url = openAiChatCompletionsUrl(runtime.baseUrl);
-  if (!url || !runtime.model) throw new Error("TokenForge DeepSeek V4 Pro inference is not configured");
-  const requestBody = { ...input, model: runtime.model };
-  return forwardWithCredentialFailover("deepseek-v4-pro", input, signal, () => selectNextDeepseekV4ProCredentialWithSlot(runtime.apiKeys), credential => fetch(url, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
-    body: JSON.stringify(requestBody),
-    signal,
-  }), "deepseek-v4-pro");
+  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(deepseekV4ProProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
+  deepseekV4ProProviderCursor = runtime.providers.length ? (deepseekV4ProProviderCursor + 1) % runtime.providers.length : 0;
+  let lastError: unknown = null;
+  let lastResponse: globalThis.Response | null = null;
+  for (const provider of orderedProviders) {
+    const url = openAiChatCompletionsUrl(provider.baseUrl);
+    if (!url || !provider.model) continue;
+    for (let attempt = 0; attempt < provider.apiKeys.length; attempt += 1) {
+      const selectedCredential = selectNextDeepseekV4ProCredential(provider);
+      if (!selectedCredential) break;
+      const responseStartTimeout = AbortSignal.timeout(50_000);
+      const attemptSignal = AbortSignal.any([signal, responseStartTimeout]);
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
+          body: JSON.stringify({ ...input, model: provider.model }),
+          signal: attemptSignal,
+        });
+        if (response.ok || !retryableProviderStatus(response.status)) {
+          recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
+          void recordManagedProviderKeyOutcome("deepseek-v4-pro", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
+          return response;
+        }
+        lastResponse = response;
+        recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
+        void recordManagedProviderKeyOutcome("deepseek-v4-pro", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+        lastError = new Error(`DeepSeek V4 Pro provider returned ${response.status}`);
+        response.body?.cancel().catch(() => undefined);
+      } catch (error) {
+        lastError = error;
+        recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
+        void recordManagedProviderKeyOutcome("deepseek-v4-pro", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+        if (signal.aborted) throw error;
+      }
+      recordCredentialFailover(selectedCredential.telemetryProvider);
+      console.warn("[DeepSeek V4 Pro provider key retry]", { event: "retryable_response_before_stream", provider: provider.id });
+    }
+  }
+  if (lastResponse) return lastResponse;
+  throw lastError instanceof Error ? lastError : new Error("TokenForge DeepSeek V4 Pro inference is not configured or every provider is temporarily unavailable");
 }
 
 let claudeOpus5ProviderCursor = 0;

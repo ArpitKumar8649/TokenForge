@@ -1692,13 +1692,24 @@ export async function updateGlm53ProviderSettings(input: { baseUrl?: string; mod
   return getGlm53ProviderSettings();
 }
 
-type DeepseekV4ProRuntimePayload = { baseUrl: string; model: string; apiKeys: string[] };
+export type DeepseekV4ProProviderRuntime = ClaudeOpus5ProviderRuntime;
+type DeepseekV4ProRuntimePayload = { providers: DeepseekV4ProProviderRuntime[] };
+const MAX_DEEPSEEK_V4PRO_PROVIDERS = 12;
+
+function normalizeDeepseekV4ProProviders(value: unknown, fallback: DeepseekV4ProProviderRuntime[]) {
+  return normalizeClaudeOpus5Providers(value, fallback).slice(0, MAX_DEEPSEEK_V4PRO_PROVIDERS);
+}
 
 function deepseekV4ProRuntimeFromEnvironment(): DeepseekV4ProRuntimePayload {
   return {
-    baseUrl: process.env.TOKENHARBOR_BASE_URL?.trim() ?? "",
-    model: getTokenForgeUpstreamModelId("deepseek-v4-pro") ?? "",
-    apiKeys: [process.env.TOKENHARBOR_API_KEY?.trim() ?? ""].filter(Boolean),
+    providers: normalizeDeepseekV4ProProviders([{
+      id: "environment-default",
+      label: "Environment default",
+      enabled: true,
+      baseUrl: process.env.TOKENHARBOR_BASE_URL?.trim() ?? "",
+      model: getTokenForgeUpstreamModelId("deepseek-v4-pro") ?? "",
+      apiKeys: [process.env.TOKENHARBOR_API_KEY?.trim() ?? ""],
+    }], []),
   };
 }
 
@@ -1711,16 +1722,17 @@ async function readDeepseekV4ProRuntimeOverride() {
     const encoded = JSON.parse(record.value) as { ciphertext?: string; iv?: string; authTag?: string };
     const decrypted = decryptProviderRuntimeConfig({ ciphertext: String(encoded.ciphertext ?? ""), iv: String(encoded.iv ?? ""), authTag: String(encoded.authTag ?? "") });
     if (!decrypted || typeof decrypted !== "object") return null;
-    const candidate = decrypted as Partial<DeepseekV4ProRuntimePayload>;
-    const configuredKeys = Array.isArray(candidate.apiKeys)
-      ? candidate.apiKeys.map(value => typeof value === "string" ? value.trim() : "").filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS)
-      : [];
+    const candidate = decrypted as Partial<DeepseekV4ProRuntimePayload> & { baseUrl?: unknown; model?: unknown; apiKeys?: unknown };
+    const legacyProvider = {
+      id: "primary",
+      label: "Primary provider",
+      enabled: candidate.providers?.[0]?.enabled !== false,
+      baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl.trim() : "",
+      model: typeof candidate.model === "string" ? candidate.model.trim() : "",
+      apiKeys: Array.isArray(candidate.apiKeys) ? candidate.apiKeys : [],
+    };
     return {
-      payload: {
-        baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl.trim() : "",
-        model: typeof candidate.model === "string" ? candidate.model.trim() : "",
-        apiKeys: configuredKeys,
-      },
+      payload: { providers: normalizeDeepseekV4ProProviders(candidate.providers, normalizeDeepseekV4ProProviders([legacyProvider], [])) },
       updatedAt: record.updatedAt,
       updatedByUserId: record.updatedByUserId,
     };
@@ -1733,42 +1745,72 @@ export async function getDeepseekV4ProRuntimeConfig(): Promise<DeepseekV4ProRunt
   const fallback = deepseekV4ProRuntimeFromEnvironment();
   const override = await readDeepseekV4ProRuntimeOverride();
   if (!override) return fallback;
-  return {
-    baseUrl: override.payload.baseUrl || fallback.baseUrl,
-    model: override.payload.model || fallback.model,
-    apiKeys: override.payload.apiKeys.length ? override.payload.apiKeys : fallback.apiKeys.filter(Boolean),
-  };
+  return { providers: override.payload.providers.length ? override.payload.providers : fallback.providers };
 }
 
 export async function getDeepseekV4ProProviderSettings() {
   const runtime = await getDeepseekV4ProRuntimeConfig();
   const override = await readDeepseekV4ProRuntimeOverride();
+  const primary = runtime.providers[0];
   return {
-    baseUrl: runtime.baseUrl,
-    model: runtime.model,
-    apiKeyMasks: runtime.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+    providers: runtime.providers.map(provider => ({
+      id: provider.id,
+      label: provider.label,
+      enabled: provider.enabled,
+      baseUrl: provider.baseUrl,
+      model: provider.model,
+      apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+    })),
+    /** Compatibility fields retain a read-only view for callers on the legacy setting shape. */
+    baseUrl: primary?.baseUrl ?? "",
+    model: primary?.model ?? "",
+    apiKeyMasks: primary?.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })) ?? [],
     source: override ? "database" as const : "environment" as const,
     updatedAt: override?.updatedAt ?? null,
     updatedByUserId: override?.updatedByUserId ?? null,
   };
 }
 
-export async function updateDeepseekV4ProProviderSettings(input: { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] }, updatedByUserId: number) {
+type DeepseekV4ProProviderUpdate = { id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] };
+type DeepseekV4ProLegacyUpdate = { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] };
+
+export async function updateDeepseekV4ProProviderSettings(input: { providers: DeepseekV4ProProviderUpdate[] } | DeepseekV4ProLegacyUpdate, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getDeepseekV4ProRuntimeConfig();
-  const removedSlots = new Set(input.removeSlots ?? []);
-  const retainedKeys = current.apiKeys.filter((_, index) => !removedSlots.has(index + 1));
-  const submittedKeys = input.apiKeys ?? [];
-  const patchedExistingKeys = retainedKeys.map((key, index) => submittedKeys[index]?.trim() || key);
-  const appendedKeys = submittedKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
-  const next: DeepseekV4ProRuntimePayload = {
-    baseUrl: input.baseUrl?.trim() || current.baseUrl,
-    model: input.model?.trim() || current.model,
-    apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
-  };
-  if (!next.baseUrl || !next.model || !next.apiKeys.some(Boolean)) throw new Error("A base URL, model ID, and at least one API key are required for DeepSeek V4 Pro");
-  const encrypted = encryptProviderRuntimeConfig(next);
+  const currentById = new Map(current.providers.map(provider => [provider.id, provider]));
+  const legacyPrimary = current.providers[0] ?? { id: "primary", label: "Primary provider", enabled: true, baseUrl: "", model: "", apiKeys: [] };
+  const submittedProviders: DeepseekV4ProProviderUpdate[] = "providers" in input
+    ? input.providers
+    : [{
+      id: legacyPrimary.id,
+      label: legacyPrimary.label,
+      enabled: legacyPrimary.enabled,
+      baseUrl: input.baseUrl?.trim() || legacyPrimary.baseUrl,
+      model: input.model?.trim() || legacyPrimary.model,
+      apiKeys: input.apiKeys ?? legacyPrimary.apiKeys.map(() => ""),
+      removeSlots: input.removeSlots,
+    }];
+  const nextProviders = submittedProviders.map((submitted, index) => {
+    const existing = currentById.get(submitted.id);
+    const removedSlots = new Set(submitted.removeSlots ?? []);
+    const retainedKeys = (existing?.apiKeys ?? []).filter((_, keyIndex) => !removedSlots.has(keyIndex + 1));
+    const patchedExistingKeys = retainedKeys.map((key, keyIndex) => submitted.apiKeys[keyIndex]?.trim() || key);
+    const appendedKeys = submitted.apiKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
+    return {
+      id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`),
+      label: submitted.label.trim() || `Provider ${index + 1}`,
+      enabled: submitted.enabled !== false,
+      baseUrl: submitted.baseUrl.trim(),
+      model: submitted.model.trim(),
+      apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
+    };
+  });
+  const ids = new Set(nextProviders.map(provider => provider.id));
+  if (!nextProviders.length || nextProviders.length > MAX_DEEPSEEK_V4PRO_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length)) {
+    throw new Error("Each DeepSeek V4 Pro provider needs a unique identifier, base URL, model ID, and at least one API key");
+  }
+  const encrypted = encryptProviderRuntimeConfig({ providers: nextProviders } satisfies DeepseekV4ProRuntimePayload);
   await db.insert(platformSettings).values({
     settingKey: DEEPSEEK_V4PRO_RUNTIME_SETTING_KEY,
     value: JSON.stringify(encrypted),
@@ -1780,7 +1822,7 @@ export async function updateDeepseekV4ProProviderSettings(input: { baseUrl?: str
 export const MANAGED_PROVIDER_METRIC_MODEL_IDS = ["claude-fable-5", "claude-opus-5", "glm-5.3", "deepseek-v4-pro"] as const;
 export type ManagedProviderMetricModel = typeof MANAGED_PROVIDER_METRIC_MODEL_IDS[number];
 export const MANAGED_PROVIDER_KEY_REQUEST_CAP = 82;
-export const CAPPED_MANAGED_PROVIDER_METRIC_MODEL_IDS = ["glm-5.3", "deepseek-v4-pro"] as const;
+export const CAPPED_MANAGED_PROVIDER_METRIC_MODEL_IDS = ["glm-5.3"] as const;
 export type CappedManagedProviderMetricModel = typeof CAPPED_MANAGED_PROVIDER_METRIC_MODEL_IDS[number];
 
 export function isCappedManagedProviderMetricModel(modelId: ManagedProviderMetricModel): modelId is CappedManagedProviderMetricModel {
@@ -1794,7 +1836,7 @@ export function isManagedProviderKeyRetired(modelId: ManagedProviderMetricModel,
 export function managedProviderCredentialFingerprint(modelId: ManagedProviderMetricModel, credential: string, providerGroupId?: string) {
   const secret = process.env.JWT_SECRET?.trim();
   if (!secret) throw new Error("TokenForge provider metric vault is unavailable");
-  const groupScope = modelId === "claude-opus-5" && providerGroupId && providerGroupId !== "primary" ? `\u0000provider:${providerGroupId}` : "";
+  const groupScope = (modelId === "claude-opus-5" || modelId === "deepseek-v4-pro") && providerGroupId && providerGroupId !== "primary" ? `\u0000provider:${providerGroupId}` : "";
   return createHmac("sha256", secret).update(`TokenForge:ProviderKeyMetrics:v1\u0000${modelId}${groupScope}\u0000${credential}`).digest("hex");
 }
 
@@ -1830,7 +1872,8 @@ async function getManagedProviderMetricRuntime(modelId: ManagedProviderMetricMod
     return { apiKeys: runtime.providers.flatMap(provider => provider.apiKeys) };
   }
   if (modelId === "glm-5.3") return getGlm53RuntimeConfig();
-  return getDeepseekV4ProRuntimeConfig();
+  const runtime = await getDeepseekV4ProRuntimeConfig();
+  return { apiKeys: runtime.providers.flatMap(provider => provider.apiKeys) };
 }
 
 /** Atomically reserves one of the finite upstream request slots for a capped managed model. */
@@ -1875,8 +1918,9 @@ export async function reserveCappedManagedProviderCredentialRequest(modelId: Cap
 /** Administrator-only view model: keeps fingerprints and raw credentials server-side, returning only current masks and aggregated counts. */
 export async function getManagedProviderKeyMetrics() {
   const db = await getDb();
-  const runtimes = await Promise.all(MANAGED_PROVIDER_METRIC_MODEL_IDS.filter(modelId => modelId !== "claude-opus-5").map(async modelId => ({ modelId, runtime: await getManagedProviderMetricRuntime(modelId) })));
+  const runtimes = await Promise.all(MANAGED_PROVIDER_METRIC_MODEL_IDS.filter(modelId => modelId !== "claude-opus-5" && modelId !== "deepseek-v4-pro").map(async modelId => ({ modelId, runtime: await getManagedProviderMetricRuntime(modelId) })));
   const opusRuntime = await getClaudeOpus5RuntimeConfig();
+  const deepseekRuntime = await getDeepseekV4ProRuntimeConfig();
   const rows = db
     ? await db.select().from(providerKeyMetrics).where(inArray(providerKeyMetrics.providerModelId, [...MANAGED_PROVIDER_METRIC_MODEL_IDS]))
     : [];
@@ -1931,7 +1975,29 @@ export async function getManagedProviderKeyMetrics() {
       };
     }),
   }));
-  return [...standardMetrics, { modelId: "claude-opus-5", slots: [], providers: opusProviders }];
+  const deepseekProviders = deepseekRuntime.providers.map(provider => ({
+    id: provider.id,
+    label: provider.label,
+    slots: provider.apiKeys.map((credential, index) => {
+      const metric = metricsByKey.get(`deepseek-v4-pro:${managedProviderCredentialFingerprint("deepseek-v4-pro", credential, provider.id)}`);
+      const liveSlot = getCredentialSlotTelemetry(`deepseek-v4-pro:${provider.id}`, index);
+      return {
+        slot: index + 1,
+        keyMask: maskProviderApiKey(credential),
+        requestCount: Number(metric?.requestCount ?? 0),
+        successCount: Number(metric?.successCount ?? 0),
+        failureCount: Number(metric?.failureCount ?? 0),
+        health: liveSlot.health,
+        cooldownUntil: liveSlot.cooldownUntil,
+        lastRequestAt: metric?.lastRequestAt ?? null,
+        lastSuccessAt: metric?.lastSuccessAt ?? null,
+        lastFailureAt: metric?.lastFailureAt ?? null,
+        requestCap: null,
+        retired: false,
+      };
+    }),
+  }));
+  return [...standardMetrics, { modelId: "claude-opus-5", slots: [], providers: opusProviders }, { modelId: "deepseek-v4-pro", slots: [], providers: deepseekProviders }];
 }
 
 export async function promoteUserToAdmin(userId: number) {

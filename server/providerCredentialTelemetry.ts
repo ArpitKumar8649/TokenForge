@@ -1,6 +1,6 @@
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG } from "./modelCatalogue";
 
-export type CredentialTelemetryProvider = typeof FXQIDIAN_PROVIDER_SLUG | typeof CLUSTER_PROTOCOL_PROVIDER_SLUG | typeof TOKENHARBOR_PROVIDER_SLUG | typeof CLAUDE_OPUS5_PROVIDER_SLUG | typeof TOKENROUTER_PROVIDER_SLUG | "claude-fable-5" | "claude-opus-5" | "glm-5.3" | "deepseek-v4-pro" | `claude-opus-5:${string}`;
+export type CredentialTelemetryProvider = typeof FXQIDIAN_PROVIDER_SLUG | typeof CLUSTER_PROTOCOL_PROVIDER_SLUG | typeof TOKENHARBOR_PROVIDER_SLUG | typeof CLAUDE_OPUS5_PROVIDER_SLUG | typeof TOKENROUTER_PROVIDER_SLUG | "claude-fable-5" | "claude-opus-5" | "glm-5.3" | "deepseek-v4-pro" | `claude-opus-5:${string}` | `deepseek-v4-pro:${string}`;
 
 type CredentialSlotHealth = {
   consecutiveFailures: number;

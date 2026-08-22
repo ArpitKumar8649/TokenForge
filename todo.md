@@ -413,3 +413,5 @@
 - [x] Keep Render endpoint capacity slots occupied through full response or stream completion, extend the response-start timeout, and record sanitized HTTP status/reason diagnostics for administrator review.
 - [x] Run a controlled all-six Render endpoint warm-up and responsiveness check while preserving the paused routing state.
 - [x] Add durable administrator-visible sanitized Claude Opus 5 failure logs that identify the source provider group or Render endpoint and preserve the real caller-facing error reason.
+- [x] Remove DeepSeek V4 Pro’s 82-request credential retirement and automatic model-disable behavior.
+- [x] Add Claude Opus-style equal-share multi-provider configuration, per-provider key pools, failover, and administrator controls for DeepSeek V4 Pro.

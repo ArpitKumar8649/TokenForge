@@ -47,4 +47,10 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("managedProviderKeyMetrics.find(item => item.modelId === \"glm-5.3\")");
     expect(source).toContain("managedProviderKeyMetrics.find(item => item.modelId === \"deepseek-v4-pro\")");
   });
+
+  it("gives DeepSeek V4 Pro equal-share provider-group controls without an 82-request retirement policy", () => {
+    expect(source).toContain("DeepSeek V4 Pro multi-provider load balancer");
+    expect(source).toContain("DeepSeek V4 Pro has no TokenForge 82-request lifetime retirement");
+    expect(source).toContain("DeepSeek request counters remain informational rather than admission caps");
+  });
 });
