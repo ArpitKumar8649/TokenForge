@@ -21,6 +21,7 @@ import {
   touchApiKey,
   tryAcquireRenderNimProxyEndpoint,
   isCappedManagedProviderMetricModel,
+  sanitizeRenderNimProxyFailureMessage,
   type ManagedProviderMetricModel,
 } from "./db";
 import { selectNextClusterProtocolCredentialWithSlot } from "./clusterProtocolCredentials";
@@ -46,6 +47,8 @@ export const TOKENFORGE_CATALOGUE = TOKENFORGE_MODEL_CATALOGUE.map(model => ({
 
 const MODELS = new Set<string>(TOKENFORGE_CATALOGUE.map(model => model.id));
 const PROVIDER_TIMEOUT_MS = 110_000;
+/** Render cold starts measured up to 75 seconds; this applies only until upstream response headers arrive. */
+export const RENDER_NIM_PROXY_RESPONSE_START_TIMEOUT_MS = 120_000;
 const CLAUDE_OPUS5_PUBLIC_IDENTITY = "I am Claude Opus 5, available through TokenForge.";
 const CLAUDE_FABLE5_PUBLIC_IDENTITY = "I am Claude Fable 5, available through TokenForge.";
 const GLM53_PUBLIC_IDENTITY = "I am GLM 5.3, available through TokenForge.";
@@ -354,6 +357,58 @@ function selectNextClaudeOpus5Credential(provider: { id: string; apiKeys: string
 
 let renderNimProxyEndpointCursor = 0;
 
+function renderedHttpFailureDiagnostic(status: number, rawBody: string) {
+  let payload: unknown = rawBody;
+  try { payload = JSON.parse(rawBody); } catch { /* plain-text upstream diagnostic */ }
+  return upstreamError(payload, status);
+}
+
+/**
+ * Keep a Render capacity lease through the final body byte. A native Response wrapper works for
+ * ordinary JSON parsing and for every SSE translation path without exposing Render internals.
+ */
+function wrapRenderResponseWithLease(response: globalThis.Response, endpointId: string, clientSignal: AbortSignal) {
+  if (!response.body) {
+    void releaseRenderNimProxyEndpoint(endpointId, { kind: "success" });
+    return response;
+  }
+  const reader = response.body.getReader();
+  let finalized = false;
+  const finalize = (outcome: Parameters<typeof releaseRenderNimProxyEndpoint>[1]) => {
+    if (finalized) return;
+    finalized = true;
+    void releaseRenderNimProxyEndpoint(endpointId, outcome).catch(() => undefined);
+  };
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await reader.read();
+        if (next.done) {
+          controller.close();
+          finalize({ kind: "success" });
+          return;
+        }
+        controller.enqueue(next.value);
+      } catch (error) {
+        if (clientSignal.aborted) {
+          finalize({ kind: "cancelled" });
+        } else {
+          finalize({ kind: "failure", failureKind: "stream", message: error instanceof Error ? error.message : "Render stream failed", cooldown: true });
+        }
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason);
+      } finally {
+        finalize({ kind: "cancelled" });
+      }
+    },
+  });
+  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
 /**
  * Uses only administrator-authorized Render endpoints, atomically limiting each endpoint to seven active requests.
  * No browser-identity spoofing is performed; ordinary truthful integration headers are sent.
@@ -370,11 +425,12 @@ async function tryForwardClaudeOpus5ThroughRenderSwarm(input: ChatInput, signal:
     renderNimProxyEndpointCursor = (renderNimProxyEndpointCursor + offset + 1) % endpoints.length;
     const targetUrl = openAiChatCompletionsUrl(endpoint.url);
     if (!targetUrl) {
-      await releaseRenderNimProxyEndpoint(endpoint.id, { success: false, cooldown: true });
+      await releaseRenderNimProxyEndpoint(endpoint.id, { kind: "failure", failureKind: "network", message: "Render endpoint URL is invalid.", cooldown: true });
       continue;
     }
-    const responseStartTimeout = AbortSignal.timeout(55_000);
-    const requestSignal = AbortSignal.any([signal, responseStartTimeout]);
+    const responseStartAborter = new AbortController();
+    const responseStartTimer = setTimeout(() => responseStartAborter.abort(), RENDER_NIM_PROXY_RESPONSE_START_TIMEOUT_MS);
+    const requestSignal = AbortSignal.any([signal, responseStartAborter.signal]);
     try {
       const response = await fetch(targetUrl, {
         method: "POST",
@@ -387,19 +443,33 @@ async function tryForwardClaudeOpus5ThroughRenderSwarm(input: ChatInput, signal:
         body: JSON.stringify({ ...input, model: runtime.model }),
         signal: requestSignal,
       });
-      if (response.ok || !retryableProviderStatus(response.status)) {
-        await releaseRenderNimProxyEndpoint(endpoint.id, { success: response.ok });
-        return response;
+      clearTimeout(responseStartTimer);
+      if (response.ok) {
+        return wrapRenderResponseWithLease(response, endpoint.id, signal);
       }
-      response.body?.cancel().catch(() => undefined);
-      await releaseRenderNimProxyEndpoint(endpoint.id, { success: false, cooldown: true });
+      const rawBody = await response.text().catch(() => "");
+      const diagnostic = renderedHttpFailureDiagnostic(response.status, rawBody);
+      if (!retryableProviderStatus(response.status)) {
+        await releaseRenderNimProxyEndpoint(endpoint.id, { kind: "failure", failureKind: "http", httpStatus: response.status, message: diagnostic });
+        return new Response(JSON.stringify({ error: { message: diagnostic } }), {
+          status: response.status,
+          headers: { "content-type": "application/json; charset=utf-8" },
+        });
+      }
+      await releaseRenderNimProxyEndpoint(endpoint.id, { kind: "failure", failureKind: "http", httpStatus: response.status, message: diagnostic, cooldown: true });
     } catch (error) {
+      clearTimeout(responseStartTimer);
       if (signal.aborted) {
-        await releaseRenderNimProxyEndpoint(endpoint.id, { success: false });
+        await releaseRenderNimProxyEndpoint(endpoint.id, { kind: "cancelled" });
         throw error;
       }
-      const timeout = responseStartTimeout.aborted;
-      await releaseRenderNimProxyEndpoint(endpoint.id, { success: false, timeout, cooldown: true });
+      const timeout = responseStartAborter.signal.aborted;
+      await releaseRenderNimProxyEndpoint(endpoint.id, {
+        kind: "failure",
+        failureKind: timeout ? "timeout" : "network",
+        message: timeout ? `Render response did not start within ${Math.round(RENDER_NIM_PROXY_RESPONSE_START_TIMEOUT_MS / 1_000)} seconds.` : error instanceof Error ? error.message : "Render network request failed.",
+        cooldown: true,
+      });
       console.warn("[Render NIM proxy failover]", { endpoint: endpoint.id, timeout });
     }
   }
@@ -670,12 +740,17 @@ export async function forwardProviderRequest(model: TokenForgeModelId, input: To
   throw new Error("TokenForge inference routing is not configured for this model");
 }
 
-function upstreamError(payload: unknown) {
+export function upstreamError(payload: unknown, status?: number) {
+  let reason = "The selected provider could not process this request";
   if (payload && typeof payload === "object" && "error" in payload) {
     const error = (payload as { error?: { message?: string } }).error;
-    return error?.message ?? "The selected provider could not process this request";
+    if (typeof error?.message === "string" && error.message.trim()) reason = error.message;
+  } else if (typeof payload === "string" && payload.trim()) {
+    reason = payload;
   }
-  return "The selected provider could not process this request";
+  const sanitized = sanitizeRenderNimProxyFailureMessage(reason);
+  if (!Number.isInteger(status)) return sanitized;
+  return /^HTTP\s+[1-5]\d\d\s+—/.test(sanitized) ? sanitized : `HTTP ${status} — ${sanitized}`;
 }
 
 function textContentFrom(payload: unknown) {
@@ -798,6 +873,8 @@ export async function runPlaygroundCompletion(input: {
       ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
       ...(input.model === "qwen3.8-max" || input.model === "claude-fable-5" ? { reasoning_effort: "xhigh" } : {}),
     }, aborter.signal);
+    // Headers arrived; the remaining body may complete within the managed hosting request ceiling.
+    clearTimeout(timeout);
     if (!upstream.ok) {
       const payload = await upstream.json().catch(() => null);
       await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request was not completed" });
@@ -883,6 +960,8 @@ async function streamPlaygroundCompletion(input: {
       ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
       ...(input.model === "qwen3.8-max" || input.model === "claude-fable-5" ? { reasoning_effort: "xhigh" } : {}),
     }, aborter.signal);
+    // Do not let the response-start timer interrupt an SSE body after upstream headers arrive.
+    clearTimeout(timeout);
     if (!upstream.ok) {
       const payload = await upstream.json().catch(() => null);
       await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request was not completed" });
@@ -1037,15 +1116,17 @@ export function registerOpenAiGateway(app: Express) {
       return errorResponse(res, requestId, 503, message, "provider_unavailable");
     }
 
+    // The timer bounded response start only. Once headers arrive, a streamed body may finish within hosting limits.
+    clearTimeout(timeout);
+
     if (!upstream.ok) {
-      clearTimeout(timeout);
       const payload = await upstream.json().catch(() => null);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request was not completed" });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
       const status = publicProviderFailureStatus(upstream.status);
       const message = status === 503 && (upstream.status === 401 || upstream.status === 403)
         ? "The selected provider temporarily denied this request after secure credential failover. Retry shortly or choose another model."
-        : upstreamError(payload);
+        : upstreamError(payload, upstream.status);
       return errorResponse(res, requestId, status, message, "provider_unavailable");
     }
 

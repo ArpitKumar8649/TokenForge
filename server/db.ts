@@ -1227,6 +1227,28 @@ const DEFAULT_RENDER_NIM_PROXY_ENDPOINTS = [
 
 export type RenderNimProxyEndpoint = { id: string; url: string; enabled: boolean };
 type RenderNimProxyRuntimePayload = { enabled: boolean; model: string; endpoints: RenderNimProxyEndpoint[] };
+export type RenderNimProxyFailureKind = "http" | "timeout" | "network" | "stream";
+export type RenderNimProxyReleaseOutcome =
+  | { kind: "success" }
+  | { kind: "cancelled" }
+  | { kind: "failure"; failureKind: RenderNimProxyFailureKind; httpStatus?: number; message?: string; cooldown?: boolean };
+
+/**
+ * Render diagnostic text is shown to administrators and can also inform a caller-facing gateway error.
+ * Keep it useful while eliminating credentials, header values, and credential-bearing URLs before storage.
+ */
+export function sanitizeRenderNimProxyFailureMessage(value: unknown) {
+  const raw = value instanceof Error ? value.message : typeof value === "string" ? value : "";
+  const sanitized = raw
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [redacted]")
+    .replace(/\b(?:sk|nvapi|cp)[_-][A-Za-z0-9._~+/=-]{8,}/gi, "[redacted]")
+    .replace(/\b(authorization|x-api-key|api[-_]?key|token|secret|password)\s*[:=]\s*(?:Bearer\s+)?[^\s,;"'}\]]+/gi, "$1: [redacted]")
+    .replace(/https?:\/\/[^\s/@]+@/gi, "https://[redacted]@")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 512);
+  return sanitized || "Upstream request failed.";
+}
 
 function normalizeRenderNimProxyEndpointUrl(value: unknown) {
   if (typeof value !== "string") return "";
@@ -1325,6 +1347,9 @@ export async function getRenderNimProxySwarmSettings() {
         lastRequestAt: metric?.lastRequestAt ?? null,
         lastSuccessAt: metric?.lastSuccessAt ?? null,
         lastFailureAt: metric?.lastFailureAt ?? null,
+        lastHttpStatus: metric?.lastHttpStatus ?? null,
+        lastFailureKind: metric?.lastFailureKind ?? null,
+        lastFailureMessage: metric?.lastFailureMessage ?? null,
       };
     }),
     source: override ? "database" as const : "environment" as const,
@@ -1363,17 +1388,30 @@ export async function tryAcquireRenderNimProxyEndpoint(endpoint: RenderNimProxyE
   return Number(result[0]?.affectedRows ?? 0) === 1;
 }
 
-export async function releaseRenderNimProxyEndpoint(endpointId: string, outcome: { success: boolean; timeout?: boolean; cooldown?: boolean }) {
+export async function releaseRenderNimProxyEndpoint(endpointId: string, outcome: RenderNimProxyReleaseOutcome) {
   const db = await getDb();
   if (!db) return;
   const now = new Date();
-  const cooldownUntil = outcome.cooldown ? new Date(now.getTime() + 60_000) : null;
+  const isFailure = outcome.kind === "failure";
+  const timeout = isFailure && outcome.failureKind === "timeout";
+  const cooldownUntil = isFailure && outcome.cooldown ? new Date(now.getTime() + 60_000) : null;
+  const httpStatus = isFailure && Number.isInteger(outcome.httpStatus) && outcome.httpStatus! >= 100 && outcome.httpStatus! <= 599
+    ? outcome.httpStatus!
+    : null;
   await db.update(renderProxyEndpointMetrics).set({
     activeRequests: sql`GREATEST(${renderProxyEndpointMetrics.activeRequests} - 1, 0)`,
-    ...(outcome.success
+    ...(outcome.kind === "success"
       ? { successCount: sql`${renderProxyEndpointMetrics.successCount} + 1`, lastSuccessAt: now }
-      : { failureCount: sql`${renderProxyEndpointMetrics.failureCount} + 1`, lastFailureAt: now }),
-    ...(outcome.timeout ? { timeoutCount: sql`${renderProxyEndpointMetrics.timeoutCount} + 1` } : {}),
+      : isFailure
+        ? {
+          failureCount: sql`${renderProxyEndpointMetrics.failureCount} + 1`,
+          lastFailureAt: now,
+          lastHttpStatus: httpStatus,
+          lastFailureKind: outcome.failureKind,
+          lastFailureMessage: sanitizeRenderNimProxyFailureMessage(outcome.message),
+        }
+        : {}),
+    ...(timeout ? { timeoutCount: sql`${renderProxyEndpointMetrics.timeoutCount} + 1` } : {}),
     ...(cooldownUntil ? { cooldownUntil } : {}),
   }).where(eq(renderProxyEndpointMetrics.endpointId, endpointId));
 }

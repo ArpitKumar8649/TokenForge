@@ -22,6 +22,7 @@ import {
   publicProviderFailureStatus,
   sanitizeModelResponsePayload,
   tokenForgeRequestIpHash,
+  upstreamError,
   type TokenForgeChatInput,
   type TokenForgeChatMessage,
   withModelScopedGuidance,
@@ -546,14 +547,16 @@ export function registerAnthropicMessagesGateway(app: Express) {
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
       return respondError(res, requestId, 503, "api_error", error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.");
     }
+    // The upstream accepted the request and returned headers; retain only the hosting request ceiling for body/SSE completion.
+    clearTimeout(timeout);
     if (!upstream.ok) {
-      clearTimeout(timeout);
+      const payload = await upstream.json().catch(() => null);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages provider returned an error" });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
       const status = publicProviderFailureStatus(upstream.status);
       const message = status === 503 && (upstream.status === 401 || upstream.status === 403)
         ? "The selected provider temporarily denied this request after secure credential failover. Retry shortly or choose another model."
-        : "The selected provider could not process this request.";
+        : upstreamError(payload, upstream.status);
       return respondError(res, requestId, status, "api_error", message);
     }
     await touchApiKey(key.id);

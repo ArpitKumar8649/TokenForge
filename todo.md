@@ -409,3 +409,5 @@
 - [x] Add administrator enable/disable switches for individual Claude Opus 5 provider groups, preserving their keys and metrics while excluding disabled groups from balancing and failover.
 - [x] Add safe capacity protection for the six authorized Render Claude Opus 5 endpoints: enforce seven active requests per endpoint, route overflow to available endpoints then existing eligible providers, record cooldown/error outcomes, and show live administrator capacity and failure metrics without header spoofing.
 - [x] Add the Render endpoint swarm as an editable Claude Opus 5 provider configuration in Administrator Provider Settings, including server-only underlying-model configuration and endpoint editing controls.
+- [x] Verify and warm all six authorized Render endpoints using the configured server-only model and credential while keeping paused routing disabled.
+- [x] Keep Render endpoint capacity slots occupied through full response or stream completion, extend the response-start timeout, and record sanitized HTTP status/reason diagnostics for administrator review.

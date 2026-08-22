@@ -421,6 +421,12 @@ export const renderProxyEndpointMetrics = mysqlTable(
     lastRequestAt: timestamp("lastRequestAt"),
     lastSuccessAt: timestamp("lastSuccessAt"),
     lastFailureAt: timestamp("lastFailureAt"),
+    /** Last completed upstream HTTP status, retained for administrator diagnostics only. */
+    lastHttpStatus: int("lastHttpStatus"),
+    /** Bounded category such as http, timeout, network, or stream; never a raw upstream error object. */
+    lastFailureKind: varchar("lastFailureKind", { length: 32 }),
+    /** Redacted, user-safe upstream failure detail truncated before persistence. */
+    lastFailureMessage: varchar("lastFailureMessage", { length: 512 }),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => [index("render_proxy_endpoint_metrics_updated_idx").on(table.updatedAt)],
