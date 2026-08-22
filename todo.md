@@ -411,3 +411,5 @@
 - [x] Add the Render endpoint swarm as an editable Claude Opus 5 provider configuration in Administrator Provider Settings, including server-only underlying-model configuration and endpoint editing controls.
 - [x] Verify and warm all six authorized Render endpoints using the configured server-only model and credential while keeping paused routing disabled.
 - [x] Keep Render endpoint capacity slots occupied through full response or stream completion, extend the response-start timeout, and record sanitized HTTP status/reason diagnostics for administrator review.
+- [x] Run a controlled all-six Render endpoint warm-up and responsiveness check while preserving the paused routing state.
+- [x] Add durable administrator-visible sanitized Claude Opus 5 failure logs that identify the source provider group or Render endpoint and preserve the real caller-facing error reason.

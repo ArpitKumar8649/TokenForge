@@ -51,6 +51,20 @@ describe("authorized Render NIM proxy swarm", () => {
     expect(gatewaySource).toContain("upstreamError(payload, upstream.status)");
   });
 
+  it("records bounded sanitized Claude Opus failure attempts with the originating Render endpoint or provider group", () => {
+    expect(dbSource).toContain("claudeOpus5FailureLogs");
+    expect(dbSource).toContain("recordClaudeOpus5FailureLog");
+    expect(dbSource).toContain("getRecentClaudeOpus5FailureLogs");
+    expect(dbSource).toContain("sourceLabel: sanitizeRenderNimProxyFailureMessage(input.sourceLabel)");
+    expect(dbSource).toContain("sourceType: \"render\"");
+    expect(gatewaySource).toContain("sourceType: \"provider\"");
+    expect(gatewaySource).toContain("wrapClaudeOpus5ProviderResponseWithFailureLog");
+    expect(routerSource).toContain("claudeOpus5FailureLogs: adminProcedure");
+    expect(adminSource).toContain("Claude Opus 5 failure history");
+    expect(adminSource).toContain("Render endpoint");
+    expect(adminSource).toContain("Provider group");
+  });
+
   it("uses explicit service integration headers and does not inject spoofed browser fingerprints", () => {
     const renderForwarder = gatewaySource.slice(gatewaySource.indexOf("async function tryForwardClaudeOpus5ThroughRenderSwarm"), gatewaySource.indexOf("async function forwardClaudeOpus5"));
     expect(renderForwarder).toContain('"X-TokenForge-Integration": "authorized-render-capacity-router"');

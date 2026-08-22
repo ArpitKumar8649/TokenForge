@@ -14,6 +14,7 @@ import {
   isModelAvailable,
   recordUsage,
   releaseRenderNimProxyEndpoint,
+  recordClaudeOpus5FailureLog,
   reserveCappedManagedProviderCredentialRequest,
   reserveCredit,
   recordManagedProviderKeyOutcome,
@@ -409,6 +410,41 @@ function wrapRenderResponseWithLease(response: globalThis.Response, endpointId: 
   return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
 }
 
+/** Record a provider stream failure after headers without treating a client cancellation as an upstream outage. */
+function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal) {
+  if (!response.body || response.body.locked) return response;
+  const reader = response.body.getReader();
+  let recorded = false;
+  const recordStreamFailure = (error: unknown) => {
+    if (recorded || clientSignal.aborted) return;
+    recorded = true;
+    void recordClaudeOpus5FailureLog({
+      sourceType: "provider",
+      sourceId: provider.id,
+      sourceLabel: provider.label,
+      failureKind: "stream",
+      retryable: false,
+      callerMessage: error instanceof Error ? error.message : "Claude Opus 5 provider stream failed after response start.",
+    }).catch(() => undefined);
+  };
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await reader.read();
+        if (next.done) return controller.close();
+        controller.enqueue(next.value);
+      } catch (error) {
+        recordStreamFailure(error);
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason);
+    },
+  });
+  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
 /**
  * Uses only administrator-authorized Render endpoints, atomically limiting each endpoint to seven active requests.
  * No browser-identity spoofing is performed; ordinary truthful integration headers are sent.
@@ -484,6 +520,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
   const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeOpus5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
   claudeOpus5ProviderCursor = runtime.providers.length ? (claudeOpus5ProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
+  let lastFailureResponse: globalThis.Response | null = null;
   for (const provider of orderedProviders) {
     const configuredBase = provider.baseUrl.replace(/\/$/, "");
     const url = configuredBase?.endsWith("/chat/completions") ? configuredBase : configuredBase ? `${configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase}/v1`}/chat/completions` : null;
@@ -500,26 +537,52 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
           body: JSON.stringify({ ...input, model: provider.model }),
           signal: attemptSignal,
         });
-        const healthyResponse = response.ok || !retryableProviderStatus(response.status);
-        if (healthyResponse) {
+        if (response.ok) {
           recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
           void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
-          return response;
+          return wrapClaudeOpus5ProviderResponseWithFailureLog(response, provider, signal);
+        }
+        const retryable = retryableProviderStatus(response.status);
+        const rawBody = await response.text().catch(() => "");
+        const diagnostic = renderedHttpFailureDiagnostic(response.status, rawBody);
+        void recordClaudeOpus5FailureLog({
+          sourceType: "provider",
+          sourceId: provider.id,
+          sourceLabel: provider.label,
+          httpStatus: response.status,
+          failureKind: "http",
+          retryable,
+          callerMessage: diagnostic,
+        }).catch(() => undefined);
+        if (!retryable) {
+          recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
+          void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
+          return new Response(rawBody, { status: response.status, statusText: response.statusText, headers: { "content-type": response.headers.get("content-type") ?? "application/json; charset=utf-8" } });
         }
         recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
         void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
-        lastError = new Error(`Claude Opus 5 provider returned ${response.status}`);
-        response.body?.cancel().catch(() => undefined);
+        lastError = new Error(diagnostic);
+        lastFailureResponse = new Response(rawBody, { status: response.status, statusText: response.statusText, headers: { "content-type": response.headers.get("content-type") ?? "application/json; charset=utf-8" } });
       } catch (error) {
         lastError = error;
         recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
         void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+        const timeout = responseStartTimeout.aborted && !signal.aborted;
+        void recordClaudeOpus5FailureLog({
+          sourceType: "provider",
+          sourceId: provider.id,
+          sourceLabel: provider.label,
+          failureKind: timeout ? "timeout" : "network",
+          retryable: true,
+          callerMessage: timeout ? "Claude Opus 5 provider response did not start within 50 seconds." : error instanceof Error ? error.message : "Claude Opus 5 provider network request failed.",
+        }).catch(() => undefined);
         if (signal.aborted) throw error;
       }
       recordCredentialFailover(selectedCredential.telemetryProvider);
       console.warn("[Claude Opus 5 provider key retry]", { event: "retryable_response_before_stream", provider: provider.id });
     }
   }
+  if (lastFailureResponse) return lastFailureResponse;
   throw lastError instanceof Error ? lastError : new Error("TokenForge Claude Opus 5 inference is not configured or every provider is temporarily unavailable");
 }
 

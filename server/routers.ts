@@ -57,6 +57,7 @@ import {
   replaceOrcaRouterCredentialPool,
   getClaudeFable5NvidiaProviderSettings,
   updateClaudeFable5NvidiaProviderSettings,
+  getRecentClaudeOpus5FailureLogs,
   getClaudeOpus5ProviderSettings,
   updateClaudeOpus5ProviderSettings,
   getGlm53ProviderSettings,
@@ -505,6 +506,7 @@ export const appRouter = router({
       }
     }),
     claudeOpus5ProviderSettings: adminProcedure.query(() => getClaudeOpus5ProviderSettings()),
+    claudeOpus5FailureLogs: adminProcedure.query(() => getRecentClaudeOpus5FailureLogs(100)),
     updateClaudeOpus5ProviderSettings: adminProcedure.input(claudeOpus5ProviderSettingsInput).mutation(async ({ ctx, input }) => {
       try {
         const settings = await updateClaudeOpus5ProviderSettings(input, ctx.user.id);

@@ -6,6 +6,7 @@ import {
   accountFlags,
   apiKeys,
   auditEvents,
+  claudeOpus5FailureLogs,
   creditAccounts,
   creditGiveaways,
   creditGiveawayNotifications,
@@ -1414,6 +1415,56 @@ export async function releaseRenderNimProxyEndpoint(endpointId: string, outcome:
     ...(timeout ? { timeoutCount: sql`${renderProxyEndpointMetrics.timeoutCount} + 1` } : {}),
     ...(cooldownUntil ? { cooldownUntil } : {}),
   }).where(eq(renderProxyEndpointMetrics.endpointId, endpointId));
+  if (isFailure) {
+    await recordClaudeOpus5FailureLog({
+      sourceType: "render",
+      sourceId: endpointId,
+      sourceLabel: `Render endpoint ${endpointId}`,
+      httpStatus: outcome.httpStatus,
+      failureKind: outcome.failureKind,
+      retryable: Boolean(outcome.cooldown),
+      callerMessage: outcome.message,
+    });
+  }
+}
+
+export type ClaudeOpus5FailureLogInput = {
+  sourceType: "provider" | "render";
+  sourceId: string;
+  sourceLabel: string;
+  httpStatus?: number;
+  failureKind: "http" | "timeout" | "network" | "stream";
+  retryable: boolean;
+  callerMessage?: string;
+};
+
+/**
+ * Stores a short, credential-redacted Claude Opus 5 upstream failure attempt.
+ * The record intentionally excludes request content, user identity, headers, and API-key material.
+ */
+export async function recordClaudeOpus5FailureLog(input: ClaudeOpus5FailureLogInput) {
+  const db = await getDb();
+  if (!db) return;
+  const httpStatus = Number.isInteger(input.httpStatus) && input.httpStatus! >= 100 && input.httpStatus! <= 599
+    ? input.httpStatus!
+    : null;
+  await db.insert(claudeOpus5FailureLogs).values({
+    sourceType: input.sourceType,
+    sourceId: input.sourceId.trim().slice(0, 96) || "unknown",
+    sourceLabel: sanitizeRenderNimProxyFailureMessage(input.sourceLabel).slice(0, 128),
+    httpStatus,
+    failureKind: input.failureKind,
+    retryable: input.retryable,
+    callerMessage: sanitizeRenderNimProxyFailureMessage(input.callerMessage),
+  });
+}
+
+/** The administrator failure history is deliberately bounded to avoid retaining an unbounded event stream. */
+export async function getRecentClaudeOpus5FailureLogs(limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  const boundedLimit = Math.min(200, Math.max(1, Math.trunc(limit)));
+  return db.select().from(claudeOpus5FailureLogs).orderBy(desc(claudeOpus5FailureLogs.occurredAt), desc(claudeOpus5FailureLogs.id)).limit(boundedLimit);
 }
 
 function normalizeClaudeOpus5ProviderId(value: unknown, fallback: string) {
