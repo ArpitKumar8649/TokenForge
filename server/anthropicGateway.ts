@@ -29,9 +29,9 @@ import {
 } from "./openaiGateway";
 import { CLUSTER_PROTOCOL_PROVIDER_SLUG, getTokenForgeProviderSlug, isTokenForgeModelId, type TokenForgeModelId } from "./modelCatalogue";
 
-const PROVIDER_TIMEOUT_MS = 110_000;
-/** Finish or retry the first upstream attempt before the 120-second public edge deadline. */
-export const CLAUDE_OPUS5_RESPONSE_START_TIMEOUT_MS = 105_000;
+/** Applies only until upstream response headers arrive; successful bodies and SSE streams may continue within the hosting request ceiling. */
+const PROVIDER_TIMEOUT_MS = 120_000;
+export const CLAUDE_OPUS5_RESPONSE_START_TIMEOUT_MS = PROVIDER_TIMEOUT_MS;
 
 export function providerResponseStartTimeoutMs(model: TokenForgeModelId) {
   return model === "claude-opus-5"

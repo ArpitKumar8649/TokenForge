@@ -15,17 +15,19 @@ vi.mock("./db", () => ({
   isModelAvailable: vi.fn(),
   loadOrcaRouterCredentialSlotCiphertexts: vi.fn(),
   recordClaudeOpus5FailureLog: vi.fn(),
+  recordDeepseekV4ProFailureLog: vi.fn(),
   recordManagedProviderKeyOutcome: vi.fn(),
   releaseRenderNimProxyEndpoint: vi.fn(),
   recordUsage: vi.fn(),
   reserveCappedManagedProviderCredentialRequest: vi.fn(),
   reserveCredit: vi.fn(),
+  sanitizeRenderNimProxyFailureMessage: vi.fn((value: unknown) => typeof value === "string" ? value.replace(/Bearer\s+\S+/gi, "Bearer [redacted]") : "Upstream request failed."),
   settleReservedCredit: vi.fn(),
   touchApiKey: vi.fn(),
   tryAcquireRenderNimProxyEndpoint: vi.fn(),
 }));
 
-import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeOpus5FailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
+import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeOpus5FailureLog, recordDeepseekV4ProFailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
@@ -137,6 +139,7 @@ beforeEach(() => {
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
   vi.mocked(recordClaudeOpus5FailureLog).mockResolvedValue(undefined);
+  vi.mocked(recordDeepseekV4ProFailureLog).mockResolvedValue(undefined);
   vi.mocked(recordManagedProviderKeyOutcome).mockResolvedValue(undefined);
   vi.mocked(recordUsage).mockResolvedValue(undefined);
   vi.mocked(reserveCredit).mockResolvedValue({ authorized: true, balanceNanos: 49_990_000_000 });
@@ -501,6 +504,25 @@ describe("TokenForge Playground gateway", () => {
       "https://deepseek-b.example/v1/chat/completions",
     ]);
     expect(vi.mocked(reserveCappedManagedProviderCredentialRequest)).not.toHaveBeenCalled();
+  });
+
+  it("records raw credential-redacted DeepSeek provider HTTP failures with the responsible provider group", async () => {
+    vi.mocked(getDeepseekV4ProRuntimeConfig).mockResolvedValue({
+      providers: [{ id: "blocked-provider", label: "Blocked provider", enabled: true, baseUrl: "https://blocked-deepseek.example", model: "upstream-blocked", apiKeys: ["deepseek-blocked-key"] }],
+    });
+    const rawBlockedBody = "<!doctype html><title>Blocked</title><p>HTTP 403 from edge</p><p>Authorization: Bearer sk-sensitive-token</p>";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(rawBlockedBody, { status: 403, headers: { "content-type": "text/html" } })));
+
+    const response = await forwardProviderRequest("deepseek-v4-pro", { model: "deepseek-v4-pro", messages: [{ role: "user", content: "Diagnose safely." }] }, new AbortController().signal);
+
+    expect(response.status).toBe(403);
+    expect(vi.mocked(recordDeepseekV4ProFailureLog)).toHaveBeenCalledWith(expect.objectContaining({
+      sourceId: "blocked-provider",
+      sourceLabel: "Blocked provider",
+      httpStatus: 403,
+      failureKind: "http",
+      callerMessage: rawBlockedBody,
+    }));
   });
 
   it("routes Claude Opus 5 through only its server-side configuration and applies the same scoped guidance for Playground and API calls", async () => {

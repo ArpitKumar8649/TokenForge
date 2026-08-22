@@ -56,10 +56,10 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(translateAnthropicRequest({ model: "gpt-5", messages: [{ role: "user", content: "Reply with OK." }] }).reasoning_effort).toBeUndefined();
   });
 
-  it("keeps Claude Opus 5 response-start handling inside the public edge deadline", () => {
-    expect(providerResponseStartTimeoutMs("claude-opus-5")).toBe(105_000);
-    expect(providerResponseStartTimeoutMs("claude-fable-5")).toBe(110_000);
-    expect(providerResponseStartTimeoutMs("qwen-3.8-max")).toBe(110_000);
+  it("uses the same two-minute response-start handling for every model route", () => {
+    expect(providerResponseStartTimeoutMs("claude-opus-5")).toBe(120_000);
+    expect(providerResponseStartTimeoutMs("claude-fable-5")).toBe(120_000);
+    expect(providerResponseStartTimeoutMs("qwen-3.8-max")).toBe(120_000);
   });
 
   it("normalizes Claude Code tool and instruction turns for Kimi K3 into supported user and assistant roles", () => {

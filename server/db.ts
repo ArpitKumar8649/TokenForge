@@ -1245,9 +1245,7 @@ export function sanitizeRenderNimProxyFailureMessage(value: unknown) {
     .replace(/\b(?:sk|nvapi|cp)[_-][A-Za-z0-9._~+/=-]{8,}/gi, "[redacted]")
     .replace(/\b(authorization|x-api-key|api[-_]?key|token|secret|password)\s*[:=]\s*(?:Bearer\s+)?[^\s,;"'}\]]+/gi, "$1: [redacted]")
     .replace(/https?:\/\/[^\s/@]+@/gi, "https://[redacted]@")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 512);
+    .trim();
   return sanitized || "Upstream request failed.";
 }
 
@@ -1428,7 +1426,7 @@ export async function releaseRenderNimProxyEndpoint(endpointId: string, outcome:
   }
 }
 
-export type ClaudeOpus5FailureLogInput = {
+export type ManagedProviderFailureLogInput = {
   sourceType: "provider" | "render";
   sourceId: string;
   sourceLabel: string;
@@ -1438,17 +1436,20 @@ export type ClaudeOpus5FailureLogInput = {
   callerMessage?: string;
 };
 
+type ManagedProviderFailureLogModel = "claude-opus-5" | "deepseek-v4-pro";
+
 /**
- * Stores a short, credential-redacted Claude Opus 5 upstream failure attempt.
+ * Stores a raw credential-redacted managed-model upstream failure attempt.
  * The record intentionally excludes request content, user identity, headers, and API-key material.
  */
-export async function recordClaudeOpus5FailureLog(input: ClaudeOpus5FailureLogInput) {
+async function recordManagedProviderFailureLog(modelId: ManagedProviderFailureLogModel, input: ManagedProviderFailureLogInput) {
   const db = await getDb();
   if (!db) return;
   const httpStatus = Number.isInteger(input.httpStatus) && input.httpStatus! >= 100 && input.httpStatus! <= 599
     ? input.httpStatus!
     : null;
   await db.insert(claudeOpus5FailureLogs).values({
+    modelId,
     sourceType: input.sourceType,
     sourceId: input.sourceId.trim().slice(0, 96) || "unknown",
     sourceLabel: sanitizeRenderNimProxyFailureMessage(input.sourceLabel).slice(0, 128),
@@ -1459,12 +1460,28 @@ export async function recordClaudeOpus5FailureLog(input: ClaudeOpus5FailureLogIn
   });
 }
 
-/** The administrator failure history is deliberately bounded to avoid retaining an unbounded event stream. */
+export async function recordClaudeOpus5FailureLog(input: ManagedProviderFailureLogInput) {
+  return recordManagedProviderFailureLog("claude-opus-5", input);
+}
+
+export async function recordDeepseekV4ProFailureLog(input: ManagedProviderFailureLogInput) {
+  return recordManagedProviderFailureLog("deepseek-v4-pro", input);
+}
+
 export async function getRecentClaudeOpus5FailureLogs(limit = 100) {
+  return getRecentManagedProviderFailureLogs("claude-opus-5", limit);
+}
+
+export async function getRecentDeepseekV4ProFailureLogs(limit = 100) {
+  return getRecentManagedProviderFailureLogs("deepseek-v4-pro", limit);
+}
+
+/** The administrator history is bounded by record count while preserving each credential-redacted raw response body. */
+async function getRecentManagedProviderFailureLogs(modelId: ManagedProviderFailureLogModel, limit = 100) {
   const db = await getDb();
   if (!db) return [];
   const boundedLimit = Math.min(200, Math.max(1, Math.trunc(limit)));
-  return db.select().from(claudeOpus5FailureLogs).orderBy(desc(claudeOpus5FailureLogs.occurredAt), desc(claudeOpus5FailureLogs.id)).limit(boundedLimit);
+  return db.select().from(claudeOpus5FailureLogs).where(eq(claudeOpus5FailureLogs.modelId, modelId)).orderBy(desc(claudeOpus5FailureLogs.occurredAt), desc(claudeOpus5FailureLogs.id)).limit(boundedLimit);
 }
 
 function normalizeClaudeOpus5ProviderId(value: unknown, fallback: string) {

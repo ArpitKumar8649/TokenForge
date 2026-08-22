@@ -415,3 +415,7 @@
 - [x] Add durable administrator-visible sanitized Claude Opus 5 failure logs that identify the source provider group or Render endpoint and preserve the real caller-facing error reason.
 - [x] Remove DeepSeek V4 Pro’s 82-request credential retirement and automatic model-disable behavior.
 - [x] Add Claude Opus-style equal-share multi-provider configuration, per-provider key pools, failover, and administrator controls for DeepSeek V4 Pro.
+- [x] Raise all upstream response-start timeouts to 120 seconds while retaining full-stream completion after headers.
+- [x] Add durable administrator-visible sanitized DeepSeek V4 Pro failure history with originating provider-group details.
+- [x] Do not compact Render HTTP 403 blocked-page diagnostics; the administrator explicitly chose raw-body display with mandatory credential redaction.
+- [x] Preserve raw, credential-redacted Render and DeepSeek failure bodies in administrator diagnostics so the actual upstream error remains visible.

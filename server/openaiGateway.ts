@@ -15,6 +15,7 @@ import {
   recordUsage,
   releaseRenderNimProxyEndpoint,
   recordClaudeOpus5FailureLog,
+  recordDeepseekV4ProFailureLog,
   reserveCappedManagedProviderCredentialRequest,
   reserveCredit,
   recordManagedProviderKeyOutcome,
@@ -46,7 +47,9 @@ export const TOKENFORGE_CATALOGUE = TOKENFORGE_MODEL_CATALOGUE.map(model => ({
 }));
 
 const MODELS = new Set<string>(TOKENFORGE_CATALOGUE.map(model => model.id));
-const PROVIDER_TIMEOUT_MS = 110_000;
+/** Applies only until upstream response headers arrive; successful response bodies and SSE streams are not cut short by this timer. */
+export const PROVIDER_RESPONSE_START_TIMEOUT_MS = 120_000;
+const PROVIDER_TIMEOUT_MS = PROVIDER_RESPONSE_START_TIMEOUT_MS;
 /** Render cold starts measured up to 75 seconds; this applies only until upstream response headers arrive. */
 export const RENDER_NIM_PROXY_RESPONSE_START_TIMEOUT_MS = 120_000;
 const CLAUDE_OPUS5_PUBLIC_IDENTITY = "I am Claude Opus 5, available through TokenForge.";
@@ -201,6 +204,16 @@ function normalizedTokens(usage: Usage, inputEstimate: number) {
 
 type CredentialSelection = { credential: string; slot: number; poolSize: number };
 
+function createResponseStartDeadline(signal: AbortSignal) {
+  const aborter = new AbortController();
+  const timer = setTimeout(() => aborter.abort(), PROVIDER_RESPONSE_START_TIMEOUT_MS);
+  return {
+    signal: AbortSignal.any([signal, aborter.signal]),
+    timedOut: () => aborter.signal.aborted,
+    clear: () => clearTimeout(timer),
+  };
+}
+
 function retryableProviderStatus(status: number) {
   return status === 401 || status === 403 || status === 408 || status === 429 || status >= 500;
 }
@@ -354,29 +367,55 @@ async function forwardDedicatedDeepseekV4ProRequest(input: ChatInput, signal: Ab
     for (let attempt = 0; attempt < provider.apiKeys.length; attempt += 1) {
       const selectedCredential = selectNextDeepseekV4ProCredential(provider);
       if (!selectedCredential) break;
-      const responseStartTimeout = AbortSignal.timeout(50_000);
-      const attemptSignal = AbortSignal.any([signal, responseStartTimeout]);
+      const responseStart = createResponseStartDeadline(signal);
       try {
         const response = await fetch(url, {
           method: "POST",
           headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
           body: JSON.stringify({ ...input, model: provider.model }),
-          signal: attemptSignal,
+          signal: responseStart.signal,
         });
-        if (response.ok || !retryableProviderStatus(response.status)) {
+        responseStart.clear();
+        if (response.ok) {
           recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
           void recordManagedProviderKeyOutcome("deepseek-v4-pro", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
-          return response;
+          return wrapDeepseekV4ProProviderResponseWithFailureLog(response, provider, signal);
         }
-        lastResponse = response;
+        const retryable = retryableProviderStatus(response.status);
+        const rawBody = await response.text().catch(() => "");
+        const diagnostic = renderedHttpFailureDiagnostic(response.status, rawBody);
+        void recordDeepseekV4ProFailureLog({
+          sourceType: "provider",
+          sourceId: provider.id,
+          sourceLabel: provider.label,
+          httpStatus: response.status,
+          failureKind: "http",
+          retryable,
+          callerMessage: rawBody || diagnostic,
+        }).catch(() => undefined);
+        if (!retryable) {
+          recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
+          void recordManagedProviderKeyOutcome("deepseek-v4-pro", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
+          return new Response(rawBody, { status: response.status, statusText: response.statusText, headers: { "content-type": response.headers.get("content-type") ?? "application/json; charset=utf-8" } });
+        }
+        lastResponse = new Response(rawBody, { status: response.status, statusText: response.statusText, headers: { "content-type": response.headers.get("content-type") ?? "application/json; charset=utf-8" } });
         recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
         void recordManagedProviderKeyOutcome("deepseek-v4-pro", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
-        lastError = new Error(`DeepSeek V4 Pro provider returned ${response.status}`);
-        response.body?.cancel().catch(() => undefined);
+        lastError = new Error(diagnostic);
       } catch (error) {
+        responseStart.clear();
         lastError = error;
         recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
         void recordManagedProviderKeyOutcome("deepseek-v4-pro", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+        const timeout = responseStart.timedOut() && !signal.aborted;
+        void recordDeepseekV4ProFailureLog({
+          sourceType: "provider",
+          sourceId: provider.id,
+          sourceLabel: provider.label,
+          failureKind: timeout ? "timeout" : "network",
+          retryable: true,
+          callerMessage: timeout ? `DeepSeek V4 Pro provider response did not start within ${Math.round(PROVIDER_RESPONSE_START_TIMEOUT_MS / 1_000)} seconds.` : error instanceof Error ? error.message : "DeepSeek V4 Pro provider network request failed.",
+        }).catch(() => undefined);
         if (signal.aborted) throw error;
       }
       recordCredentialFailover(selectedCredential.telemetryProvider);
@@ -496,6 +535,41 @@ function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Resp
   return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
 }
 
+/** Record a DeepSeek provider stream failure after headers without treating a client cancellation as an upstream outage. */
+function wrapDeepseekV4ProProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal) {
+  if (!response.body || response.body.locked) return response;
+  const reader = response.body.getReader();
+  let recorded = false;
+  const recordStreamFailure = (error: unknown) => {
+    if (recorded || clientSignal.aborted) return;
+    recorded = true;
+    void recordDeepseekV4ProFailureLog({
+      sourceType: "provider",
+      sourceId: provider.id,
+      sourceLabel: provider.label,
+      failureKind: "stream",
+      retryable: false,
+      callerMessage: error instanceof Error ? error.message : "DeepSeek V4 Pro provider stream failed after response start.",
+    }).catch(() => undefined);
+  };
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await reader.read();
+        if (next.done) return controller.close();
+        controller.enqueue(next.value);
+      } catch (error) {
+        recordStreamFailure(error);
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      await reader.cancel(reason);
+    },
+  });
+  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
 /**
  * Uses only administrator-authorized Render endpoints, atomically limiting each endpoint to seven active requests.
  * No browser-identity spoofing is performed; ordinary truthful integration headers are sent.
@@ -579,15 +653,15 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
     for (let attempt = 0; attempt < provider.apiKeys.length; attempt += 1) {
       const selectedCredential = selectNextClaudeOpus5Credential(provider);
       if (!selectedCredential) break;
-      const responseStartTimeout = AbortSignal.timeout(50_000);
-      const attemptSignal = AbortSignal.any([signal, responseStartTimeout]);
+      const responseStart = createResponseStartDeadline(signal);
       try {
         const response = await fetch(url, {
           method: "POST",
           headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
           body: JSON.stringify({ ...input, model: provider.model }),
-          signal: attemptSignal,
+          signal: responseStart.signal,
         });
+        responseStart.clear();
         if (response.ok) {
           recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
           void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
@@ -615,17 +689,18 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
         lastError = new Error(diagnostic);
         lastFailureResponse = new Response(rawBody, { status: response.status, statusText: response.statusText, headers: { "content-type": response.headers.get("content-type") ?? "application/json; charset=utf-8" } });
       } catch (error) {
+        responseStart.clear();
         lastError = error;
         recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
         void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
-        const timeout = responseStartTimeout.aborted && !signal.aborted;
+        const timeout = responseStart.timedOut() && !signal.aborted;
         void recordClaudeOpus5FailureLog({
           sourceType: "provider",
           sourceId: provider.id,
           sourceLabel: provider.label,
           failureKind: timeout ? "timeout" : "network",
           retryable: true,
-          callerMessage: timeout ? "Claude Opus 5 provider response did not start within 50 seconds." : error instanceof Error ? error.message : "Claude Opus 5 provider network request failed.",
+          callerMessage: timeout ? `Claude Opus 5 provider response did not start within ${Math.round(PROVIDER_RESPONSE_START_TIMEOUT_MS / 1_000)} seconds.` : error instanceof Error ? error.message : "Claude Opus 5 provider network request failed.",
         }).catch(() => undefined);
         if (signal.aborted) throw error;
       }
@@ -651,15 +726,15 @@ async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: Abo
   let selectedCredential = firstCredential;
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const responseStartTimeout = AbortSignal.timeout(50_000);
-    const attemptSignal = AbortSignal.any([signal, responseStartTimeout]);
+    const responseStart = createResponseStartDeadline(signal);
     try {
       const response = await fetch(url, {
         method: "POST",
         headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
         body: JSON.stringify(requestBody),
-        signal: attemptSignal,
+        signal: responseStart.signal,
       });
+      responseStart.clear();
       const healthyResponse = response.ok || !retryableProviderStatus(response.status);
       if (healthyResponse || attempt === 2) {
         if (healthyResponse) recordCredentialSuccess("claude-fable-5", selectedCredential.slot);
@@ -674,10 +749,11 @@ async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: Abo
       response.body?.cancel().catch(() => undefined);
       selectedCredential = selectNextNvidiaClaudeFable5CredentialWithSlot(runtime.apiKeys) ?? selectedCredential;
     } catch (error) {
+      responseStart.clear();
       lastError = error;
       recordCredentialFailure("claude-fable-5", selectedCredential.slot);
       void recordManagedProviderKeyOutcome("claude-fable-5", selectedCredential.credential, false).catch(() => undefined);
-      if (signal.aborted || !responseStartTimeout.aborted || attempt === 2) throw error;
+      if (signal.aborted || !responseStart.timedOut() || attempt === 2) throw error;
       recordCredentialFailover("claude-fable-5");
       console.warn("[Claude Fable 5 NVIDIA NIM provider retry]", { event: "response_start_timeout_before_stream", attempt });
       selectedCredential = selectNextNvidiaClaudeFable5CredentialWithSlot(runtime.apiKeys) ?? selectedCredential;

@@ -425,34 +425,36 @@ export const renderProxyEndpointMetrics = mysqlTable(
     lastHttpStatus: int("lastHttpStatus"),
     /** Bounded category such as http, timeout, network, or stream; never a raw upstream error object. */
     lastFailureKind: varchar("lastFailureKind", { length: 32 }),
-    /** Redacted, user-safe upstream failure detail truncated before persistence. */
-    lastFailureMessage: varchar("lastFailureMessage", { length: 512 }),
+    /** Raw upstream failure detail after mandatory credential redaction. */
+    lastFailureMessage: text("lastFailureMessage"),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => [index("render_proxy_endpoint_metrics_updated_idx").on(table.updatedAt)],
 );
 
 /**
- * Sanitized upstream failure attempts for Claude Opus 5. These records identify
- * the selected provider group or authorized Render endpoint without persisting
- * credentials, request bodies, headers, or user identifiers.
+ * Credential-redacted raw upstream failure attempts for supported managed models.
+ * These records identify the selected provider group or authorized Render endpoint
+ * without persisting credentials, request bodies, headers, or user identifiers.
  */
 export const claudeOpus5FailureLogs = mysqlTable(
   "claude_opus5_failure_logs",
   {
     id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    modelId: varchar("modelId", { length: 64 }).notNull().default("claude-opus-5"),
     sourceType: mysqlEnum("sourceType", ["provider", "render"]).notNull(),
     sourceId: varchar("sourceId", { length: 96 }).notNull(),
     sourceLabel: varchar("sourceLabel", { length: 128 }).notNull(),
     httpStatus: int("httpStatus"),
     failureKind: varchar("failureKind", { length: 32 }).notNull(),
     retryable: boolean("retryable").default(false).notNull(),
-    /** User-safe message normalized by the shared credential-redaction helper. */
-    callerMessage: varchar("callerMessage", { length: 512 }).notNull(),
+    /** Raw upstream body or network diagnostic after mandatory credential redaction. */
+    callerMessage: text("callerMessage").notNull(),
     occurredAt: timestamp("occurredAt").defaultNow().notNull(),
   },
   table => [
     index("claude_opus5_failure_logs_occurred_idx").on(table.occurredAt),
+    index("claude_opus5_failure_logs_model_occurred_idx").on(table.modelId, table.occurredAt),
     index("claude_opus5_failure_logs_source_occurred_idx").on(table.sourceType, table.sourceId, table.occurredAt),
   ],
 );

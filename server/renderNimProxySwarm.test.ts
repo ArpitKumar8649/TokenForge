@@ -40,29 +40,43 @@ describe("authorized Render NIM proxy swarm", () => {
     expect(renderForwarder).not.toContain("AbortSignal.timeout(55_000)");
   });
 
-  it("persists bounded sanitized status and reason diagnostics without counting client cancellation as upstream failure", () => {
+  it("uses a clearable two-minute response-start deadline for every dedicated model provider", () => {
+    expect(gatewaySource).toContain("PROVIDER_RESPONSE_START_TIMEOUT_MS = 120_000");
+    expect(gatewaySource).toContain("function createResponseStartDeadline");
+    expect(gatewaySource).toContain("responseStart.clear()");
+    expect(gatewaySource).not.toContain("AbortSignal.timeout(50_000)");
+  });
+
+  it("persists raw credential-redacted status and reason diagnostics without counting client cancellation as upstream failure", () => {
     expect(dbSource).toContain("lastHttpStatus");
     expect(dbSource).toContain("lastFailureKind");
     expect(dbSource).toContain("lastFailureMessage");
     expect(dbSource).toContain("sanitizeRenderNimProxyFailureMessage");
+    expect(dbSource).not.toContain(".slice(0, 512)");
     expect(dbSource).toContain('const isFailure = outcome.kind === "failure"');
     expect(gatewaySource).toContain("renderedHttpFailureDiagnostic(response.status, rawBody)");
     expect(gatewaySource).toContain('failureKind: timeout ? "timeout" : "network"');
     expect(gatewaySource).toContain("upstreamError(payload, upstream.status)");
   });
 
-  it("records bounded sanitized Claude Opus failure attempts with the originating Render endpoint or provider group", () => {
+  it("records raw credential-redacted Claude Opus and DeepSeek failure attempts with their originating provider groups", () => {
     expect(dbSource).toContain("claudeOpus5FailureLogs");
     expect(dbSource).toContain("recordClaudeOpus5FailureLog");
+    expect(dbSource).toContain("recordDeepseekV4ProFailureLog");
     expect(dbSource).toContain("getRecentClaudeOpus5FailureLogs");
+    expect(dbSource).toContain("getRecentDeepseekV4ProFailureLogs");
     expect(dbSource).toContain("sourceLabel: sanitizeRenderNimProxyFailureMessage(input.sourceLabel)");
     expect(dbSource).toContain("sourceType: \"render\"");
     expect(gatewaySource).toContain("sourceType: \"provider\"");
     expect(gatewaySource).toContain("wrapClaudeOpus5ProviderResponseWithFailureLog");
+    expect(gatewaySource).toContain("wrapDeepseekV4ProProviderResponseWithFailureLog");
     expect(routerSource).toContain("claudeOpus5FailureLogs: adminProcedure");
+    expect(routerSource).toContain("deepseekV4ProFailureLogs: adminProcedure");
     expect(adminSource).toContain("Claude Opus 5 failure history");
     expect(adminSource).toContain("Render endpoint");
     expect(adminSource).toContain("Provider group");
+    expect(adminSource).toContain("DeepSeek V4 Pro failure history");
+    expect(adminSource).toContain("raw credential-redacted HTTP status/reason diagnostics");
   });
 
   it("uses explicit service integration headers and does not inject spoofed browser fingerprints", () => {
