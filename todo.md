@@ -422,3 +422,5 @@
 - [x] Run controlled all-six direct Render endpoint probes with a response window greater than 120 seconds while preserving routing state.
 - [x] Make the Claude Opus 5 and DeepSeek V4 Pro administrator failure histories fixed-height independently scrollable log boxes.
 - [x] Fix DeepSeek V4 Pro provider API-key deletion so saving a one-key pool does not restore the removed key on reload.
+- [x] Restore the missing Claude Opus 5 and DeepSeek V4 Pro multi-provider settings and credential-redacted failure-log panels in Administrator Provider Settings.
+- [x] Verify the restoration keeps Render routing paused and retains the 120-second response-start handling.
