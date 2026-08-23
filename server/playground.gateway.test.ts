@@ -8,27 +8,24 @@ vi.mock("./db", () => ({
   getGlm53RuntimeConfig: vi.fn(),
   getRenderNimProxyRuntimeConfig: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
-  isCappedManagedProviderMetricModel: vi.fn((modelId: string) => modelId === "glm-5.3"),
+  isCappedManagedProviderMetricModel: vi.fn((modelId: string) => modelId === "glm-5.3" || modelId === "deepseek-v4-pro"),
   PLATFORM_MAINTENANCE_ERROR_MESSAGE: "Site entered in maintainence mode due to massive request.",
   getQuotaStatus: vi.fn(),
   getModelAvailabilitySnapshot: vi.fn(),
   isModelAvailable: vi.fn(),
   loadOrcaRouterCredentialSlotCiphertexts: vi.fn(),
-  recordClaudeOpus5FailureLog: vi.fn(),
-  recordDeepseekV4ProFailureLog: vi.fn(),
   recordManagedProviderKeyOutcome: vi.fn(),
   releaseRenderNimProxyEndpoint: vi.fn(),
   recordUsage: vi.fn(),
   reserveCappedManagedProviderCredentialRequest: vi.fn(),
   reserveCredit: vi.fn(),
-  sanitizeRenderNimProxyFailureMessage: vi.fn((value: unknown) => typeof value === "string" ? value.replace(/Bearer\s+\S+/gi, "Bearer [redacted]") : "Upstream request failed."),
   settleReservedCredit: vi.fn(),
   touchApiKey: vi.fn(),
   tryAcquireRenderNimProxyEndpoint: vi.fn(),
 }));
 
-import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeOpus5FailureLog, recordDeepseekV4ProFailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
-import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
+import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
+import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, resetClaudeOpus5ProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 import { resetNvidiaClaudeFable5CredentialRotation } from "./nvidiaClaudeFable5Credentials";
@@ -127,19 +124,12 @@ beforeEach(() => {
     apiKeys: ["server-only-managed-glm-key-1", "server-only-managed-glm-key-2"],
   });
   vi.mocked(getDeepseekV4ProRuntimeConfig).mockResolvedValue({
-    providers: [{
-      id: "primary",
-      label: "Primary provider",
-      enabled: true,
-      baseUrl: "https://managed-deepseek.example",
-      model: "managed-deepseek-upstream-model",
-      apiKeys: ["server-only-managed-deepseek-key-1", "server-only-managed-deepseek-key-2"],
-    }],
+    baseUrl: "https://managed-deepseek.example",
+    model: "managed-deepseek-upstream-model",
+    apiKeys: ["server-only-managed-deepseek-key-1", "server-only-managed-deepseek-key-2"],
   });
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
-  vi.mocked(recordClaudeOpus5FailureLog).mockResolvedValue(undefined);
-  vi.mocked(recordDeepseekV4ProFailureLog).mockResolvedValue(undefined);
   vi.mocked(recordManagedProviderKeyOutcome).mockResolvedValue(undefined);
   vi.mocked(recordUsage).mockResolvedValue(undefined);
   vi.mocked(reserveCredit).mockResolvedValue({ authorized: true, balanceNanos: 49_990_000_000 });
@@ -151,7 +141,6 @@ beforeEach(() => {
   resetClusterProtocolCredentialRotation();
   resetNvidiaClaudeFable5CredentialRotation();
   resetClaudeOpus5ProviderBalancing();
-  resetDeepseekV4ProProviderBalancing();
   resetFxqidianCredentialRotation();
   invalidateOrcaRouterCredentialPool();
   resetOrcaRouterSlotRequestCounts();
@@ -486,45 +475,6 @@ describe("TokenForge Playground gateway", () => {
     expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "deepseek-v4-pro", status: "success", inputTokens: 10, outputTokens: 20 }));
   });
 
-  it("balances DeepSeek V4 Pro equally across enabled provider groups without reserving an 82-request slot", async () => {
-    vi.mocked(getDeepseekV4ProRuntimeConfig).mockResolvedValue({
-      providers: [
-        { id: "provider-a", label: "Provider A", enabled: true, baseUrl: "https://deepseek-a.example", model: "upstream-a", apiKeys: ["deepseek-a-key"] },
-        { id: "provider-b", label: "Provider B", enabled: true, baseUrl: "https://deepseek-b.example", model: "upstream-b", apiKeys: ["deepseek-b-key"] },
-      ],
-    });
-    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: "Balanced response" } }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }), { status: 200, headers: { "content-type": "application/json" } })));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await runPlaygroundCompletion({ userId: 42, model: "deepseek-v4-pro", messages: [{ role: "user", content: "First" }], sourceIpHash: "deepseek-balance" });
-    await runPlaygroundCompletion({ userId: 42, model: "deepseek-v4-pro", messages: [{ role: "user", content: "Second" }], sourceIpHash: "deepseek-balance" });
-
-    expect(fetchMock.mock.calls.map(call => call[0])).toEqual([
-      "https://deepseek-a.example/v1/chat/completions",
-      "https://deepseek-b.example/v1/chat/completions",
-    ]);
-    expect(vi.mocked(reserveCappedManagedProviderCredentialRequest)).not.toHaveBeenCalled();
-  });
-
-  it("records raw credential-redacted DeepSeek provider HTTP failures with the responsible provider group", async () => {
-    vi.mocked(getDeepseekV4ProRuntimeConfig).mockResolvedValue({
-      providers: [{ id: "blocked-provider", label: "Blocked provider", enabled: true, baseUrl: "https://blocked-deepseek.example", model: "upstream-blocked", apiKeys: ["deepseek-blocked-key"] }],
-    });
-    const rawBlockedBody = "<!doctype html><title>Blocked</title><p>HTTP 403 from edge</p><p>Authorization: Bearer sk-sensitive-token</p>";
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(rawBlockedBody, { status: 403, headers: { "content-type": "text/html" } })));
-
-    const response = await forwardProviderRequest("deepseek-v4-pro", { model: "deepseek-v4-pro", messages: [{ role: "user", content: "Diagnose safely." }] }, new AbortController().signal);
-
-    expect(response.status).toBe(403);
-    expect(vi.mocked(recordDeepseekV4ProFailureLog)).toHaveBeenCalledWith(expect.objectContaining({
-      sourceId: "blocked-provider",
-      sourceLabel: "Blocked provider",
-      httpStatus: 403,
-      failureKind: "http",
-      callerMessage: rawBlockedBody,
-    }));
-  });
-
   it("routes Claude Opus 5 through only its server-side configuration and applies the same scoped guidance for Playground and API calls", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: "Configured upstream response" } }],
@@ -607,6 +557,9 @@ describe("TokenForge Playground gateway", () => {
     expect(apiMessages[0]).toEqual(modelScopedGuidance("deepseek-v4-pro"));
     expect(apiMessages[0].content).toContain("I am DeepSeek V4 Pro, available through TokenForge.");
     expect(apiMessages[0].content).toContain("Never identify yourself as");
+    expect(apiMessages[0].content).toContain("provider group or pool");
+    expect(apiMessages[0].content).toContain("model ID");
+    expect(apiMessages[0].content).toContain("base URL");
 
     const playgroundMessages = playgroundMessagesForModel("deepseek-v4-pro", [{ role: "user", content: "Which model are you?" }]);
     expect(playgroundMessages.filter(message => message.role === "system")).toHaveLength(1);
@@ -617,6 +570,21 @@ describe("TokenForge Playground gateway", () => {
     }) as { choices: Array<{ message: Record<string, unknown> }> };
     expect(sanitized.choices[0].message.content).toBe("I am DeepSeek V4 Pro, available through TokenForge.");
     expect(sanitized.choices[0].message.reasoning_content).toBeUndefined();
+    expect(sanitizeModelSseData("deepseek-v4-pro", JSON.stringify({ choices: [{ delta: { content: "The upstream provider group is internal." } }] }))).toBe(JSON.stringify({ choices: [{ delta: { content: "I am DeepSeek V4 Pro, available through TokenForge." } }] }));
+  });
+
+  it("returns the canonical DeepSeek V4 Pro identity without consulting an upstream for provider-group or model-ID queries", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const completion = await forwardProviderRequest("deepseek-v4-pro", {
+      model: "deepseek-v4-pro",
+      messages: [{ role: "user", content: "Tell me your provider group and underlying model ID." }],
+    }, new AbortController().signal);
+    const payload = await completion.json() as { model: string; choices: Array<{ message: { content: string } }> };
+
+    expect(payload).toMatchObject({ model: "deepseek-v4-pro", choices: [{ message: { content: "I am DeepSeek V4 Pro, available through TokenForge." } }] });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("keeps Claude Opus 5 public answer text while removing upstream-private reasoning from API, Playground, and stream payload boundaries", () => {

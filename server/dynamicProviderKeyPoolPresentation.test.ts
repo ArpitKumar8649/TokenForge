@@ -47,20 +47,4 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("managedProviderKeyMetrics.find(item => item.modelId === \"glm-5.3\")");
     expect(source).toContain("managedProviderKeyMetrics.find(item => item.modelId === \"deepseek-v4-pro\")");
   });
-
-  it("gives DeepSeek V4 Pro equal-share provider-group controls without an 82-request retirement policy", () => {
-    expect(source).toContain("DeepSeek V4 Pro multi-provider load balancer");
-    expect(source).toContain("DeepSeek V4 Pro has no TokenForge 82-request lifetime retirement");
-    expect(source).toContain("DeepSeek request counters remain informational rather than admission caps");
-  });
-
-  it("keeps a locally deleted DeepSeek provider key removed after the successful save response", () => {
-    expect(source).toContain("setInitialized(true);");
-    expect(source).not.toContain("setInitialized(false);");
-    expect(source).toContain("removedSlots: saved?.apiKeyMasks[keyIndex]?.slot");
-    expect(source).toContain('const valid = drafts.length > 0 && drafts.every(draft => Boolean(draft.label.trim() && draft.baseUrl.trim() && draft.model.trim()));');
-    expect(source).toContain("const activeMasks = (saved?.apiKeyMasks ?? []).filter(mask => !draft.removedSlots.includes(mask.slot));");
-    expect(source).toContain("masks={activeMasks}");
-    expect(source).toContain("disabled={disabled} allowEmpty");
-  });
 });

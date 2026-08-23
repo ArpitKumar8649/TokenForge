@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import {
   AnthropicBridgeError,
   anthropicApiKey,
@@ -56,10 +58,10 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(translateAnthropicRequest({ model: "gpt-5", messages: [{ role: "user", content: "Reply with OK." }] }).reasoning_effort).toBeUndefined();
   });
 
-  it("uses the same two-minute response-start handling for every model route", () => {
-    expect(providerResponseStartTimeoutMs("claude-opus-5")).toBe(120_000);
-    expect(providerResponseStartTimeoutMs("claude-fable-5")).toBe(120_000);
-    expect(providerResponseStartTimeoutMs("qwen-3.8-max")).toBe(120_000);
+  it("keeps Claude Opus 5 response-start handling inside the public edge deadline", () => {
+    expect(providerResponseStartTimeoutMs("claude-opus-5")).toBe(105_000);
+    expect(providerResponseStartTimeoutMs("claude-fable-5")).toBe(110_000);
+    expect(providerResponseStartTimeoutMs("qwen-3.8-max")).toBe(110_000);
   });
 
   it("normalizes Claude Code tool and instruction turns for Kimi K3 into supported user and assistant roles", () => {
@@ -91,6 +93,13 @@ describe("TokenForge Anthropic Messages bridge", () => {
     expect(translateAnthropicRequest({ model: "qwen3.8-max", messages: [{ role: "user", content: "Hello" }] })).toMatchObject({ model: "qwen3.8-max" });
     expect(() => translateAnthropicRequest({ model: "glm-5.2", messages: [{ role: "user", content: "Hello" }] })).toThrow(AnthropicBridgeError);
     expect(() => translateAnthropicRequest({ model: "kimi-k3", messages: [{ role: "user", content: [{ type: "image", source: {} }] }] })).toThrow("text and tool blocks only");
+  });
+
+  it("applies DeepSeek V4 Pro scoped guidance and SSE content redaction to the Anthropic Messages route", () => {
+    const source = readFileSync(path.join(import.meta.dirname, "anthropicGateway.ts"), "utf8");
+    expect(source).toContain("messages: withModelScopedGuidance(model, translatedMessages)");
+    expect(source).toContain('model === "deepseek-v4-pro"');
+    expect(source).toContain("sanitizeModelSseData(model");
   });
 
   it("accepts any positive safe Claude Opus 5 max_tokens value without a TokenForge ceiling", () => {

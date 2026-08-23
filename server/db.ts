@@ -6,7 +6,6 @@ import {
   accountFlags,
   apiKeys,
   auditEvents,
-  claudeOpus5FailureLogs,
   creditAccounts,
   creditGiveaways,
   creditGiveawayNotifications,
@@ -1228,26 +1227,6 @@ const DEFAULT_RENDER_NIM_PROXY_ENDPOINTS = [
 
 export type RenderNimProxyEndpoint = { id: string; url: string; enabled: boolean };
 type RenderNimProxyRuntimePayload = { enabled: boolean; model: string; endpoints: RenderNimProxyEndpoint[] };
-export type RenderNimProxyFailureKind = "http" | "timeout" | "network" | "stream";
-export type RenderNimProxyReleaseOutcome =
-  | { kind: "success" }
-  | { kind: "cancelled" }
-  | { kind: "failure"; failureKind: RenderNimProxyFailureKind; httpStatus?: number; message?: string; cooldown?: boolean };
-
-/**
- * Render diagnostic text is shown to administrators and can also inform a caller-facing gateway error.
- * Keep it useful while eliminating credentials, header values, and credential-bearing URLs before storage.
- */
-export function sanitizeRenderNimProxyFailureMessage(value: unknown) {
-  const raw = value instanceof Error ? value.message : typeof value === "string" ? value : "";
-  const sanitized = raw
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [redacted]")
-    .replace(/\b(?:sk|nvapi|cp)[_-][A-Za-z0-9._~+/=-]{8,}/gi, "[redacted]")
-    .replace(/\b(authorization|x-api-key|api[-_]?key|token|secret|password)\s*[:=]\s*(?:Bearer\s+)?[^\s,;"'}\]]+/gi, "$1: [redacted]")
-    .replace(/https?:\/\/[^\s/@]+@/gi, "https://[redacted]@")
-    .trim();
-  return sanitized || "Upstream request failed.";
-}
 
 function normalizeRenderNimProxyEndpointUrl(value: unknown) {
   if (typeof value !== "string") return "";
@@ -1346,9 +1325,6 @@ export async function getRenderNimProxySwarmSettings() {
         lastRequestAt: metric?.lastRequestAt ?? null,
         lastSuccessAt: metric?.lastSuccessAt ?? null,
         lastFailureAt: metric?.lastFailureAt ?? null,
-        lastHttpStatus: metric?.lastHttpStatus ?? null,
-        lastFailureKind: metric?.lastFailureKind ?? null,
-        lastFailureMessage: metric?.lastFailureMessage ?? null,
       };
     }),
     source: override ? "database" as const : "environment" as const,
@@ -1387,101 +1363,19 @@ export async function tryAcquireRenderNimProxyEndpoint(endpoint: RenderNimProxyE
   return Number(result[0]?.affectedRows ?? 0) === 1;
 }
 
-export async function releaseRenderNimProxyEndpoint(endpointId: string, outcome: RenderNimProxyReleaseOutcome) {
+export async function releaseRenderNimProxyEndpoint(endpointId: string, outcome: { success: boolean; timeout?: boolean; cooldown?: boolean }) {
   const db = await getDb();
   if (!db) return;
   const now = new Date();
-  const isFailure = outcome.kind === "failure";
-  const timeout = isFailure && outcome.failureKind === "timeout";
-  const cooldownUntil = isFailure && outcome.cooldown ? new Date(now.getTime() + 60_000) : null;
-  const httpStatus = isFailure && Number.isInteger(outcome.httpStatus) && outcome.httpStatus! >= 100 && outcome.httpStatus! <= 599
-    ? outcome.httpStatus!
-    : null;
+  const cooldownUntil = outcome.cooldown ? new Date(now.getTime() + 60_000) : null;
   await db.update(renderProxyEndpointMetrics).set({
     activeRequests: sql`GREATEST(${renderProxyEndpointMetrics.activeRequests} - 1, 0)`,
-    ...(outcome.kind === "success"
+    ...(outcome.success
       ? { successCount: sql`${renderProxyEndpointMetrics.successCount} + 1`, lastSuccessAt: now }
-      : isFailure
-        ? {
-          failureCount: sql`${renderProxyEndpointMetrics.failureCount} + 1`,
-          lastFailureAt: now,
-          lastHttpStatus: httpStatus,
-          lastFailureKind: outcome.failureKind,
-          lastFailureMessage: sanitizeRenderNimProxyFailureMessage(outcome.message),
-        }
-        : {}),
-    ...(timeout ? { timeoutCount: sql`${renderProxyEndpointMetrics.timeoutCount} + 1` } : {}),
+      : { failureCount: sql`${renderProxyEndpointMetrics.failureCount} + 1`, lastFailureAt: now }),
+    ...(outcome.timeout ? { timeoutCount: sql`${renderProxyEndpointMetrics.timeoutCount} + 1` } : {}),
     ...(cooldownUntil ? { cooldownUntil } : {}),
   }).where(eq(renderProxyEndpointMetrics.endpointId, endpointId));
-  if (isFailure) {
-    await recordClaudeOpus5FailureLog({
-      sourceType: "render",
-      sourceId: endpointId,
-      sourceLabel: `Render endpoint ${endpointId}`,
-      httpStatus: outcome.httpStatus,
-      failureKind: outcome.failureKind,
-      retryable: Boolean(outcome.cooldown),
-      callerMessage: outcome.message,
-    });
-  }
-}
-
-export type ManagedProviderFailureLogInput = {
-  sourceType: "provider" | "render";
-  sourceId: string;
-  sourceLabel: string;
-  httpStatus?: number;
-  failureKind: "http" | "timeout" | "network" | "stream";
-  retryable: boolean;
-  callerMessage?: string;
-};
-
-type ManagedProviderFailureLogModel = "claude-opus-5" | "deepseek-v4-pro";
-
-/**
- * Stores a raw credential-redacted managed-model upstream failure attempt.
- * The record intentionally excludes request content, user identity, headers, and API-key material.
- */
-async function recordManagedProviderFailureLog(modelId: ManagedProviderFailureLogModel, input: ManagedProviderFailureLogInput) {
-  const db = await getDb();
-  if (!db) return;
-  const httpStatus = Number.isInteger(input.httpStatus) && input.httpStatus! >= 100 && input.httpStatus! <= 599
-    ? input.httpStatus!
-    : null;
-  await db.insert(claudeOpus5FailureLogs).values({
-    modelId,
-    sourceType: input.sourceType,
-    sourceId: input.sourceId.trim().slice(0, 96) || "unknown",
-    sourceLabel: sanitizeRenderNimProxyFailureMessage(input.sourceLabel).slice(0, 128),
-    httpStatus,
-    failureKind: input.failureKind,
-    retryable: input.retryable,
-    callerMessage: sanitizeRenderNimProxyFailureMessage(input.callerMessage),
-  });
-}
-
-export async function recordClaudeOpus5FailureLog(input: ManagedProviderFailureLogInput) {
-  return recordManagedProviderFailureLog("claude-opus-5", input);
-}
-
-export async function recordDeepseekV4ProFailureLog(input: ManagedProviderFailureLogInput) {
-  return recordManagedProviderFailureLog("deepseek-v4-pro", input);
-}
-
-export async function getRecentClaudeOpus5FailureLogs(limit = 100) {
-  return getRecentManagedProviderFailureLogs("claude-opus-5", limit);
-}
-
-export async function getRecentDeepseekV4ProFailureLogs(limit = 100) {
-  return getRecentManagedProviderFailureLogs("deepseek-v4-pro", limit);
-}
-
-/** The administrator history is bounded by record count while preserving each credential-redacted raw response body. */
-async function getRecentManagedProviderFailureLogs(modelId: ManagedProviderFailureLogModel, limit = 100) {
-  const db = await getDb();
-  if (!db) return [];
-  const boundedLimit = Math.min(200, Math.max(1, Math.trunc(limit)));
-  return db.select().from(claudeOpus5FailureLogs).where(eq(claudeOpus5FailureLogs.modelId, modelId)).orderBy(desc(claudeOpus5FailureLogs.occurredAt), desc(claudeOpus5FailureLogs.id)).limit(boundedLimit);
 }
 
 function normalizeClaudeOpus5ProviderId(value: unknown, fallback: string) {
@@ -1489,7 +1383,7 @@ function normalizeClaudeOpus5ProviderId(value: unknown, fallback: string) {
   return /^[a-z0-9][a-z0-9_-]{0,63}$/.test(normalized) ? normalized : fallback;
 }
 
-function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5ProviderRuntime[], allowEmptyCredentialPools = false) {
+function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5ProviderRuntime[]) {
   if (!Array.isArray(value)) return fallback;
   const seen = new Set<string>();
   const providers = value.flatMap((candidate, index) => {
@@ -1503,7 +1397,7 @@ function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5Prov
       : [];
     const baseUrl = typeof raw.baseUrl === "string" ? raw.baseUrl.trim() : "";
     const model = typeof raw.model === "string" ? raw.model.trim() : "";
-    if (!baseUrl || !model || (!allowEmptyCredentialPools && !apiKeys.length)) return [];
+    if (!baseUrl || !model || !apiKeys.length) return [];
     return [{
       id,
       label: typeof raw.label === "string" && raw.label.trim() ? raw.label.trim().slice(0, 80) : `Provider ${index + 1}`,
@@ -1709,24 +1603,13 @@ export async function updateGlm53ProviderSettings(input: { baseUrl?: string; mod
   return getGlm53ProviderSettings();
 }
 
-export type DeepseekV4ProProviderRuntime = ClaudeOpus5ProviderRuntime;
-type DeepseekV4ProRuntimePayload = { providers: DeepseekV4ProProviderRuntime[] };
-const MAX_DEEPSEEK_V4PRO_PROVIDERS = 12;
-
-function normalizeDeepseekV4ProProviders(value: unknown, fallback: DeepseekV4ProProviderRuntime[]) {
-  return normalizeClaudeOpus5Providers(value, fallback, true).slice(0, MAX_DEEPSEEK_V4PRO_PROVIDERS);
-}
+type DeepseekV4ProRuntimePayload = { baseUrl: string; model: string; apiKeys: string[] };
 
 function deepseekV4ProRuntimeFromEnvironment(): DeepseekV4ProRuntimePayload {
   return {
-    providers: normalizeDeepseekV4ProProviders([{
-      id: "environment-default",
-      label: "Environment default",
-      enabled: true,
-      baseUrl: process.env.TOKENHARBOR_BASE_URL?.trim() ?? "",
-      model: getTokenForgeUpstreamModelId("deepseek-v4-pro") ?? "",
-      apiKeys: [process.env.TOKENHARBOR_API_KEY?.trim() ?? ""],
-    }], []),
+    baseUrl: process.env.TOKENHARBOR_BASE_URL?.trim() ?? "",
+    model: getTokenForgeUpstreamModelId("deepseek-v4-pro") ?? "",
+    apiKeys: [process.env.TOKENHARBOR_API_KEY?.trim() ?? ""].filter(Boolean),
   };
 }
 
@@ -1739,17 +1622,16 @@ async function readDeepseekV4ProRuntimeOverride() {
     const encoded = JSON.parse(record.value) as { ciphertext?: string; iv?: string; authTag?: string };
     const decrypted = decryptProviderRuntimeConfig({ ciphertext: String(encoded.ciphertext ?? ""), iv: String(encoded.iv ?? ""), authTag: String(encoded.authTag ?? "") });
     if (!decrypted || typeof decrypted !== "object") return null;
-    const candidate = decrypted as Partial<DeepseekV4ProRuntimePayload> & { baseUrl?: unknown; model?: unknown; apiKeys?: unknown };
-    const legacyProvider = {
-      id: "primary",
-      label: "Primary provider",
-      enabled: candidate.providers?.[0]?.enabled !== false,
-      baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl.trim() : "",
-      model: typeof candidate.model === "string" ? candidate.model.trim() : "",
-      apiKeys: Array.isArray(candidate.apiKeys) ? candidate.apiKeys : [],
-    };
+    const candidate = decrypted as Partial<DeepseekV4ProRuntimePayload>;
+    const configuredKeys = Array.isArray(candidate.apiKeys)
+      ? candidate.apiKeys.map(value => typeof value === "string" ? value.trim() : "").filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS)
+      : [];
     return {
-      payload: { providers: normalizeDeepseekV4ProProviders(candidate.providers, normalizeDeepseekV4ProProviders([legacyProvider], [])) },
+      payload: {
+        baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl.trim() : "",
+        model: typeof candidate.model === "string" ? candidate.model.trim() : "",
+        apiKeys: configuredKeys,
+      },
       updatedAt: record.updatedAt,
       updatedByUserId: record.updatedByUserId,
     };
@@ -1762,72 +1644,42 @@ export async function getDeepseekV4ProRuntimeConfig(): Promise<DeepseekV4ProRunt
   const fallback = deepseekV4ProRuntimeFromEnvironment();
   const override = await readDeepseekV4ProRuntimeOverride();
   if (!override) return fallback;
-  return { providers: override.payload.providers.length ? override.payload.providers : fallback.providers };
+  return {
+    baseUrl: override.payload.baseUrl || fallback.baseUrl,
+    model: override.payload.model || fallback.model,
+    apiKeys: override.payload.apiKeys.length ? override.payload.apiKeys : fallback.apiKeys.filter(Boolean),
+  };
 }
 
 export async function getDeepseekV4ProProviderSettings() {
   const runtime = await getDeepseekV4ProRuntimeConfig();
   const override = await readDeepseekV4ProRuntimeOverride();
-  const primary = runtime.providers[0];
   return {
-    providers: runtime.providers.map(provider => ({
-      id: provider.id,
-      label: provider.label,
-      enabled: provider.enabled,
-      baseUrl: provider.baseUrl,
-      model: provider.model,
-      apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
-    })),
-    /** Compatibility fields retain a read-only view for callers on the legacy setting shape. */
-    baseUrl: primary?.baseUrl ?? "",
-    model: primary?.model ?? "",
-    apiKeyMasks: primary?.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })) ?? [],
+    baseUrl: runtime.baseUrl,
+    model: runtime.model,
+    apiKeyMasks: runtime.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
     source: override ? "database" as const : "environment" as const,
     updatedAt: override?.updatedAt ?? null,
     updatedByUserId: override?.updatedByUserId ?? null,
   };
 }
 
-type DeepseekV4ProProviderUpdate = { id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] };
-type DeepseekV4ProLegacyUpdate = { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] };
-
-export async function updateDeepseekV4ProProviderSettings(input: { providers: DeepseekV4ProProviderUpdate[] } | DeepseekV4ProLegacyUpdate, updatedByUserId: number) {
+export async function updateDeepseekV4ProProviderSettings(input: { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getDeepseekV4ProRuntimeConfig();
-  const currentById = new Map(current.providers.map(provider => [provider.id, provider]));
-  const legacyPrimary = current.providers[0] ?? { id: "primary", label: "Primary provider", enabled: true, baseUrl: "", model: "", apiKeys: [] };
-  const submittedProviders: DeepseekV4ProProviderUpdate[] = "providers" in input
-    ? input.providers
-    : [{
-      id: legacyPrimary.id,
-      label: legacyPrimary.label,
-      enabled: legacyPrimary.enabled,
-      baseUrl: input.baseUrl?.trim() || legacyPrimary.baseUrl,
-      model: input.model?.trim() || legacyPrimary.model,
-      apiKeys: input.apiKeys ?? legacyPrimary.apiKeys.map(() => ""),
-      removeSlots: input.removeSlots,
-    }];
-  const nextProviders = submittedProviders.map((submitted, index) => {
-    const existing = currentById.get(submitted.id);
-    const removedSlots = new Set(submitted.removeSlots ?? []);
-    const retainedKeys = (existing?.apiKeys ?? []).filter((_, keyIndex) => !removedSlots.has(keyIndex + 1));
-    const patchedExistingKeys = retainedKeys.map((key, keyIndex) => submitted.apiKeys[keyIndex]?.trim() || key);
-    const appendedKeys = submitted.apiKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
-    return {
-      id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`),
-      label: submitted.label.trim() || `Provider ${index + 1}`,
-      enabled: submitted.enabled !== false,
-      baseUrl: submitted.baseUrl.trim(),
-      model: submitted.model.trim(),
-      apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
-    };
-  });
-  const ids = new Set(nextProviders.map(provider => provider.id));
-  if (!nextProviders.length || nextProviders.length > MAX_DEEPSEEK_V4PRO_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model)) {
-    throw new Error("Each DeepSeek V4 Pro provider needs a unique identifier, base URL, and model ID");
-  }
-  const encrypted = encryptProviderRuntimeConfig({ providers: nextProviders } satisfies DeepseekV4ProRuntimePayload);
+  const removedSlots = new Set(input.removeSlots ?? []);
+  const retainedKeys = current.apiKeys.filter((_, index) => !removedSlots.has(index + 1));
+  const submittedKeys = input.apiKeys ?? [];
+  const patchedExistingKeys = retainedKeys.map((key, index) => submittedKeys[index]?.trim() || key);
+  const appendedKeys = submittedKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
+  const next: DeepseekV4ProRuntimePayload = {
+    baseUrl: input.baseUrl?.trim() || current.baseUrl,
+    model: input.model?.trim() || current.model,
+    apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
+  };
+  if (!next.baseUrl || !next.model || !next.apiKeys.some(Boolean)) throw new Error("A base URL, model ID, and at least one API key are required for DeepSeek V4 Pro");
+  const encrypted = encryptProviderRuntimeConfig(next);
   await db.insert(platformSettings).values({
     settingKey: DEEPSEEK_V4PRO_RUNTIME_SETTING_KEY,
     value: JSON.stringify(encrypted),
@@ -1839,7 +1691,7 @@ export async function updateDeepseekV4ProProviderSettings(input: { providers: De
 export const MANAGED_PROVIDER_METRIC_MODEL_IDS = ["claude-fable-5", "claude-opus-5", "glm-5.3", "deepseek-v4-pro"] as const;
 export type ManagedProviderMetricModel = typeof MANAGED_PROVIDER_METRIC_MODEL_IDS[number];
 export const MANAGED_PROVIDER_KEY_REQUEST_CAP = 82;
-export const CAPPED_MANAGED_PROVIDER_METRIC_MODEL_IDS = ["glm-5.3"] as const;
+export const CAPPED_MANAGED_PROVIDER_METRIC_MODEL_IDS = ["glm-5.3", "deepseek-v4-pro"] as const;
 export type CappedManagedProviderMetricModel = typeof CAPPED_MANAGED_PROVIDER_METRIC_MODEL_IDS[number];
 
 export function isCappedManagedProviderMetricModel(modelId: ManagedProviderMetricModel): modelId is CappedManagedProviderMetricModel {
@@ -1853,7 +1705,7 @@ export function isManagedProviderKeyRetired(modelId: ManagedProviderMetricModel,
 export function managedProviderCredentialFingerprint(modelId: ManagedProviderMetricModel, credential: string, providerGroupId?: string) {
   const secret = process.env.JWT_SECRET?.trim();
   if (!secret) throw new Error("TokenForge provider metric vault is unavailable");
-  const groupScope = (modelId === "claude-opus-5" || modelId === "deepseek-v4-pro") && providerGroupId && providerGroupId !== "primary" ? `\u0000provider:${providerGroupId}` : "";
+  const groupScope = modelId === "claude-opus-5" && providerGroupId && providerGroupId !== "primary" ? `\u0000provider:${providerGroupId}` : "";
   return createHmac("sha256", secret).update(`TokenForge:ProviderKeyMetrics:v1\u0000${modelId}${groupScope}\u0000${credential}`).digest("hex");
 }
 
@@ -1889,8 +1741,7 @@ async function getManagedProviderMetricRuntime(modelId: ManagedProviderMetricMod
     return { apiKeys: runtime.providers.flatMap(provider => provider.apiKeys) };
   }
   if (modelId === "glm-5.3") return getGlm53RuntimeConfig();
-  const runtime = await getDeepseekV4ProRuntimeConfig();
-  return { apiKeys: runtime.providers.flatMap(provider => provider.apiKeys) };
+  return getDeepseekV4ProRuntimeConfig();
 }
 
 /** Atomically reserves one of the finite upstream request slots for a capped managed model. */
@@ -1935,9 +1786,8 @@ export async function reserveCappedManagedProviderCredentialRequest(modelId: Cap
 /** Administrator-only view model: keeps fingerprints and raw credentials server-side, returning only current masks and aggregated counts. */
 export async function getManagedProviderKeyMetrics() {
   const db = await getDb();
-  const runtimes = await Promise.all(MANAGED_PROVIDER_METRIC_MODEL_IDS.filter(modelId => modelId !== "claude-opus-5" && modelId !== "deepseek-v4-pro").map(async modelId => ({ modelId, runtime: await getManagedProviderMetricRuntime(modelId) })));
+  const runtimes = await Promise.all(MANAGED_PROVIDER_METRIC_MODEL_IDS.filter(modelId => modelId !== "claude-opus-5").map(async modelId => ({ modelId, runtime: await getManagedProviderMetricRuntime(modelId) })));
   const opusRuntime = await getClaudeOpus5RuntimeConfig();
-  const deepseekRuntime = await getDeepseekV4ProRuntimeConfig();
   const rows = db
     ? await db.select().from(providerKeyMetrics).where(inArray(providerKeyMetrics.providerModelId, [...MANAGED_PROVIDER_METRIC_MODEL_IDS]))
     : [];
@@ -1992,29 +1842,7 @@ export async function getManagedProviderKeyMetrics() {
       };
     }),
   }));
-  const deepseekProviders = deepseekRuntime.providers.map(provider => ({
-    id: provider.id,
-    label: provider.label,
-    slots: provider.apiKeys.map((credential, index) => {
-      const metric = metricsByKey.get(`deepseek-v4-pro:${managedProviderCredentialFingerprint("deepseek-v4-pro", credential, provider.id)}`);
-      const liveSlot = getCredentialSlotTelemetry(`deepseek-v4-pro:${provider.id}`, index);
-      return {
-        slot: index + 1,
-        keyMask: maskProviderApiKey(credential),
-        requestCount: Number(metric?.requestCount ?? 0),
-        successCount: Number(metric?.successCount ?? 0),
-        failureCount: Number(metric?.failureCount ?? 0),
-        health: liveSlot.health,
-        cooldownUntil: liveSlot.cooldownUntil,
-        lastRequestAt: metric?.lastRequestAt ?? null,
-        lastSuccessAt: metric?.lastSuccessAt ?? null,
-        lastFailureAt: metric?.lastFailureAt ?? null,
-        requestCap: null,
-        retired: false,
-      };
-    }),
-  }));
-  return [...standardMetrics, { modelId: "claude-opus-5", slots: [], providers: opusProviders }, { modelId: "deepseek-v4-pro", slots: [], providers: deepseekProviders }];
+  return [...standardMetrics, { modelId: "claude-opus-5", slots: [], providers: opusProviders }];
 }
 
 export async function promoteUserToAdmin(userId: number) {
