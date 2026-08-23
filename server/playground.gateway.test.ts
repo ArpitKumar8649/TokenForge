@@ -28,7 +28,7 @@ vi.mock("./db", () => ({
 }));
 
 import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeOpus5FailureLog, recordDeepseekV4ProFailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
-import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
+import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 import { resetNvidiaClaudeFable5CredentialRotation } from "./nvidiaClaudeFable5Credentials";
@@ -523,6 +523,21 @@ describe("TokenForge Playground gateway", () => {
       failureKind: "http",
       callerMessage: rawBlockedBody,
     }));
+    expect(vi.mocked(recordManagedProviderKeyOutcome)).toHaveBeenCalledWith("deepseek-v4-pro", "deepseek-blocked-key", false, expect.any(Date), true, "blocked-provider");
+  });
+
+  it("counts non-retryable DeepSeek HTTP errors as failed attempts while returning a neutral Playground message", async () => {
+    vi.mocked(getDeepseekV4ProRuntimeConfig).mockResolvedValue({
+      providers: [{ id: "unavailable-provider", label: "Unavailable provider", enabled: true, baseUrl: "https://unavailable-deepseek.example", model: "muse-spark-1.2-contributor-free", apiKeys: ["deepseek-unavailable-key"] }],
+    });
+    const rawProviderError = JSON.stringify({ error: { message: "model muse-spark-1.2-contributor-free is unavailable on upstream" } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(rawProviderError, { status: 400, headers: { "content-type": "application/json" } })));
+
+    await expect(runPlaygroundCompletion({ userId: 42, model: "deepseek-v4-pro", messages: [{ role: "user", content: "Safe failure envelope." }], sourceIpHash: "deepseek-public-error" }))
+      .rejects.toMatchObject<TokenForgePlaygroundError>({ code: "provider_unavailable", message: PUBLIC_PROVIDER_ERROR_MESSAGE });
+    expect(vi.mocked(recordManagedProviderKeyOutcome)).toHaveBeenCalledWith("deepseek-v4-pro", "deepseek-unavailable-key", false, expect.any(Date), true, "unavailable-provider");
+    expect(sanitizeModelSseData("deepseek-v4-pro", `{"error":{"message":"${"muse-spark-1.2-contributor-free"}"}}`)).toContain(PUBLIC_PROVIDER_ERROR_MESSAGE);
+    expect(sanitizeModelSseData("deepseek-v4-pro", `{"error":{"message":"${"muse-spark-1.2-contributor-free"}"}}`)).not.toContain("muse-spark-1.2-contributor-free");
   });
 
   it("routes Claude Opus 5 through only its server-side configuration and applies the same scoped guidance for Playground and API calls", async () => {

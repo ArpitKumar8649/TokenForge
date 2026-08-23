@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { upstreamError } from "./openaiGateway";
+import { PUBLIC_PROVIDER_ERROR_MESSAGE, publicProviderErrorMessage, upstreamError } from "./openaiGateway";
 
 const projectRoot = resolve(import.meta.dirname, "..");
 const dbSource = readFileSync(resolve(projectRoot, "server/db.ts"), "utf8");
@@ -10,9 +10,10 @@ const routerSource = readFileSync(resolve(projectRoot, "server/routers.ts"), "ut
 const adminSource = readFileSync(resolve(projectRoot, "client/src/pages/AdminDashboard.tsx"), "utf8");
 
 describe("authorized Render NIM proxy swarm", () => {
-  it("uses the same safe status and reason format for a caller-facing upstream error", () => {
+  it("keeps credential-redacted upstream diagnostics for administrator logs while callers receive a neutral envelope", () => {
     expect(upstreamError({ error: { message: "upstream 500: Service temporarily overloaded; Bearer sk-super-secret-token" } }, 502))
       .toBe("HTTP 502 — upstream 500: Service temporarily overloaded; Bearer [redacted]");
+    expect(publicProviderErrorMessage(502)).toBe(PUBLIC_PROVIDER_ERROR_MESSAGE);
   });
 
   it("retains the six authorized endpoints and a hard per-endpoint concurrency ceiling", () => {
@@ -56,7 +57,7 @@ describe("authorized Render NIM proxy swarm", () => {
     expect(dbSource).toContain('const isFailure = outcome.kind === "failure"');
     expect(gatewaySource).toContain("renderedHttpFailureDiagnostic(response.status, rawBody)");
     expect(gatewaySource).toContain('failureKind: timeout ? "timeout" : "network"');
-    expect(gatewaySource).toContain("upstreamError(payload, upstream.status)");
+    expect(gatewaySource).toContain("publicProviderErrorMessage(upstream.status)");
   });
 
   it("records raw credential-redacted Claude Opus and DeepSeek failure attempts with their originating provider groups", () => {

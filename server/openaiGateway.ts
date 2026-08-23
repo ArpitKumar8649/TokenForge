@@ -52,6 +52,7 @@ export const PROVIDER_RESPONSE_START_TIMEOUT_MS = 120_000;
 const PROVIDER_TIMEOUT_MS = PROVIDER_RESPONSE_START_TIMEOUT_MS;
 /** Render cold starts measured up to 75 seconds; this applies only until upstream response headers arrive. */
 export const RENDER_NIM_PROXY_RESPONSE_START_TIMEOUT_MS = 120_000;
+export const PUBLIC_PROVIDER_ERROR_MESSAGE = "The selected model is temporarily unavailable. Please retry shortly.";
 const CLAUDE_OPUS5_PUBLIC_IDENTITY = "I am Claude Opus 5, available through TokenForge.";
 const CLAUDE_FABLE5_PUBLIC_IDENTITY = "I am Claude Fable 5, available through TokenForge.";
 const GLM53_PUBLIC_IDENTITY = "I am GLM 5.3, available through TokenForge.";
@@ -393,14 +394,12 @@ async function forwardDedicatedDeepseekV4ProRequest(input: ChatInput, signal: Ab
           retryable,
           callerMessage: rawBody || diagnostic,
         }).catch(() => undefined);
+        recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
+        void recordManagedProviderKeyOutcome("deepseek-v4-pro", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
         if (!retryable) {
-          recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
-          void recordManagedProviderKeyOutcome("deepseek-v4-pro", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
           return new Response(rawBody, { status: response.status, statusText: response.statusText, headers: { "content-type": response.headers.get("content-type") ?? "application/json; charset=utf-8" } });
         }
         lastResponse = new Response(rawBody, { status: response.status, statusText: response.statusText, headers: { "content-type": response.headers.get("content-type") ?? "application/json; charset=utf-8" } });
-        recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
-        void recordManagedProviderKeyOutcome("deepseek-v4-pro", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
         lastError = new Error(diagnostic);
       } catch (error) {
         responseStart.clear();
@@ -943,6 +942,11 @@ export function upstreamError(payload: unknown, status?: number) {
   return /^HTTP\s+[1-5]\d\d\s+—/.test(sanitized) ? sanitized : `HTTP ${status} — ${sanitized}`;
 }
 
+/** Detailed upstream diagnostics are stored for administrators; callers receive a neutral envelope. */
+export function publicProviderErrorMessage(_status?: number) {
+  return PUBLIC_PROVIDER_ERROR_MESSAGE;
+}
+
 function textContentFrom(payload: unknown) {
   if (!payload || typeof payload !== "object") return null;
   const choices = (payload as { choices?: unknown }).choices;
@@ -1016,9 +1020,13 @@ export function sanitizeModelResponsePayload(model: TokenForgeModelId, payload: 
 export function sanitizeModelSseData(model: TokenForgeModelId, data: string) {
   if ((model !== "glm-5.3" && model !== "deepseek-v4-pro" && model !== "claude-opus-5") || data === "[DONE]") return data;
   try {
-    return JSON.stringify(sanitizeModelResponsePayload(model, JSON.parse(data)));
+    const payload = JSON.parse(data) as { error?: unknown };
+    if (payload && typeof payload === "object" && "error" in payload) {
+      return JSON.stringify({ error: { message: publicProviderErrorMessage(), type: "provider_unavailable", code: "provider_unavailable" } });
+    }
+    return JSON.stringify(sanitizeModelResponsePayload(model, payload));
   } catch {
-    return data;
+    return JSON.stringify({ error: { message: publicProviderErrorMessage(), type: "provider_unavailable", code: "provider_unavailable" } });
   }
 }
 
@@ -1069,7 +1077,7 @@ export async function runPlaygroundCompletion(input: {
       const payload = await upstream.json().catch(() => null);
       await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request was not completed" });
       await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "provider_error", sourceIpHash: input.sourceIpHash });
-      throw new TokenForgePlaygroundError("provider_unavailable", upstreamError(payload));
+      throw new TokenForgePlaygroundError("provider_unavailable", publicProviderErrorMessage(upstream.status));
     }
     const payload = await upstream.json().catch(() => null);
     const publicPayload = sanitizeModelResponsePayload(input.model, payload);
@@ -1156,7 +1164,7 @@ async function streamPlaygroundCompletion(input: {
       const payload = await upstream.json().catch(() => null);
       await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request was not completed" });
       await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: "provider_error", sourceIpHash: input.sourceIpHash });
-      throw new TokenForgePlaygroundError("provider_unavailable", upstreamError(payload));
+      throw new TokenForgePlaygroundError("provider_unavailable", publicProviderErrorMessage(upstream.status));
     }
     const reader = upstream.body?.getReader();
     if (!reader) {
@@ -1191,7 +1199,7 @@ async function streamPlaygroundCompletion(input: {
           if (!payload || payload === "[DONE]") continue;
           try { finalUsage = { ...finalUsage, ...usageFrom(JSON.parse(payload)) }; } catch { /* preserve upstream stream event */ }
         }
-        if (input.model === "glm-5.3" || input.model === "claude-opus-5") {
+        if (input.model === "glm-5.3" || input.model === "claude-opus-5" || input.model === "deepseek-v4-pro") {
           input.res.write(`${lines.map(line => line.startsWith("data:") ? `data: ${sanitizeModelSseData(input.model, line.slice(5).trim())}` : line).join("\n")}\n`);
         } else {
           input.res.write(value);
@@ -1314,10 +1322,7 @@ export function registerOpenAiGateway(app: Express) {
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request was not completed" });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
       const status = publicProviderFailureStatus(upstream.status);
-      const message = status === 503 && (upstream.status === 401 || upstream.status === 403)
-        ? "The selected provider temporarily denied this request after secure credential failover. Retry shortly or choose another model."
-        : upstreamError(payload, upstream.status);
-      return errorResponse(res, requestId, status, message, "provider_unavailable");
+      return errorResponse(res, requestId, status, publicProviderErrorMessage(upstream.status), "provider_unavailable");
     }
 
     await touchApiKey(key.id);
@@ -1372,7 +1377,7 @@ export function registerOpenAiGateway(app: Express) {
           if (!payload || payload === "[DONE]") continue;
           try { finalUsage = { ...finalUsage, ...usageFrom(JSON.parse(payload)) }; } catch { /* passthrough malformed upstream event */ }
         }
-        if (input.model === "glm-5.3" || input.model === "claude-opus-5") {
+        if (input.model === "glm-5.3" || input.model === "claude-opus-5" || input.model === "deepseek-v4-pro") {
           res.write(`${lines.map(line => line.startsWith("data:") ? `data: ${sanitizeModelSseData(input.model as TokenForgeModelId, line.slice(5).trim())}` : line).join("\n")}\n`);
         } else {
           res.write(value);

@@ -7,9 +7,14 @@ import {
   translateAnthropicRequest,
   translateOpenAiMessageResponse,
 } from "./anthropicGateway";
-import { publicProviderFailureStatus } from "./openaiGateway";
+import { PUBLIC_PROVIDER_ERROR_MESSAGE, publicProviderErrorMessage, publicProviderFailureStatus } from "./openaiGateway";
 
 describe("TokenForge Anthropic Messages bridge", () => {
+  it("uses the shared neutral error envelope for caller-facing managed-provider failures", () => {
+    expect(publicProviderErrorMessage(400)).toBe(PUBLIC_PROVIDER_ERROR_MESSAGE);
+    expect(publicProviderErrorMessage(503)).toBe(PUBLIC_PROVIDER_ERROR_MESSAGE);
+  });
+
   it("prefers Claude-style x-api-key authentication and supports Bearer fallback", () => {
     const xApiKeyRequest = { header: (name: string) => name === "x-api-key" ? "tf_live_x" : "Bearer tf_live_y" };
     const bearerRequest = { header: (name: string) => name === "authorization" ? "Bearer tf_live_y" : undefined };

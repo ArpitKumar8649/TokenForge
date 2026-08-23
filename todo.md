@@ -424,3 +424,8 @@
 - [x] Fix DeepSeek V4 Pro provider API-key deletion so saving a one-key pool does not restore the removed key on reload.
 - [x] Restore the missing Claude Opus 5 and DeepSeek V4 Pro multi-provider settings and credential-redacted failure-log panels in Administrator Provider Settings.
 - [x] Verify the restoration keeps Render routing paused and retains the 120-second response-start handling.
+- [x] Investigate the 23 August Claude Opus 5 provider network abort and report its root cause without changing production behavior.
+- [x] Run one controlled HTTP and latency probe against the first authorized Render endpoint while keeping Render routing paused.
+- [x] Research and summarize the glm52-nvidia-go proxy repository without changing TokenForge.
+- [x] Align DeepSeek V4 Pro per-key failure metrics with failure-history entries when an upstream request fails.
+- [x] Replace upstream-detail error text with neutral user-facing errors across DeepSeek API and Playground flows while retaining credential-redacted diagnostics for administrators.

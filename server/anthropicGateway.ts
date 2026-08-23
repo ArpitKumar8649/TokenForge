@@ -19,10 +19,10 @@ import {
   forwardProviderRequest,
   forwardTokenRouterAnthropicMessagesRequest,
   modelScopedGuidance,
+  publicProviderErrorMessage,
   publicProviderFailureStatus,
   sanitizeModelResponsePayload,
   tokenForgeRequestIpHash,
-  upstreamError,
   type TokenForgeChatInput,
   type TokenForgeChatMessage,
   withModelScopedGuidance,
@@ -554,10 +554,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages provider returned an error" });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
       const status = publicProviderFailureStatus(upstream.status);
-      const message = status === 503 && (upstream.status === 401 || upstream.status === 403)
-        ? "The selected provider temporarily denied this request after secure credential failover. Retry shortly or choose another model."
-        : upstreamError(payload, upstream.status);
-      return respondError(res, requestId, status, "api_error", message);
+      return respondError(res, requestId, status, "api_error", publicProviderErrorMessage(upstream.status));
     }
     await touchApiKey(key.id);
 
@@ -586,7 +583,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
       } catch (error) {
         await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages response translation failed" });
         await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash });
-        return respondError(res, requestId, 503, "api_error", error instanceof Error ? error.message : "The selected provider returned an invalid response.");
+        return respondError(res, requestId, 503, "api_error", publicProviderErrorMessage());
       }
     }
 
