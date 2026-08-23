@@ -1,0 +1,1 @@
+ALTER TABLE `render_proxy_endpoint_metrics` MODIFY COLUMN `lastFailureMessage` text;

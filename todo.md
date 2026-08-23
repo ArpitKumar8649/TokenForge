@@ -409,4 +409,16 @@
 - [x] Add administrator enable/disable switches for individual Claude Opus 5 provider groups, preserving their keys and metrics while excluding disabled groups from balancing and failover.
 - [x] Add safe capacity protection for the six authorized Render Claude Opus 5 endpoints: enforce seven active requests per endpoint, route overflow to available endpoints then existing eligible providers, record cooldown/error outcomes, and show live administrator capacity and failure metrics without header spoofing.
 - [x] Add the Render endpoint swarm as an editable Claude Opus 5 provider configuration in Administrator Provider Settings, including server-only underlying-model configuration and endpoint editing controls.
-- [x] Strengthen DeepSeek V4 Pro identity and non-disclosure protection across Playground, OpenAI-compatible API, and Anthropic-compatible Messages requests.
+- [x] Verify and warm all six authorized Render endpoints using the configured server-only model and credential while keeping paused routing disabled.
+- [x] Keep Render endpoint capacity slots occupied through full response or stream completion, extend the response-start timeout, and record sanitized HTTP status/reason diagnostics for administrator review.
+- [x] Run a controlled all-six Render endpoint warm-up and responsiveness check while preserving the paused routing state.
+- [x] Add durable administrator-visible sanitized Claude Opus 5 failure logs that identify the source provider group or Render endpoint and preserve the real caller-facing error reason.
+- [x] Remove DeepSeek V4 Pro’s 82-request credential retirement and automatic model-disable behavior.
+- [x] Add Claude Opus-style equal-share multi-provider configuration, per-provider key pools, failover, and administrator controls for DeepSeek V4 Pro.
+- [x] Raise all upstream response-start timeouts to 120 seconds while retaining full-stream completion after headers.
+- [x] Add durable administrator-visible sanitized DeepSeek V4 Pro failure history with originating provider-group details.
+- [x] Do not compact Render HTTP 403 blocked-page diagnostics; the administrator explicitly chose raw-body display with mandatory credential redaction.
+- [x] Preserve raw, credential-redacted Render and DeepSeek failure bodies in administrator diagnostics so the actual upstream error remains visible.
+- [x] Run controlled all-six direct Render endpoint probes with a response window greater than 120 seconds while preserving routing state.
+- [x] Make the Claude Opus 5 and DeepSeek V4 Pro administrator failure histories fixed-height independently scrollable log boxes.
+- [x] Fix DeepSeek V4 Pro provider API-key deletion so saving a one-key pool does not restore the removed key on reload.

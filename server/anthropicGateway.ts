@@ -20,18 +20,18 @@ import {
   forwardTokenRouterAnthropicMessagesRequest,
   modelScopedGuidance,
   publicProviderFailureStatus,
-  sanitizeModelSseData,
   sanitizeModelResponsePayload,
   tokenForgeRequestIpHash,
+  upstreamError,
   type TokenForgeChatInput,
   type TokenForgeChatMessage,
   withModelScopedGuidance,
 } from "./openaiGateway";
 import { CLUSTER_PROTOCOL_PROVIDER_SLUG, getTokenForgeProviderSlug, isTokenForgeModelId, type TokenForgeModelId } from "./modelCatalogue";
 
-const PROVIDER_TIMEOUT_MS = 110_000;
-/** Finish or retry the first upstream attempt before the 120-second public edge deadline. */
-export const CLAUDE_OPUS5_RESPONSE_START_TIMEOUT_MS = 105_000;
+/** Applies only until upstream response headers arrive; successful bodies and SSE streams may continue within the hosting request ceiling. */
+const PROVIDER_TIMEOUT_MS = 120_000;
+export const CLAUDE_OPUS5_RESPONSE_START_TIMEOUT_MS = PROVIDER_TIMEOUT_MS;
 
 export function providerResponseStartTimeoutMs(model: TokenForgeModelId) {
   return model === "claude-opus-5"
@@ -547,14 +547,16 @@ export function registerAnthropicMessagesGateway(app: Express) {
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
       return respondError(res, requestId, 503, "api_error", error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.");
     }
+    // The upstream accepted the request and returned headers; retain only the hosting request ceiling for body/SSE completion.
+    clearTimeout(timeout);
     if (!upstream.ok) {
-      clearTimeout(timeout);
+      const payload = await upstream.json().catch(() => null);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages provider returned an error" });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
       const status = publicProviderFailureStatus(upstream.status);
       const message = status === 503 && (upstream.status === 401 || upstream.status === 403)
         ? "The selected provider temporarily denied this request after secure credential failover. Retry shortly or choose another model."
-        : "The selected provider could not process this request.";
+        : upstreamError(payload, upstream.status);
       return respondError(res, requestId, status, "api_error", message);
     }
     await touchApiKey(key.id);
@@ -649,23 +651,12 @@ export function registerAnthropicMessagesGateway(app: Express) {
           const choice = event.choices?.[0];
           const delta = choice?.delta;
           if (typeof delta?.content === "string" && delta.content) {
-            const safeContent = model === "deepseek-v4-pro"
-              ? (() => {
-                const sanitized = sanitizeModelSseData(model, JSON.stringify({ choices: [{ delta: { content: delta.content } }] }));
-                try {
-                  return JSON.parse(sanitized).choices?.[0]?.delta?.content ?? "";
-                } catch {
-                  return "";
-                }
-              })()
-              : delta.content;
-            if (!safeContent) continue;
             if (model === "glm-5.3") glmStreamText += delta.content;
             if (textIndex === null) {
               textIndex = nextIndex++;
               writeSse(res, "content_block_start", { type: "content_block_start", index: textIndex, content_block: { type: "text", text: "" } });
             }
-            writeSse(res, "content_block_delta", { type: "content_block_delta", index: textIndex, delta: { type: "text_delta", text: safeContent } });
+            writeSse(res, "content_block_delta", { type: "content_block_delta", index: textIndex, delta: { type: "text_delta", text: delta.content } });
           }
           for (const toolCall of delta?.tool_calls ?? []) {
             const upstreamIndex = typeof toolCall.index === "number" ? toolCall.index : toolIndexes.size;
