@@ -429,3 +429,4 @@
 - [x] Research and summarize the glm52-nvidia-go proxy repository without changing TokenForge.
 - [x] Align DeepSeek V4 Pro per-key failure metrics with failure-history entries when an upstream request fails.
 - [x] Replace upstream-detail error text with neutral user-facing errors across DeepSeek API and Playground flows while retaining credential-redacted diagnostics for administrators.
+- [x] Create a server-only GitHub personal access token field without exposing the token in browser code or source files.
