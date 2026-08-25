@@ -76,7 +76,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { adminProcedure, protectedProcedure, publicProcedure, router, verifiedDeveloperProcedure } from "./_core/trpc";
 import { configuredEmailAllowlist } from "./localAuth";
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG, type TokenForgeModelId } from "./modelCatalogue";
-import { runPlaygroundCompletion, TokenForgePlaygroundError, tokenForgeRequestIpHash } from "./openaiGateway";
+import { PUBLIC_PROVIDER_ERROR_MESSAGE, runPlaygroundCompletion, TokenForgePlaygroundError, tokenForgeRequestIpHash } from "./openaiGateway";
 import { verifyAdminPasscode } from "./adminPasscode";
 import { getOrcaRouterCredentialPoolStatus, getOrcaRouterSlotRequestCounts, invalidateOrcaRouterCredentialPool, ORCA_ROUTER_CREDENTIAL_POOL_SIZE, validateOrcaRouterCredential } from "./orcaRouterCredentials";
 import { buildSpecialReferralCampaignUrl } from "../shared/referrals";
@@ -521,7 +521,7 @@ export const appRouter = router({
       }
     }),
     claudeOpus5ProviderSettings: adminProcedure.query(() => getClaudeOpus5ProviderSettings()),
-    claudeOpus5FailureLogs: adminProcedure.query(() => getRecentClaudeOpus5FailureLogs(200)),
+    claudeOpus5FailureLogs: adminProcedure.query(async () => (await getRecentClaudeOpus5FailureLogs(200)).map(entry => ({ ...entry, publicMessage: PUBLIC_PROVIDER_ERROR_MESSAGE }))),
     deepseekV4ProFailureLogs: adminProcedure.query(() => getRecentDeepseekV4ProFailureLogs(100)),
     updateClaudeOpus5ProviderSettings: adminProcedure.input(claudeOpus5ProviderSettingsInput).mutation(async ({ ctx, input }) => {
       try {

@@ -1431,7 +1431,7 @@ export type ManagedProviderFailureLogInput = {
   sourceId: string;
   sourceLabel: string;
   httpStatus?: number;
-  failureKind: "http" | "timeout" | "network" | "stream";
+  failureKind: "http" | "timeout" | "network" | "stream" | "empty_output";
   retryable: boolean;
   callerMessage?: string;
 };

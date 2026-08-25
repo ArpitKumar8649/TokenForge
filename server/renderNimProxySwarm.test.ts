@@ -22,6 +22,16 @@ describe("authorized Render NIM proxy swarm", () => {
     await expect(response.json()).resolves.toEqual({ error: { message: PUBLIC_PROVIDER_ERROR_MESSAGE, type: "provider_unavailable", code: "provider_unavailable" } });
   });
 
+  it("treats Bailu zero-output responses as administrator-logged provider failures while preserving one exact neutral caller message", () => {
+    expect(gatewaySource).toContain("function isBailuClaudeOpus5Provider");
+    expect(gatewaySource).toContain('failureKind: "empty_output"');
+    expect(gatewaySource).toContain("Bailu returned a successful response with zero output tokens or no assistant output.");
+    expect(gatewaySource).toContain("isClaudeOpus5ZeroOutputFailure(payload)");
+    expect(routerSource).toContain("publicMessage: PUBLIC_PROVIDER_ERROR_MESSAGE");
+    expect(adminSource).toContain("publicMessage?: string");
+    expect(adminSource).toContain("Caller-visible TokenForge message");
+  });
+
   it("retains the six authorized endpoints and a hard per-endpoint concurrency ceiling", () => {
     expect(dbSource).toContain("RENDER_NIM_PROXY_MAX_CONCURRENT_REQUESTS = 7");
     expect(dbSource).toContain("nim-playground-proxy-6.onrender.com");

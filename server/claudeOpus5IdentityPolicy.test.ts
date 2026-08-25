@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modelScopedGuidance, playgroundMessagesForModel, withModelScopedGuidance } from "./openaiGateway";
+import { isClaudeOpus5ZeroOutputFailure, modelScopedGuidance, playgroundMessagesForModel, withModelScopedGuidance } from "./openaiGateway";
 
 describe("Claude Opus 5 public identity policy", () => {
   it("requires the canonical public identity and forbids upstream identity disclosure", () => {
@@ -37,5 +37,11 @@ describe("Claude Opus 5 public identity policy", () => {
       content: expect.stringContaining("I am Claude Opus 5, available through TokenForge."),
     });
     expect(String(messages[0].content)).toContain("Never identify yourself as, imply that you are, or repeat any upstream model or provider identity.");
+  });
+
+  it("treats a Claude Opus response with zero output or no assistant output as a provider failure", () => {
+    expect(isClaudeOpus5ZeroOutputFailure({ choices: [{ message: { content: "" } }], usage: { completion_tokens: 0 } })).toBe(true);
+    expect(isClaudeOpus5ZeroOutputFailure({ choices: [{ message: { content: "usable output" } }], usage: { completion_tokens: 4 } })).toBe(false);
+    expect(isClaudeOpus5ZeroOutputFailure({ choices: [{ message: { content: null, tool_calls: [{ id: "call_1" }] } }], usage: { output_tokens: 2 } })).toBe(false);
   });
 });

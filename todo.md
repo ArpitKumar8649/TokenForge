@@ -448,3 +448,5 @@
 - [x] Correct the isolated Claude Code custom-provider configuration and rerun the constrained NVIDIA NIM proxy tool-workflow test.
 - [x] Run a bounded isolated compatibility suite for Claude Code’s core built-in coding tools and multi-agent workflow through the responsive NVIDIA NIM proxy.
 - [x] Update the server-side Render API credential and validate account access without exposing the value.
+- [x] Inspect the Qwen Gate Render service, verify the reported CloakBrowser Chromium startup failure, and assess a targeted repair without touching unrelated services.
+- [x] Strengthen Bailu Claude Opus public error masking for zero-output and all failure cases, and show administrators the neutral user-facing message beside credential-redacted diagnostics.

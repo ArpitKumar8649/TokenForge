@@ -203,6 +203,20 @@ function normalizedTokens(usage: Usage, inputEstimate: number) {
   return { inputTokens, outputTokens };
 }
 
+/** A Claude Opus response with explicit zero output or no usable assistant output is a provider failure, never a successful caller response. */
+export function isClaudeOpus5ZeroOutputFailure(payload: unknown) {
+  if (!payload || typeof payload !== "object") return true;
+  const usage = usageFrom(payload);
+  const explicitOutputTokens = usage.completion_tokens ?? usage.output_tokens;
+  if (typeof explicitOutputTokens === "number" && Number.isFinite(explicitOutputTokens) && explicitOutputTokens <= 0) return true;
+  const choice = (payload as { choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown[] } }> }).choices?.[0];
+  const message = choice?.message;
+  if (!message) return true;
+  const hasText = typeof message.content === "string" && message.content.trim().length > 0;
+  const hasToolCalls = Array.isArray(message.tool_calls) && message.tool_calls.length > 0;
+  return !hasText && !hasToolCalls;
+}
+
 type CredentialSelection = { credential: string; slot: number; poolSize: number };
 
 function createResponseStartDeadline(signal: AbortSignal) {
@@ -445,6 +459,10 @@ function selectNextClaudeOpus5Credential(provider: { id: string; apiKeys: string
   return null;
 }
 
+function isBailuClaudeOpus5Provider(provider: { label: string }) {
+  return provider.label.trim().toLowerCase() === "bailu";
+}
+
 let renderNimProxyEndpointCursor = 0;
 
 function renderedHttpFailureDiagnostic(status: number, rawBody: string) {
@@ -504,23 +522,59 @@ function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Resp
   if (!response.body || response.body.locked) return response;
   const reader = response.body.getReader();
   let recorded = false;
-  const recordStreamFailure = (error: unknown) => {
+  const isBailu = isBailuClaudeOpus5Provider(provider);
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let buffer = "";
+  let finalUsage: Usage = {};
+  let receivedOutput = false;
+  const recordStreamFailure = (error: unknown, failureKind: "stream" | "empty_output" = "stream") => {
     if (recorded || clientSignal.aborted) return;
     recorded = true;
     void recordClaudeOpus5FailureLog({
       sourceType: "provider",
       sourceId: provider.id,
       sourceLabel: provider.label,
-      failureKind: "stream",
+      failureKind,
       retryable: false,
-      callerMessage: error instanceof Error ? error.message : "Claude Opus 5 provider stream failed after response start.",
+      callerMessage: typeof error === "string" ? error : error instanceof Error ? error.message : "Claude Opus 5 provider stream failed after response start.",
     }).catch(() => undefined);
+  };
+  const inspectSseChunk = (value: Uint8Array) => {
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (!data || data === "[DONE]") continue;
+      try {
+        const event = JSON.parse(data) as { usage?: Usage; choices?: Array<{ delta?: { content?: unknown; tool_calls?: unknown[] } }> };
+        finalUsage = { ...finalUsage, ...usageFrom(event) };
+        const delta = event.choices?.[0]?.delta;
+        const hasText = typeof delta?.content === "string" && delta.content.trim().length > 0;
+        const hasToolCalls = Array.isArray(delta?.tool_calls) && delta.tool_calls.length > 0;
+        if (hasText || hasToolCalls) receivedOutput = true;
+      } catch { /* Malformed records are converted to the neutral envelope by the caller SSE sanitizer. */ }
+    }
+  };
+  const writeNeutralBailuFailure = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+    if (!isBailu || clientSignal.aborted) return;
+    const outputTokens = finalUsage.completion_tokens ?? finalUsage.output_tokens;
+    const explicitZeroOutput = typeof outputTokens === "number" && Number.isFinite(outputTokens) && outputTokens <= 0;
+    if (!explicitZeroOutput && receivedOutput) return;
+    recordStreamFailure("Bailu returned a successful stream with zero output tokens or no assistant output.", "empty_output");
+    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: { message: publicProviderErrorMessage(), type: "provider_unavailable", code: "provider_unavailable" } })}\n\n`));
   };
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
         const next = await reader.read();
-        if (next.done) return controller.close();
+        if (next.done) {
+          writeNeutralBailuFailure(controller);
+          return controller.close();
+        }
+        inspectSseChunk(next.value);
         controller.enqueue(next.value);
       } catch (error) {
         recordStreamFailure(error);
@@ -662,6 +716,27 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
         });
         responseStart.clear();
         if (response.ok) {
+          if (!input.stream && isBailuClaudeOpus5Provider(provider)) {
+            const payload = await response.clone().json().catch(() => null);
+            if (isClaudeOpus5ZeroOutputFailure(payload)) {
+              const diagnostic = "Bailu returned a successful response with zero output tokens or no assistant output.";
+              void recordClaudeOpus5FailureLog({
+                sourceType: "provider",
+                sourceId: provider.id,
+                sourceLabel: provider.label,
+                failureKind: "empty_output",
+                retryable: true,
+                callerMessage: diagnostic,
+              }).catch(() => undefined);
+              recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
+              void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+              response.body?.cancel().catch(() => undefined);
+              lastError = new Error(diagnostic);
+              lastFailureStatus = 503;
+              recordCredentialFailover(selectedCredential.telemetryProvider);
+              continue;
+            }
+          }
           recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
           void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
           return wrapClaudeOpus5ProviderResponseWithFailureLog(response, provider, signal);
@@ -1096,10 +1171,10 @@ export async function runPlaygroundCompletion(input: {
     const payload = await upstream.json().catch(() => null);
     const publicPayload = sanitizeModelResponsePayload(input.model, payload);
     const content = textContentFrom(publicPayload);
-    if (!payload || !content) {
+    if (!payload || !content || (input.model === "claude-opus-5" && isClaudeOpus5ZeroOutputFailure(payload))) {
       await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider response was invalid" });
       await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "provider_error", sourceIpHash: input.sourceIpHash });
-      throw new TokenForgePlaygroundError("provider_unavailable", "The selected provider returned an invalid response.");
+      throw new TokenForgePlaygroundError("provider_unavailable", publicProviderErrorMessage());
     }
     const thinking = input.model === "qwen3.8-max" || input.model === "claude-fable-5" ? reasoningContentFrom(publicPayload) : null;
     const tokens = normalizedTokens(usageFrom(payload), estimatedInputTokens);
@@ -1118,8 +1193,7 @@ export async function runPlaygroundCompletion(input: {
     if (error instanceof TokenForgePlaygroundError) throw error;
     await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request did not complete" });
     await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "provider_error", sourceIpHash: input.sourceIpHash });
-    const message = error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.";
-    throw new TokenForgePlaygroundError("provider_unavailable", message);
+    throw new TokenForgePlaygroundError("provider_unavailable", publicProviderErrorMessage());
   } finally {
     clearTimeout(timeout);
   }
@@ -1184,7 +1258,7 @@ async function streamPlaygroundCompletion(input: {
     if (!reader) {
       await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider returned an empty stream" });
       await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: "provider_error", sourceIpHash: input.sourceIpHash });
-      throw new TokenForgePlaygroundError("provider_unavailable", "The selected provider returned an empty stream.");
+      throw new TokenForgePlaygroundError("provider_unavailable", publicProviderErrorMessage());
     }
 
     input.res.status(200);
@@ -1235,8 +1309,7 @@ async function streamPlaygroundCompletion(input: {
     if (error instanceof TokenForgePlaygroundError) throw error;
     await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Playground streaming request did not complete" });
     await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: "provider_error", sourceIpHash: input.sourceIpHash });
-    const message = error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.";
-    throw new TokenForgePlaygroundError("provider_unavailable", message);
+    throw new TokenForgePlaygroundError("provider_unavailable", publicProviderErrorMessage());
   }
 }
 
@@ -1324,8 +1397,7 @@ export function registerOpenAiGateway(app: Express) {
       clearTimeout(timeout);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request did not complete" });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
-      const message = error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.";
-      return errorResponse(res, requestId, 503, message, "provider_unavailable");
+      return errorResponse(res, requestId, 503, publicProviderErrorMessage(), "provider_unavailable");
     }
 
     // The timer bounded response start only. Once headers arrive, a streamed body may finish within hosting limits.
@@ -1343,10 +1415,10 @@ export function registerOpenAiGateway(app: Express) {
     if (!input.stream) {
       clearTimeout(timeout);
       const payload = await upstream.json().catch(() => null);
-      if (!payload) {
+      if (!payload || (input.model === "claude-opus-5" && isClaudeOpus5ZeroOutputFailure(payload))) {
         await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider response was invalid" });
         await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash });
-        return errorResponse(res, requestId, 503, "The selected provider returned an invalid response.", "provider_unavailable");
+        return errorResponse(res, requestId, 503, publicProviderErrorMessage(), "provider_unavailable");
       }
       const tokens = normalizedTokens(usageFrom(payload), estimatedInputTokens);
       const chargeNanos = calculateCreditChargeNanos(input.model as TokenForgeModelId, tokens.inputTokens, tokens.outputTokens);
@@ -1369,7 +1441,7 @@ export function registerOpenAiGateway(app: Express) {
     if (!reader) {
       clearTimeout(timeout);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider returned an empty stream" });
-      return errorResponse(res, requestId, 503, "The selected provider returned an empty stream.", "provider_unavailable");
+      return errorResponse(res, requestId, 503, publicProviderErrorMessage(), "provider_unavailable");
     }
 
     const decoder = new TextDecoder();

@@ -17,6 +17,7 @@ import type { GlmPrivateToolContinuation } from "./glmToolContinuationVault";
 import { calculateCreditChargeNanos, normalizedBillableMaxOutputTokens } from "./creditPricing";
 import {
   forwardProviderRequest,
+  isClaudeOpus5ZeroOutputFailure,
   forwardTokenRouterAnthropicMessagesRequest,
   modelScopedGuidance,
   publicProviderErrorMessage,
@@ -545,7 +546,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
       clearTimeout(timeout);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages provider request did not complete" });
       await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
-      return respondError(res, requestId, 503, "api_error", error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.");
+      return respondError(res, requestId, 503, "api_error", publicProviderErrorMessage());
     }
     // The upstream accepted the request and returned headers; retain only the hosting request ceiling for body/SSE completion.
     clearTimeout(timeout);
@@ -561,10 +562,10 @@ export function registerAnthropicMessagesGateway(app: Express) {
     if (!input.stream) {
       clearTimeout(timeout);
       const payload = await upstream.json().catch(() => null);
-      if (!payload) {
+      if (!payload || (model === "claude-opus-5" && isClaudeOpus5ZeroOutputFailure(payload))) {
         await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages provider returned an invalid response" });
         await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash });
-        return respondError(res, requestId, 503, "api_error", "The selected provider returned an invalid response.");
+        return respondError(res, requestId, 503, "api_error", publicProviderErrorMessage());
       }
       try {
         const response = translateOpenAiMessageResponse(model, sanitizeModelResponsePayload(model, payload));
@@ -640,7 +641,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
           try { event = JSON.parse(serialized); } catch { continue; }
           if (event.error) {
             failed = true;
-            writeSse(res, "error", { type: "error", error: { type: "api_error", message: "The selected provider could not process this request." } });
+            writeSse(res, "error", { type: "error", error: { type: "api_error", message: publicProviderErrorMessage() } });
             finish();
             continue;
           }

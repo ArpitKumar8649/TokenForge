@@ -600,6 +600,47 @@ describe("TokenForge Playground gateway", () => {
     }));
   });
 
+  it("treats Bailu zero-output success payloads as a retryable provider failure and returns only the neutral envelope", async () => {
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
+      providers: [{ id: "provider-1787663686730-4", label: "Bailu", enabled: true, baseUrl: "https://bailu.example", model: "private-bailu-model", apiKeys: ["bailu-server-only-key"] }],
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: "" } }],
+      usage: { prompt_tokens: 12, completion_tokens: 0, total_tokens: 12 },
+    }), { status: 200, headers: { "content-type": "application/json" } })));
+
+    const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Return safely." }] }, new AbortController().signal);
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: { message: PUBLIC_PROVIDER_ERROR_MESSAGE, type: "provider_unavailable", code: "provider_unavailable" } });
+    expect(vi.mocked(recordClaudeOpus5FailureLog)).toHaveBeenCalledWith(expect.objectContaining({
+      sourceType: "provider",
+      sourceId: "provider-1787663686730-4",
+      sourceLabel: "Bailu",
+      failureKind: "empty_output",
+      retryable: true,
+      callerMessage: "Bailu returned a successful response with zero output tokens or no assistant output.",
+    }));
+  });
+
+  it("appends only the neutral TokenForge envelope when a Bailu stream ends with zero output", async () => {
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
+      providers: [{ id: "provider-1787663686730-4", label: "Bailu", enabled: true, baseUrl: "https://bailu.example", model: "private-bailu-model", apiKeys: ["bailu-server-only-key"] }],
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("data: {\"choices\":[{\"delta\":{}}]}\n\ndata: {\"usage\":{\"completion_tokens\":0}}\n\ndata: [DONE]\n\n", { status: 200, headers: { "content-type": "text/event-stream" } })));
+
+    const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", stream: true, messages: [{ role: "user", content: "Return safely." }] }, new AbortController().signal);
+    const body = await response.text();
+
+    expect(body).toContain(PUBLIC_PROVIDER_ERROR_MESSAGE);
+    expect(body).not.toContain("private-bailu-model");
+    expect(vi.mocked(recordClaudeOpus5FailureLog)).toHaveBeenCalledWith(expect.objectContaining({
+      sourceLabel: "Bailu",
+      failureKind: "empty_output",
+      callerMessage: "Bailu returned a successful stream with zero output tokens or no assistant output.",
+    }));
+  });
+
   it("returns the canonical Claude Opus 5 public identity without reaching the upstream for direct identity requests", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
