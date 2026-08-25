@@ -161,7 +161,7 @@ function RenderNimProxySwarmCore({ enabled, model, endpoints, settings, loading,
 
 function RenderNimProxySwarmPanel(props: Parameters<typeof RenderNimProxySwarmCore>[0]) {
   const failureLogs = trpc.admin.claudeOpus5FailureLogs.useQuery(undefined, { refetchInterval: 5_000, refetchIntervalInBackground: false });
-  return <><RenderNimProxySwarmCore {...props} /><ClaudeOpus5FailureHistory logs={failureLogs.data as ClaudeOpus5FailureLog[] | undefined} loading={failureLogs.isLoading} /></>;
+  return <><ClaudeOpus5FailureHistory logs={failureLogs.data as ClaudeOpus5FailureLog[] | undefined} loading={failureLogs.isLoading} /><RenderNimProxySwarmCore {...props} /></>;
 }
 
 function AdminUsageChart({ usage, modelUsage, loading }: { usage: { day: string; requests: number; tokens: number }[]; modelUsage: AdminGlobalModelUsage[]; loading: boolean }) {

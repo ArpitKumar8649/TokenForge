@@ -575,6 +575,31 @@ describe("TokenForge Playground gateway", () => {
     expect(withModelScopedGuidance("claude-opus-5", [{ role: "user", content: "Unchanged" }])).not.toContainEqual(playgroundResponseGuidance());
   });
 
+  it("stores a Bailu provider failure for administrators but returns only the neutral TokenForge envelope", async () => {
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
+      providers: [{ id: "provider-1787663686730-4", label: "Bailu", enabled: true, baseUrl: "https://bailu.example", model: "private-bailu-model", apiKeys: ["bailu-server-only-key"] }],
+    });
+    const rawBailuBody = JSON.stringify({ error: { message: "Bailu private-bailu-model rejected request: invalid upstream route" } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(rawBailuBody, { status: 400, headers: { "content-type": "application/json" } })));
+
+    const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Handle this safely." }] }, new AbortController().signal);
+
+    expect(response.status).toBe(400);
+    const payload = await response.json() as { error: { message: string; code: string } };
+    expect(payload).toEqual({ error: { message: PUBLIC_PROVIDER_ERROR_MESSAGE, type: "provider_unavailable", code: "provider_unavailable" } });
+    expect(JSON.stringify(payload)).not.toContain("Bailu");
+    expect(JSON.stringify(payload)).not.toContain("private-bailu-model");
+    expect(vi.mocked(recordClaudeOpus5FailureLog)).toHaveBeenCalledWith(expect.objectContaining({
+      sourceType: "provider",
+      sourceId: "provider-1787663686730-4",
+      sourceLabel: "Bailu",
+      httpStatus: 400,
+      failureKind: "http",
+      retryable: false,
+      callerMessage: "HTTP 400 — Bailu private-bailu-model rejected request: invalid upstream route",
+    }));
+  });
+
   it("returns the canonical Claude Opus 5 public identity without reaching the upstream for direct identity requests", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

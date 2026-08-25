@@ -521,7 +521,7 @@ export const appRouter = router({
       }
     }),
     claudeOpus5ProviderSettings: adminProcedure.query(() => getClaudeOpus5ProviderSettings()),
-    claudeOpus5FailureLogs: adminProcedure.query(() => getRecentClaudeOpus5FailureLogs(100)),
+    claudeOpus5FailureLogs: adminProcedure.query(() => getRecentClaudeOpus5FailureLogs(200)),
     deepseekV4ProFailureLogs: adminProcedure.query(() => getRecentDeepseekV4ProFailureLogs(100)),
     updateClaudeOpus5ProviderSettings: adminProcedure.input(claudeOpus5ProviderSettingsInput).mutation(async ({ ctx, input }) => {
       try {

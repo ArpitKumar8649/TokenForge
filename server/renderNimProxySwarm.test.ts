@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PUBLIC_PROVIDER_ERROR_MESSAGE, publicProviderErrorMessage, upstreamError } from "./openaiGateway";
+import { PUBLIC_PROVIDER_ERROR_MESSAGE, publicManagedProviderFailureResponse, publicProviderErrorMessage, upstreamError } from "./openaiGateway";
 
 const projectRoot = resolve(import.meta.dirname, "..");
 const dbSource = readFileSync(resolve(projectRoot, "server/db.ts"), "utf8");
@@ -14,6 +14,12 @@ describe("authorized Render NIM proxy swarm", () => {
     expect(upstreamError({ error: { message: "upstream 500: Service temporarily overloaded; Bearer sk-super-secret-token" } }, 502))
       .toBe("HTTP 502 — upstream 500: Service temporarily overloaded; Bearer [redacted]");
     expect(publicProviderErrorMessage(502)).toBe(PUBLIC_PROVIDER_ERROR_MESSAGE);
+  });
+
+  it("never returns a raw dedicated-provider error body to callers", async () => {
+    const response = publicManagedProviderFailureResponse(502);
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: { message: PUBLIC_PROVIDER_ERROR_MESSAGE, type: "provider_unavailable", code: "provider_unavailable" } });
   });
 
   it("retains the six authorized endpoints and a hard per-endpoint concurrency ceiling", () => {
@@ -72,8 +78,11 @@ describe("authorized Render NIM proxy swarm", () => {
     expect(gatewaySource).toContain("wrapClaudeOpus5ProviderResponseWithFailureLog");
     expect(gatewaySource).toContain("wrapDeepseekV4ProProviderResponseWithFailureLog");
     expect(routerSource).toContain("claudeOpus5FailureLogs: adminProcedure");
+    expect(routerSource).toContain("getRecentClaudeOpus5FailureLogs(200)");
     expect(routerSource).toContain("deepseekV4ProFailureLogs: adminProcedure");
     expect(adminSource).toContain("Claude Opus 5 failure history");
+    const opusSettingsPanel = adminSource.slice(adminSource.indexOf("function RenderNimProxySwarmPanel"), adminSource.indexOf("function AdminUsageChart"));
+    expect(opusSettingsPanel.indexOf("<ClaudeOpus5FailureHistory")).toBeLessThan(opusSettingsPanel.indexOf("<RenderNimProxySwarmCore"));
     expect(adminSource).toContain("Render endpoint");
     expect(adminSource).toContain("Provider group");
     expect(adminSource).toContain("DeepSeek V4 Pro failure history");

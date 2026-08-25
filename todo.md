@@ -442,3 +442,4 @@
 - [x] Build and validate a local-only guarded tag adapter that strips reasoning tags, validates allowed tool schemas, and rejects malformed or duplicate calls before any Claude Code event conversion; live upstream completion is presently blocked by its HTTP 402 payment-required response.
 - [x] Inspect 9router’s request-count and token-accounting implementation in read-only mode and explain the verified calculation path without modifying TokenForge.
 - [x] Compare TokenForge’s token and request-count accounting rules with the verified 9router implementation, identify discrepancies, and report without changing production behavior.
+- [x] Verify the Bailu Claude Opus provider, enforce English-only internal guidance, mask its public upstream errors, and restore administrator-only provider failure visibility.
