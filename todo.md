@@ -443,3 +443,8 @@
 - [x] Inspect 9router’s request-count and token-accounting implementation in read-only mode and explain the verified calculation path without modifying TokenForge.
 - [x] Compare TokenForge’s token and request-count accounting rules with the verified 9router implementation, identify discrepancies, and report without changing production behavior.
 - [x] Verify the Bailu Claude Opus provider, enforce English-only internal guidance, mask its public upstream errors, and restore administrator-only provider failure visibility.
+- [x] Send one credential-safe health request to a configured NVIDIA NIM proxy and report only its status and latency.
+- [x] Probe the specified second NVIDIA NIM proxy and, only if responsive, test representative Claude Code tool workflows in an isolated demo repository.
+- [x] Correct the isolated Claude Code custom-provider configuration and rerun the constrained NVIDIA NIM proxy tool-workflow test.
+- [x] Run a bounded isolated compatibility suite for Claude Code’s core built-in coding tools and multi-agent workflow through the responsive NVIDIA NIM proxy.
+- [x] Update the server-side Render API credential and validate account access without exposing the value.
