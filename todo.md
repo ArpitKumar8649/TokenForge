@@ -434,6 +434,6 @@
 - [x] Analyze the reported OmniRoute LM Arena ArrayBuffer/string streaming error without editing the workspace.
 - [x] Run the isolated OmniRoute LM Arena stream-readiness regression where feasible and assess an appropriate persistent deployment path without starting or deploying the service.
 - [x] Assess GitHub Actions Docker builds and Render container deployment for OmniRoute without creating CI configuration or deploying the service.
-- [ ] Add, run, and verify a private GitHub Actions linux/amd64 Docker image build for OmniRoute without creating a Render deployment.
+- [x] Superseded at the user’s request: attempt the private GitHub Actions linux/amd64 OmniRoute image build without Render deployment; repeated hosted-runner build attempts failed and the user selected the official prebuilt-image path instead.
 - [x] Validate the server-only Settlement Bridge endpoint credential with a lightweight authenticated models probe that never logs the credential or response content.
 - [x] Assess the validated endpoint’s reasoning and tool-call stream format for Claude Code translation compatibility without exposing the credential.
