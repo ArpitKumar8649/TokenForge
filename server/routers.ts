@@ -57,6 +57,8 @@ import {
   replaceOrcaRouterCredentialPool,
   getClaudeFable5NvidiaProviderSettings,
   updateClaudeFable5NvidiaProviderSettings,
+  getRecentClaudeFable5FailureLogs,
+  getRecentGlm53FailureLogs,
   getRecentClaudeOpus5FailureLogs,
   getRecentDeepseekV4ProFailureLogs,
   getClaudeOpus5ProviderSettings,
@@ -138,12 +140,19 @@ const maintenanceCountdownInput = z.object({
 const orcaRouterCredentialPoolInput = z.object({
   credentials: z.array(z.string().trim().min(20, "Enter a complete OrcaRouter credential").max(512)).length(ORCA_ROUTER_CREDENTIAL_POOL_SIZE, `Provide exactly ${ORCA_ROUTER_CREDENTIAL_POOL_SIZE} OrcaRouter credentials`),
 });
-const claudeFable5ProviderSettingsInput = z.object({
-  baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(),
-  model: z.string().trim().min(1, "Enter a model ID").max(256).optional(),
-  apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys").optional(),
-  removeSlots: z.array(z.number().int().positive()).max(50).optional(),
-}).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined || input.removeSlots !== undefined, "Provide at least one setting to update");
+const claudeFable5ProviderGroupInput = z.object({
+    id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, "Use letters, numbers, hyphens, or underscores for the provider ID"),
+    label: z.string().trim().min(1, "Enter a provider label").max(80),
+    enabled: z.boolean().optional(),
+    baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512),
+    model: z.string().trim().min(1, "Enter a model ID").max(256),
+    apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys"),
+    removeSlots: z.array(z.number().int().positive()).max(50).optional(),
+  });
+const claudeFable5ProviderSettingsInput = z.union([
+  z.object({ providers: z.array(claudeFable5ProviderGroupInput).min(1, "Keep at least one Claude Fable 5 provider").max(12, "At most 12 Claude Fable 5 providers may be configured") }),
+  z.object({ baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(), model: z.string().trim().min(1, "Enter a model ID").max(256).optional(), apiKeys: z.array(z.string().trim().max(512)).max(50).optional(), removeSlots: z.array(z.number().int().positive()).max(50).optional() }).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined || input.removeSlots !== undefined, "Provide at least one setting to update"),
+]);
 const claudeOpus5ProviderSettingsInput = z.object({
   providers: z.array(z.object({
     id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, "Use letters, numbers, hyphens, or underscores for the provider ID"),
@@ -501,6 +510,7 @@ export const appRouter = router({
     orcaRouterCredentials: adminProcedure.query(() => getOrcaRouterCredentialPoolStatus()),
     orcaRouterSlotUsage: adminProcedure.query(() => getOrcaRouterSlotRequestCounts()),
     claudeFable5ProviderSettings: adminProcedure.query(() => getClaudeFable5NvidiaProviderSettings()),
+    claudeFable5FailureLogs: adminProcedure.query(async () => (await getRecentClaudeFable5FailureLogs(200)).map(entry => ({ ...entry, publicMessage: PUBLIC_PROVIDER_ERROR_MESSAGE }))),
     updateClaudeFable5ProviderSettings: adminProcedure.input(claudeFable5ProviderSettingsInput).mutation(async ({ ctx, input }) => {
       try {
         const settings = await updateClaudeFable5NvidiaProviderSettings(input, ctx.user.id);
@@ -510,9 +520,8 @@ export const appRouter = router({
           entityType: "provider",
           entityId: "claude-fable-5",
           metadata: {
-            baseUrlChanged: input.baseUrl !== undefined,
-            modelChanged: input.model !== undefined,
-            apiKeySlotsChanged: (input.apiKeys?.filter(value => Boolean(value.trim())).length ?? 0) + (input.removeSlots?.length ?? 0),
+            providerCount: "providers" in input ? input.providers.length : 1,
+            configuredKeySlots: "providers" in input ? input.providers.reduce((count, provider) => count + provider.apiKeys.filter(value => Boolean(value.trim())).length, 0) : (input.apiKeys?.filter(value => Boolean(value.trim())).length ?? 0),
           },
         });
         return settings;
@@ -522,7 +531,7 @@ export const appRouter = router({
     }),
     claudeOpus5ProviderSettings: adminProcedure.query(() => getClaudeOpus5ProviderSettings()),
     claudeOpus5FailureLogs: adminProcedure.query(async () => (await getRecentClaudeOpus5FailureLogs(200)).map(entry => ({ ...entry, publicMessage: PUBLIC_PROVIDER_ERROR_MESSAGE }))),
-    deepseekV4ProFailureLogs: adminProcedure.query(() => getRecentDeepseekV4ProFailureLogs(100)),
+    deepseekV4ProFailureLogs: adminProcedure.query(async () => (await getRecentDeepseekV4ProFailureLogs(200)).map(entry => ({ ...entry, publicMessage: PUBLIC_PROVIDER_ERROR_MESSAGE }))),
     updateClaudeOpus5ProviderSettings: adminProcedure.input(claudeOpus5ProviderSettingsInput).mutation(async ({ ctx, input }) => {
       try {
         const settings = await updateClaudeOpus5ProviderSettings(input, ctx.user.id);
@@ -559,6 +568,7 @@ export const appRouter = router({
       }
     }),
     glm53ProviderSettings: adminProcedure.query(() => getGlm53ProviderSettings()),
+    glm53FailureLogs: adminProcedure.query(async () => (await getRecentGlm53FailureLogs(200)).map(entry => ({ ...entry, publicMessage: PUBLIC_PROVIDER_ERROR_MESSAGE }))),
     updateGlm53ProviderSettings: adminProcedure.input(glm53ProviderSettingsInput).mutation(async ({ ctx, input }) => {
       try {
         const settings = await updateGlm53ProviderSettings(input, ctx.user.id);

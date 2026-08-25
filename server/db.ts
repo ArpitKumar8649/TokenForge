@@ -1107,19 +1107,24 @@ export async function setAnnouncementText(text: string, updatedByUserId: number)
 
 const MAX_MANAGED_PROVIDER_API_KEYS = 50;
 
-type ClaudeFable5RuntimePayload = { baseUrl: string; model: string; apiKeys: string[] };
+type ClaudeFable5RuntimePayload = { providers: ClaudeOpus5ProviderRuntime[] };
 
 function claudeFable5RuntimeFromEnvironment(): ClaudeFable5RuntimePayload {
   return {
-    baseUrl: process.env.NVIDIA_CLAUDE_FABLE5_BASE_URL?.trim() ?? "",
-    model: process.env.NVIDIA_CLAUDE_FABLE5_MODEL?.trim() ?? "",
-    apiKeys: [
-      process.env.NVIDIA_CLAUDE_FABLE5_API_KEY,
-      process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_2,
-      process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_3,
-      process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_4,
-      process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_5,
-    ].map(value => value?.trim() ?? ""),
+    providers: normalizeClaudeOpus5Providers([{
+      id: "environment-default",
+      label: "NVIDIA NIM default",
+      enabled: true,
+      baseUrl: process.env.NVIDIA_CLAUDE_FABLE5_BASE_URL?.trim() ?? "",
+      model: process.env.NVIDIA_CLAUDE_FABLE5_MODEL?.trim() ?? "",
+      apiKeys: [
+        process.env.NVIDIA_CLAUDE_FABLE5_API_KEY,
+        process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_2,
+        process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_3,
+        process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_4,
+        process.env.NVIDIA_CLAUDE_FABLE5_API_KEY_5,
+      ].map(value => value?.trim() ?? ""),
+    }], []),
   };
 }
 
@@ -1138,16 +1143,17 @@ async function readClaudeFable5RuntimeOverride() {
     const encoded = JSON.parse(record.value) as { ciphertext?: string; iv?: string; authTag?: string };
     const decrypted = decryptProviderRuntimeConfig({ ciphertext: String(encoded.ciphertext ?? ""), iv: String(encoded.iv ?? ""), authTag: String(encoded.authTag ?? "") });
     if (!decrypted || typeof decrypted !== "object") return null;
-    const candidate = decrypted as Partial<ClaudeFable5RuntimePayload>;
-    const configuredKeys = Array.isArray(candidate.apiKeys)
-      ? candidate.apiKeys.map(value => typeof value === "string" ? value.trim() : "").filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS)
-      : [];
+    const candidate = decrypted as Partial<ClaudeFable5RuntimePayload> & { baseUrl?: unknown; model?: unknown; apiKeys?: unknown };
+    const legacyProvider = {
+      id: "primary",
+      label: "Primary provider",
+      enabled: true,
+      baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl.trim() : "",
+      model: typeof candidate.model === "string" ? candidate.model.trim() : "",
+      apiKeys: Array.isArray(candidate.apiKeys) ? candidate.apiKeys : [],
+    };
     return {
-      payload: {
-        baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl.trim() : "",
-        model: typeof candidate.model === "string" ? candidate.model.trim() : "",
-        apiKeys: configuredKeys,
-      },
+      payload: { providers: normalizeClaudeOpus5Providers(candidate.providers, normalizeClaudeOpus5Providers([legacyProvider], [])) },
       updatedAt: record.updatedAt,
       updatedByUserId: record.updatedByUserId,
     };
@@ -1160,41 +1166,49 @@ export async function getClaudeFable5NvidiaRuntimeConfig(): Promise<ClaudeFable5
   const fallback = claudeFable5RuntimeFromEnvironment();
   const override = await readClaudeFable5RuntimeOverride();
   if (!override) return fallback;
-  return {
-    baseUrl: override.payload.baseUrl || fallback.baseUrl,
-    model: override.payload.model || fallback.model,
-    apiKeys: override.payload.apiKeys.length ? override.payload.apiKeys : fallback.apiKeys.filter(Boolean),
-  };
+  return { providers: override.payload.providers.length ? override.payload.providers : fallback.providers };
 }
 
 export async function getClaudeFable5NvidiaProviderSettings() {
   const runtime = await getClaudeFable5NvidiaRuntimeConfig();
   const override = await readClaudeFable5RuntimeOverride();
+  const primary = runtime.providers[0];
   return {
-    baseUrl: runtime.baseUrl,
-    model: runtime.model,
-    apiKeyMasks: runtime.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+    baseUrl: primary?.baseUrl ?? "",
+    model: primary?.model ?? "",
+    apiKeyMasks: (primary?.apiKeys ?? []).map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+    providers: runtime.providers.map(provider => ({
+      id: provider.id,
+      label: provider.label,
+      enabled: provider.enabled,
+      baseUrl: provider.baseUrl,
+      model: provider.model,
+      apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+    })),
     source: override ? "database" as const : "environment" as const,
     updatedAt: override?.updatedAt ?? null,
     updatedByUserId: override?.updatedByUserId ?? null,
   };
 }
 
-export async function updateClaudeFable5NvidiaProviderSettings(input: { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] }, updatedByUserId: number) {
+export async function updateClaudeFable5NvidiaProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] }> } | { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getClaudeFable5NvidiaRuntimeConfig();
-  const removedSlots = new Set(input.removeSlots ?? []);
-  const retainedKeys = current.apiKeys.filter((_, index) => !removedSlots.has(index + 1));
-  const submittedKeys = input.apiKeys ?? [];
-  const patchedExistingKeys = retainedKeys.map((key, index) => submittedKeys[index]?.trim() || key);
-  const appendedKeys = submittedKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
-  const next: ClaudeFable5RuntimePayload = {
-    baseUrl: input.baseUrl?.trim() || current.baseUrl,
-    model: input.model?.trim() || current.model,
-    apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
-  };
-  if (!next.baseUrl || !next.model || !next.apiKeys.some(Boolean)) throw new Error("A base URL, model ID, and at least one API key are required for Claude Fable 5");
+  const currentById = new Map(current.providers.map(provider => [provider.id, provider]));
+  const legacyPrimary = current.providers[0] ?? { id: "primary", label: "Primary provider", enabled: true, baseUrl: "", model: "", apiKeys: [] };
+  const submittedProviders = "providers" in input ? input.providers : [{ id: legacyPrimary.id, label: legacyPrimary.label, enabled: legacyPrimary.enabled, baseUrl: input.baseUrl ?? legacyPrimary.baseUrl, model: input.model ?? legacyPrimary.model, apiKeys: input.apiKeys ?? [], removeSlots: input.removeSlots }];
+  const nextProviders = submittedProviders.map((submitted, index) => {
+    const existing = currentById.get(submitted.id);
+    const removedSlots = new Set(submitted.removeSlots ?? []);
+    const retainedKeys = (existing?.apiKeys ?? []).filter((_, keyIndex) => !removedSlots.has(keyIndex + 1));
+    const patchedExistingKeys = retainedKeys.map((key, keyIndex) => submitted.apiKeys[keyIndex]?.trim() || key);
+    const appendedKeys = submitted.apiKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
+    return { id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`), label: submitted.label.trim() || `Provider ${index + 1}`, enabled: submitted.enabled !== false, baseUrl: submitted.baseUrl.trim(), model: submitted.model.trim(), apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS) };
+  });
+  const ids = new Set(nextProviders.map(provider => provider.id));
+  if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length)) throw new Error("Each Claude Fable 5 provider needs a unique identifier, base URL, model ID, and at least one API key");
+  const next: ClaudeFable5RuntimePayload = { providers: nextProviders };
   const encrypted = encryptProviderRuntimeConfig(next);
   await db.insert(platformSettings).values({
     settingKey: CLAUDE_FABLE5_NVIDIA_RUNTIME_SETTING_KEY,
@@ -1436,7 +1450,7 @@ export type ManagedProviderFailureLogInput = {
   callerMessage?: string;
 };
 
-type ManagedProviderFailureLogModel = "claude-opus-5" | "deepseek-v4-pro";
+type ManagedProviderFailureLogModel = "claude-opus-5" | "claude-fable-5" | "glm-5.3" | "deepseek-v4-pro";
 
 /**
  * Stores a raw credential-redacted managed-model upstream failure attempt.
@@ -1468,12 +1482,28 @@ export async function recordDeepseekV4ProFailureLog(input: ManagedProviderFailur
   return recordManagedProviderFailureLog("deepseek-v4-pro", input);
 }
 
+export async function recordClaudeFable5FailureLog(input: ManagedProviderFailureLogInput) {
+  return recordManagedProviderFailureLog("claude-fable-5", input);
+}
+
+export async function recordGlm53FailureLog(input: ManagedProviderFailureLogInput) {
+  return recordManagedProviderFailureLog("glm-5.3", input);
+}
+
 export async function getRecentClaudeOpus5FailureLogs(limit = 100) {
   return getRecentManagedProviderFailureLogs("claude-opus-5", limit);
 }
 
 export async function getRecentDeepseekV4ProFailureLogs(limit = 100) {
   return getRecentManagedProviderFailureLogs("deepseek-v4-pro", limit);
+}
+
+export async function getRecentClaudeFable5FailureLogs(limit = 100) {
+  return getRecentManagedProviderFailureLogs("claude-fable-5", limit);
+}
+
+export async function getRecentGlm53FailureLogs(limit = 100) {
+  return getRecentManagedProviderFailureLogs("glm-5.3", limit);
 }
 
 /** The administrator history is bounded by record count while preserving each credential-redacted raw response body. */
@@ -1883,7 +1913,10 @@ export async function recordManagedProviderKeyOutcome(modelId: ManagedProviderMe
 }
 
 async function getManagedProviderMetricRuntime(modelId: ManagedProviderMetricModel): Promise<{ apiKeys: string[] }> {
-  if (modelId === "claude-fable-5") return getClaudeFable5NvidiaRuntimeConfig();
+  if (modelId === "claude-fable-5") {
+    const runtime = await getClaudeFable5NvidiaRuntimeConfig();
+    return { apiKeys: runtime.providers.flatMap(provider => provider.apiKeys) };
+  }
   if (modelId === "claude-opus-5") {
     const runtime = await getClaudeOpus5RuntimeConfig();
     return { apiKeys: runtime.providers.flatMap(provider => provider.apiKeys) };

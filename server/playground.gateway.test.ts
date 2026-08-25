@@ -14,8 +14,10 @@ vi.mock("./db", () => ({
   getModelAvailabilitySnapshot: vi.fn(),
   isModelAvailable: vi.fn(),
   loadOrcaRouterCredentialSlotCiphertexts: vi.fn(),
+  recordClaudeFable5FailureLog: vi.fn(),
   recordClaudeOpus5FailureLog: vi.fn(),
   recordDeepseekV4ProFailureLog: vi.fn(),
+  recordGlm53FailureLog: vi.fn(),
   recordManagedProviderKeyOutcome: vi.fn(),
   releaseRenderNimProxyEndpoint: vi.fn(),
   recordUsage: vi.fn(),
@@ -27,8 +29,8 @@ vi.mock("./db", () => ({
   tryAcquireRenderNimProxyEndpoint: vi.fn(),
 }));
 
-import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeOpus5FailureLog, recordDeepseekV4ProFailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
-import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
+import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
+import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 import { resetNvidiaClaudeFable5CredentialRotation } from "./nvidiaClaudeFable5Credentials";
@@ -107,11 +109,7 @@ beforeEach(() => {
   process.env.TOKENROUTER_GLM53_MODEL = "upstream-glm-5.3-model";
   vi.mocked(getPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
   vi.mocked(reserveCappedManagedProviderCredentialRequest).mockResolvedValue({ allowed: true, exhausted: false });
-  vi.mocked(getClaudeFable5NvidiaRuntimeConfig).mockResolvedValue({
-    baseUrl: "https://nvidia.example",
-    model: "upstream-nvidia-claude-fable-5-model",
-    apiKeys: ["server-only-nvidia-fable5-secret-1", "server-only-nvidia-fable5-secret-2", "server-only-nvidia-fable5-secret-3", "server-only-nvidia-fable5-secret-4", "server-only-nvidia-fable5-secret-5"],
-  });
+  vi.mocked(getClaudeFable5NvidiaRuntimeConfig).mockResolvedValue({ providers: [{ id: "primary", label: "Primary provider", enabled: true, baseUrl: "https://nvidia.example", model: "upstream-nvidia-claude-fable-5-model", apiKeys: ["server-only-nvidia-fable5-secret-1", "server-only-nvidia-fable5-secret-2", "server-only-nvidia-fable5-secret-3", "server-only-nvidia-fable5-secret-4", "server-only-nvidia-fable5-secret-5"] }] });
   vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
     providers: [{
       id: "primary",
@@ -139,7 +137,9 @@ beforeEach(() => {
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
   vi.mocked(recordClaudeOpus5FailureLog).mockResolvedValue(undefined);
+  vi.mocked(recordClaudeFable5FailureLog).mockResolvedValue(undefined);
   vi.mocked(recordDeepseekV4ProFailureLog).mockResolvedValue(undefined);
+  vi.mocked(recordGlm53FailureLog).mockResolvedValue(undefined);
   vi.mocked(recordManagedProviderKeyOutcome).mockResolvedValue(undefined);
   vi.mocked(recordUsage).mockResolvedValue(undefined);
   vi.mocked(reserveCredit).mockResolvedValue({ authorized: true, balanceNanos: 49_990_000_000 });
@@ -150,6 +150,7 @@ beforeEach(() => {
   vi.mocked(loadOrcaRouterCredentialSlotCiphertexts).mockResolvedValue([]);
   resetClusterProtocolCredentialRotation();
   resetNvidiaClaudeFable5CredentialRotation();
+  resetClaudeFable5ProviderBalancing();
   resetClaudeOpus5ProviderBalancing();
   resetDeepseekV4ProProviderBalancing();
   resetFxqidianCredentialRotation();
@@ -790,6 +791,15 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.stringify(forwardedPayload)).not.toContain("TOKENROUTER_GLM53_MODEL");
   });
 
+  it("masks a zero-output GLM 5.3 response publicly while recording an administrator-only failure", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "" } }], usage: { completion_tokens: 0 } }), { status: 200, headers: { "content-type": "application/json" } })));
+    const response = await forwardProviderRequest("glm-5.3", { model: "glm-5.3", messages: [{ role: "user", content: "Return a response." }] }, new AbortController().signal);
+    const body = await response.text();
+    expect(body).toContain(PUBLIC_PROVIDER_ERROR_MESSAGE);
+    expect(body).not.toContain("managed-glm-upstream-model");
+    expect(recordGlm53FailureLog).toHaveBeenCalledWith(expect.objectContaining({ failureKind: "empty_output" }));
+  });
+
   it("routes Claude Fable 5 through its dedicated NVIDIA NIM model configuration, preserves enforced reasoning, and retains its thinking summary", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: "Claude Fable response", reasoning_content: "Provider thinking summary" } }],
@@ -826,7 +836,7 @@ describe("TokenForge Playground gateway", () => {
   });
 
   it("rotates sequential Claude Fable 5 requests across all five isolated NVIDIA NIM credentials", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "ready" } }], usage: { completion_tokens: 1 } }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const signal = new AbortController().signal;
 
@@ -850,7 +860,7 @@ describe("TokenForge Playground gateway", () => {
   it("retries Claude Fable 5 through the next isolated NVIDIA NIM credential after a retryable provider response", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Temporary capacity" } }), { status: 429 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "recovered" } }], usage: { completion_tokens: 1 } }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await forwardProviderRequest("claude-fable-5", {
@@ -865,6 +875,15 @@ describe("TokenForge Playground gateway", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(2, "https://nvidia.example/v1/chat/completions", expect.objectContaining({
       headers: expect.objectContaining({ Authorization: "Bearer server-only-nvidia-fable5-secret-2" }),
     }));
+  });
+
+  it("masks raw Claude Fable 5 provider errors publicly while retaining a redacted administrator failure record", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: "nvidia internal route secret-detail" } }), { status: 400, headers: { "content-type": "application/json" } })));
+    const response = await forwardProviderRequest("claude-fable-5", { model: "claude-fable-5", messages: [{ role: "user", content: "Respond safely." }] }, new AbortController().signal);
+    const body = await response.text();
+    expect(body).toContain(PUBLIC_PROVIDER_ERROR_MESSAGE);
+    expect(body).not.toContain("nvidia internal route secret-detail");
+    expect(recordClaudeFable5FailureLog).toHaveBeenCalledWith(expect.objectContaining({ failureKind: "http", sourceLabel: "Primary provider" }));
   });
 
   it("returns the canonical Claude Fable 5 identity locally without contacting its NVIDIA upstream", async () => {
@@ -979,3 +998,4 @@ describe("TokenForge Playground gateway", () => {
     expect(recordUsage).not.toHaveBeenCalled();
   });
 });
+  resetClaudeFable5ProviderBalancing();

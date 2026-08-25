@@ -54,6 +54,17 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("DeepSeek request counters remain informational rather than admission caps");
   });
 
+  it("gives Claude Fable 5 grouped-provider parity and keeps Fable, GLM, and DeepSeek failure details administrator-only", () => {
+    expect(source).toContain("function ClaudeFable5ProviderBalancerPanel");
+    expect(source).toContain('providerName="Claude Fable 5"');
+    expect(source).toContain("function ManagedModelFailureHistory");
+    expect(source).toContain('model="claude-fable-5" title="Claude Fable 5"');
+    expect(source).toContain('model="glm-5.3" title="GLM 5.3"');
+    expect(source).toContain('model="deepseek-v4-pro" title="DeepSeek V4 Pro"');
+    expect(source).toContain("Caller-visible TokenForge message");
+    expect(source).toContain("Credential-redacted upstream diagnostic");
+  });
+
   it("keeps a locally deleted DeepSeek provider key removed after the successful save response", () => {
     expect(source).toContain("setInitialized(true);");
     expect(source).not.toContain("setInitialized(false);");

@@ -14,8 +14,10 @@ import {
   isModelAvailable,
   recordUsage,
   releaseRenderNimProxyEndpoint,
+  recordClaudeFable5FailureLog,
   recordClaudeOpus5FailureLog,
   recordDeepseekV4ProFailureLog,
+  recordGlm53FailureLog,
   reserveCappedManagedProviderCredentialRequest,
   reserveCredit,
   recordManagedProviderKeyOutcome,
@@ -341,12 +343,62 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
   const url = openAiChatCompletionsUrl(runtime.baseUrl);
   if (!url || !runtime.model) throw new Error("TokenForge GLM 5.3 inference is not configured");
   const requestBody = { ...input, model: runtime.model };
-  return forwardWithCredentialFailover("glm-5.3", input, signal, () => selectNextGlm53CredentialWithSlot(runtime.apiKeys), credential => fetch(url, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
-    body: JSON.stringify(requestBody),
-    signal,
-  }), "glm-5.3");
+  const provider = { id: "glm53-primary", label: "GLM 5.3 provider" };
+  let lastError: unknown = null;
+  let lastStatus: number | null = null;
+  for (let attempt = 0; attempt < runtime.apiKeys.length; attempt += 1) {
+    const selectedCredential = selectNextGlm53CredentialWithSlot(runtime.apiKeys);
+    if (!selectedCredential) break;
+    const responseStart = createResponseStartDeadline(signal);
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
+        body: JSON.stringify(requestBody),
+        signal: responseStart.signal,
+      });
+      responseStart.clear();
+      if (response.ok) {
+        if (!input.stream) {
+          const payload = await response.clone().json().catch(() => null);
+          if (isClaudeOpus5ZeroOutputFailure(payload)) {
+            const diagnostic = "GLM 5.3 returned a successful response with zero output tokens or no assistant output.";
+            void recordGlm53FailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, failureKind: "empty_output", retryable: true, callerMessage: diagnostic }).catch(() => undefined);
+            recordCredentialFailure("glm-5.3", selectedCredential.slot);
+            void recordManagedProviderKeyOutcome("glm-5.3", selectedCredential.credential, false).catch(() => undefined);
+            response.body?.cancel().catch(() => undefined);
+            lastError = new Error(diagnostic);
+            lastStatus = 503;
+            recordCredentialFailover("glm-5.3");
+            continue;
+          }
+        }
+        recordCredentialSuccess("glm-5.3", selectedCredential.slot);
+        void recordManagedProviderKeyOutcome("glm-5.3", selectedCredential.credential, true).catch(() => undefined);
+        return wrapManagedProviderResponseWithFailureLog(response, provider, signal, "GLM 5.3", recordGlm53FailureLog);
+      }
+      const retryable = retryableProviderStatus(response.status);
+      const rawBody = await response.text().catch(() => "");
+      const diagnostic = renderedHttpFailureDiagnostic(response.status, rawBody);
+      void recordGlm53FailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, httpStatus: response.status, failureKind: "http", retryable, callerMessage: rawBody || diagnostic }).catch(() => undefined);
+      recordCredentialFailure("glm-5.3", selectedCredential.slot);
+      void recordManagedProviderKeyOutcome("glm-5.3", selectedCredential.credential, false).catch(() => undefined);
+      if (!retryable) return publicManagedProviderFailureResponse(response.status);
+      lastError = new Error(diagnostic);
+      lastStatus = response.status;
+    } catch (error) {
+      responseStart.clear();
+      lastError = error;
+      const timeout = responseStart.timedOut() && !signal.aborted;
+      void recordGlm53FailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, failureKind: timeout ? "timeout" : "network", retryable: true, callerMessage: timeout ? `GLM 5.3 provider response did not start within ${Math.round(PROVIDER_RESPONSE_START_TIMEOUT_MS / 1_000)} seconds.` : error instanceof Error ? error.message : "GLM 5.3 provider network request failed." }).catch(() => undefined);
+      recordCredentialFailure("glm-5.3", selectedCredential.slot);
+      void recordManagedProviderKeyOutcome("glm-5.3", selectedCredential.credential, false).catch(() => undefined);
+      if (signal.aborted) throw error;
+    }
+    recordCredentialFailover("glm-5.3");
+  }
+  if (lastStatus !== null) return publicManagedProviderFailureResponse(lastStatus);
+  throw lastError instanceof Error ? lastError : new Error("TokenForge GLM 5.3 inference is not configured or every provider is temporarily unavailable");
 }
 
 let deepseekV4ProProviderCursor = 0;
@@ -392,6 +444,20 @@ async function forwardDedicatedDeepseekV4ProRequest(input: ChatInput, signal: Ab
         });
         responseStart.clear();
         if (response.ok) {
+          if (!input.stream) {
+            const payload = await response.clone().json().catch(() => null);
+            if (isClaudeOpus5ZeroOutputFailure(payload)) {
+              const diagnostic = "DeepSeek V4 Pro returned a successful response with zero output tokens or no assistant output.";
+              void recordDeepseekV4ProFailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, failureKind: "empty_output", retryable: true, callerMessage: diagnostic }).catch(() => undefined);
+              recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
+              void recordManagedProviderKeyOutcome("deepseek-v4-pro", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+              response.body?.cancel().catch(() => undefined);
+              lastError = new Error(diagnostic);
+              lastResponse = publicManagedProviderFailureResponse(503);
+              recordCredentialFailover(selectedCredential.telemetryProvider);
+              continue;
+            }
+          }
           recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
           void recordManagedProviderKeyOutcome("deepseek-v4-pro", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
           return wrapDeepseekV4ProProviderResponseWithFailureLog(response, provider, signal);
@@ -411,7 +477,7 @@ async function forwardDedicatedDeepseekV4ProRequest(input: ChatInput, signal: Ab
         recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
         void recordManagedProviderKeyOutcome("deepseek-v4-pro", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
         if (!retryable) {
-          return new Response(rawBody, { status: response.status, statusText: response.statusText, headers: { "content-type": response.headers.get("content-type") ?? "application/json; charset=utf-8" } });
+          return publicManagedProviderFailureResponse(response.status);
         }
         lastResponse = new Response(rawBody, { status: response.status, statusText: response.statusText, headers: { "content-type": response.headers.get("content-type") ?? "application/json; charset=utf-8" } });
         lastError = new Error(diagnostic);
@@ -588,28 +654,63 @@ function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Resp
   return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
 }
 
-/** Record a DeepSeek provider stream failure after headers without treating a client cancellation as an upstream outage. */
-function wrapDeepseekV4ProProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal) {
-  if (!response.body || response.body.locked) return response;
+type ManagedFailureLogger = (input: { sourceType: "provider"; sourceId: string; sourceLabel: string; failureKind: "stream" | "empty_output"; retryable: boolean; callerMessage: string }) => Promise<void>;
+
+/** Preserve private diagnostics for administrators while ensuring an empty managed-provider stream becomes the neutral caller envelope. */
+function wrapManagedProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal, label: string, recordFailure: ManagedFailureLogger) {
+  if (!response.body || response.body.locked || !response.headers.get("content-type")?.includes("text/event-stream")) return response;
   const reader = response.body.getReader();
   let recorded = false;
-  const recordStreamFailure = (error: unknown) => {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  let buffer = "";
+  let finalUsage: Usage = {};
+  let receivedOutput = false;
+  const recordStreamFailure = (error: unknown, failureKind: "stream" | "empty_output" = "stream") => {
     if (recorded || clientSignal.aborted) return;
     recorded = true;
-    void recordDeepseekV4ProFailureLog({
+    void recordFailure({
       sourceType: "provider",
       sourceId: provider.id,
       sourceLabel: provider.label,
-      failureKind: "stream",
+      failureKind,
       retryable: false,
-      callerMessage: error instanceof Error ? error.message : "DeepSeek V4 Pro provider stream failed after response start.",
+      callerMessage: typeof error === "string" ? error : error instanceof Error ? error.message : `${label} provider stream failed after response start.`,
     }).catch(() => undefined);
+  };
+  const inspectSseChunk = (value: Uint8Array) => {
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trim();
+      if (!data || data === "[DONE]") continue;
+      try {
+        const event = JSON.parse(data) as { usage?: Usage; choices?: Array<{ delta?: { content?: unknown; tool_calls?: unknown[] } }> };
+        finalUsage = { ...finalUsage, ...usageFrom(event) };
+        const delta = event.choices?.[0]?.delta;
+        if ((typeof delta?.content === "string" && delta.content.trim()) || (Array.isArray(delta?.tool_calls) && delta.tool_calls.length)) receivedOutput = true;
+      } catch { /* A malformed event is independently sanitized at the public SSE boundary. */ }
+    }
+  };
+  const writeNeutralEmptyOutput = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+    if (clientSignal.aborted) return;
+    const outputTokens = finalUsage.completion_tokens ?? finalUsage.output_tokens;
+    const explicitZeroOutput = typeof outputTokens === "number" && Number.isFinite(outputTokens) && outputTokens <= 0;
+    if (!explicitZeroOutput && receivedOutput) return;
+    recordStreamFailure(`${label} returned a successful stream with zero output tokens or no assistant output.`, "empty_output");
+    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: { message: publicProviderErrorMessage(), type: "provider_unavailable", code: "provider_unavailable" } })}\n\n`));
   };
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
         const next = await reader.read();
-        if (next.done) return controller.close();
+        if (next.done) {
+          writeNeutralEmptyOutput(controller);
+          return controller.close();
+        }
+        inspectSseChunk(next.value);
         controller.enqueue(next.value);
       } catch (error) {
         recordStreamFailure(error);
@@ -621,6 +722,11 @@ function wrapDeepseekV4ProProviderResponseWithFailureLog(response: globalThis.Re
     },
   });
   return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
+/** Record a DeepSeek provider stream failure after headers without treating a client cancellation as an upstream outage. */
+function wrapDeepseekV4ProProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal) {
+  return wrapManagedProviderResponseWithFailureLog(response, provider, clientSignal, "DeepSeek V4 Pro", recordDeepseekV4ProFailureLog);
 }
 
 /**
@@ -786,54 +892,85 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
   throw lastError instanceof Error ? lastError : new Error("TokenForge Claude Opus 5 inference is not configured or every provider is temporarily unavailable");
 }
 
-/** Claude Fable 5 uses its own OpenAI-compatible NVIDIA NIM route, never the shared TokenRouter pool. */
+let claudeFable5ProviderCursor = 0;
+const claudeFable5KeyCursors = new Map<string, number>();
+
+export function resetClaudeFable5ProviderBalancing() {
+  claudeFable5ProviderCursor = 0;
+  claudeFable5KeyCursors.clear();
+}
+
+function selectNextClaudeFable5Credential(provider: { id: string; apiKeys: string[] }) {
+  const telemetryProvider = `claude-fable-5:${provider.id}` as CredentialTelemetryProvider;
+  const start = claudeFable5KeyCursors.get(provider.id) ?? 0;
+  for (let offset = 0; offset < provider.apiKeys.length; offset += 1) {
+    const slot = (start + offset) % provider.apiKeys.length;
+    if (!isCredentialSlotEligible(telemetryProvider, slot)) continue;
+    claudeFable5KeyCursors.set(provider.id, (slot + 1) % provider.apiKeys.length);
+    return { credential: provider.apiKeys[slot]!, slot, telemetryProvider };
+  }
+  return null;
+}
+
+/** Claude Fable 5 balances calls evenly across enabled provider groups and then keys, never the shared TokenRouter pool. */
 async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: AbortSignal) {
   const runtime = await getClaudeFable5NvidiaRuntimeConfig();
-  const configuredBase = runtime.baseUrl.replace(/\/$/, "");
-  const upstreamModel = runtime.model;
-  const url = configuredBase?.endsWith("/chat/completions")
-    ? configuredBase
-    : configuredBase ? `${configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase}/v1`}/chat/completions` : null;
-  const firstCredential = selectNextNvidiaClaudeFable5CredentialWithSlot(runtime.apiKeys);
-  if (!url || !firstCredential || !upstreamModel) throw new Error("TokenForge Claude Fable 5 inference is not configured");
-  const requestBody = { ...input, model: upstreamModel };
-  let selectedCredential = firstCredential;
+  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeFable5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
+  claudeFable5ProviderCursor = runtime.providers.length ? (claudeFable5ProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const responseStart = createResponseStartDeadline(signal);
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
-        body: JSON.stringify(requestBody),
-        signal: responseStart.signal,
-      });
-      responseStart.clear();
-      const healthyResponse = response.ok || !retryableProviderStatus(response.status);
-      if (healthyResponse || attempt === 2) {
-        if (healthyResponse) recordCredentialSuccess("claude-fable-5", selectedCredential.slot);
-        else recordCredentialFailure("claude-fable-5", selectedCredential.slot);
-        void recordManagedProviderKeyOutcome("claude-fable-5", selectedCredential.credential, healthyResponse).catch(() => undefined);
-        return response;
+  let lastStatus: number | null = null;
+  for (const provider of orderedProviders) {
+    const url = openAiChatCompletionsUrl(provider.baseUrl);
+    if (!url || !provider.model) continue;
+    for (let attempt = 0; attempt < provider.apiKeys.length; attempt += 1) {
+      const selectedCredential = selectNextClaudeFable5Credential(provider);
+      if (!selectedCredential) break;
+      const responseStart = createResponseStartDeadline(signal);
+      try {
+        const response = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" }, body: JSON.stringify({ ...input, model: provider.model }), signal: responseStart.signal });
+        responseStart.clear();
+        if (response.ok) {
+          if (!input.stream) {
+            const payload = await response.clone().json().catch(() => null);
+            if (isClaudeOpus5ZeroOutputFailure(payload)) {
+              const diagnostic = "Claude Fable 5 returned a successful response with zero output tokens or no assistant output.";
+              void recordClaudeFable5FailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, failureKind: "empty_output", retryable: true, callerMessage: diagnostic }).catch(() => undefined);
+              recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
+              void recordManagedProviderKeyOutcome("claude-fable-5", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+              response.body?.cancel().catch(() => undefined);
+              lastError = new Error(diagnostic);
+              lastStatus = 503;
+              recordCredentialFailover(selectedCredential.telemetryProvider);
+              continue;
+            }
+          }
+          recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
+          void recordManagedProviderKeyOutcome("claude-fable-5", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
+          return wrapManagedProviderResponseWithFailureLog(response, provider, signal, "Claude Fable 5", recordClaudeFable5FailureLog);
+        }
+        const retryable = retryableProviderStatus(response.status);
+        const rawBody = await response.text().catch(() => "");
+        const diagnostic = renderedHttpFailureDiagnostic(response.status, rawBody);
+        void recordClaudeFable5FailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, httpStatus: response.status, failureKind: "http", retryable, callerMessage: rawBody || diagnostic }).catch(() => undefined);
+        recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
+        void recordManagedProviderKeyOutcome("claude-fable-5", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+        if (!retryable) return publicManagedProviderFailureResponse(response.status);
+        lastError = new Error(diagnostic);
+        lastStatus = response.status;
+      } catch (error) {
+        responseStart.clear();
+        lastError = error;
+        const timeout = responseStart.timedOut() && !signal.aborted;
+        void recordClaudeFable5FailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, failureKind: timeout ? "timeout" : "network", retryable: true, callerMessage: timeout ? `Claude Fable 5 provider response did not start within ${Math.round(PROVIDER_RESPONSE_START_TIMEOUT_MS / 1_000)} seconds.` : error instanceof Error ? error.message : "Claude Fable 5 provider network request failed." }).catch(() => undefined);
+        recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
+        void recordManagedProviderKeyOutcome("claude-fable-5", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+        if (signal.aborted) throw error;
       }
-      recordCredentialFailure("claude-fable-5", selectedCredential.slot);
-      void recordManagedProviderKeyOutcome("claude-fable-5", selectedCredential.credential, false).catch(() => undefined);
-      recordCredentialFailover("claude-fable-5");
-      console.warn("[Claude Fable 5 NVIDIA NIM provider retry]", { event: "retryable_response_before_stream", upstreamStatus: response.status, attempt });
-      response.body?.cancel().catch(() => undefined);
-      selectedCredential = selectNextNvidiaClaudeFable5CredentialWithSlot(runtime.apiKeys) ?? selectedCredential;
-    } catch (error) {
-      responseStart.clear();
-      lastError = error;
-      recordCredentialFailure("claude-fable-5", selectedCredential.slot);
-      void recordManagedProviderKeyOutcome("claude-fable-5", selectedCredential.credential, false).catch(() => undefined);
-      if (signal.aborted || !responseStart.timedOut() || attempt === 2) throw error;
-      recordCredentialFailover("claude-fable-5");
-      console.warn("[Claude Fable 5 NVIDIA NIM provider retry]", { event: "response_start_timeout_before_stream", attempt });
-      selectedCredential = selectNextNvidiaClaudeFable5CredentialWithSlot(runtime.apiKeys) ?? selectedCredential;
+      recordCredentialFailover(selectedCredential.telemetryProvider);
     }
   }
-  throw lastError instanceof Error ? lastError : new Error("The selected provider is temporarily unavailable");
+  if (lastStatus !== null) return publicManagedProviderFailureResponse(lastStatus);
+  throw lastError instanceof Error ? lastError : new Error("TokenForge Claude Fable 5 inference is not configured or every provider is temporarily unavailable");
 }
 
 /** OrcaRouter remains only for the separately configured Qwen3.8 27B route. */
