@@ -438,3 +438,4 @@
 - [x] Validate the server-only Settlement Bridge endpoint credential with a lightweight authenticated models probe that never logs the credential or response content.
 - [x] Assess the validated endpoint’s reasoning and tool-call stream format for Claude Code translation compatibility without exposing the credential.
 - [x] Compare the supplied Claude Fable 5 internal prompt against a local Anthropic-to-OpenAI translator for genuine structured Claude Code tool-call compatibility, without exposing credentials or changing production routes.
+- [x] Test an explicit reasoning-and-tool tag protocol, including strict parser validation and a maintained ReAct-parser comparison, for potential conversion to Claude Code structured tool-use events without changing production routes.
