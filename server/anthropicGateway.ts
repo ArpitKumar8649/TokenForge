@@ -46,7 +46,7 @@ type AnthropicBlock = { type?: unknown; text?: unknown; id?: unknown; name?: unk
 // TokenRouter exposes the validated Claude routes through OpenAI-compatible Chat
 // Completions. Keep both customer-facing Claude models on the same converter so
 // Claude Code receives consistent Anthropic response, tool, and SSE semantics.
-const OPENAI_TRANSLATED_MESSAGES_MODELS = new Set(["qwen3.8-27b", "qwen3.8-max", "claude-fable-5", "claude-opus-5", "glm-5.3", "deepseek-v4-pro"]);
+const OPENAI_TRANSLATED_MESSAGES_MODELS = new Set(["qwen3.8-27b", "qwen3.8-max", "claude-fable-5", "claude-opus-5", "glm-5.3", "claude-sonnet-4.6", "deepseek-v4-pro"]);
 
 type NativeTokenRouterMessagesInput = {
   model: "claude-fable-5";

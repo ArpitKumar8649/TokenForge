@@ -42,6 +42,7 @@ function Router() {
       <Route path={"/dashboard/profile"}>{() => <DeveloperDashboard section="profile" />}</Route>
       <Route path={"/admin/settings"} component={AdminSettings} />
       <Route path={"/admin/qwen3.8-max"} component={Qwen38MaxProviderSettings} />
+      <Route path={"/admin/sonnet4.6"} component={AdminDashboard} />
       <Route path={"/admin"} component={AdminDashboard} />
       <Route path={"/legal/:page"} component={Legal} />
       <Route path={"/404"} component={NotFound} />

@@ -34,7 +34,7 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain('selectedProvider === "claude-opus-5"');
     expect(source).toContain('selectedProvider === "glm-5.3"');
     expect(source).toContain('selectedProvider === "deepseek-v4-pro"');
-    expect(source).toContain('option.value = "qwen3.8-max"');
+    expect(source).toContain('qwenOption.value = "qwen3.8-max"');
     expect(source).toContain('window.location.assign("/admin/qwen3.8-max")');
     expect(source).toContain('{section === "providers" && managedProviderSettingsSection}');
   });
@@ -127,6 +127,14 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("const requiredKeyCount = providerName === \"Claude Opus Qwen\" ? Math.max(2, minKeys) : minKeys;");
     expect(source).toContain("deleteSavedModel.mutate({ providerId: provider.id, modelEntryId: id })");
     expect(source).toContain("deleteSavedApiKey.mutate({ providerId: provider.id, slot });");
+  });
+
+  it("adds Claude Sonnet 4.6 managed multi-provider controls, metrics, and timestamped administrator-only diagnostics", () => {
+    expect(source).toContain('sonnetOption.value = "claude-sonnet-4.6"');
+    expect(source).toContain('window.location.assign("/admin/sonnet4.6")');
+    expect(source).toContain('<Sonnet46ProviderBalancerPanel metrics={managedProviderKeyMetrics.find(item => item.modelId === "claude-sonnet-4.6")} />');
+    expect(source).toContain('model="claude-sonnet-4.6" title="Claude Sonnet 4.6"');
+    expect(source).toContain("sonnet46FailureLogs.useQuery");
   });
 
   it("lays overview metrics out as compact boxes on narrow screens rather than a single vertical list", () => {

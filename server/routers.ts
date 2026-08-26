@@ -59,6 +59,7 @@ import {
   updateClaudeFable5NvidiaProviderSettings,
   getRecentClaudeFable5FailureLogs,
   getRecentGlm53FailureLogs,
+  getRecentSonnet46FailureLogs,
   getRecentClaudeOpus5FailureLogs,
   getRecentDeepseekV4ProFailureLogs,
   getRecentQwen38MaxFailureLogs,
@@ -68,6 +69,8 @@ import {
   deleteClaudeOpus5QwenModel,
   getGlm53ProviderSettings,
   updateGlm53ProviderSettings,
+  getSonnet46ProviderSettings,
+  updateSonnet46ProviderSettings,
   getDeepseekV4ProProviderSettings,
   updateDeepseekV4ProProviderSettings,
   getQwen38MaxProviderSettings,
@@ -207,6 +210,17 @@ const deepseekV4ProProviderSettingsInput = z.union([
     removeSlots: z.array(z.number().int().positive()).max(50).optional(),
   }).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined || input.removeSlots !== undefined, "Provide at least one setting to update"),
 ]);
+const sonnet46ProviderSettingsInput = z.object({
+  providers: z.array(z.object({
+    id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, "Use letters, numbers, hyphens, or underscores for the provider identifier"),
+    label: z.string().trim().min(1, "Enter a provider label").max(80),
+    enabled: z.boolean().optional(),
+    baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512),
+    model: z.string().trim().min(1, "Enter a model ID").max(256),
+    apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys"),
+    removeSlots: z.array(z.number().int().positive()).max(50).optional(),
+  })).min(1, "Keep at least one Claude Sonnet 4.6 provider").max(12, "Claude Sonnet 4.6 supports at most 12 provider groups"),
+});
 const discordUnverifiedCleanupInput = z.object({
   expectedCount: z.number().int().min(0).max(1_000_000),
   confirmation: z.string().trim().max(128),
@@ -603,6 +617,17 @@ export const appRouter = router({
         return settings;
       } catch (error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "TokenForge could not save GLM 5.3 provider settings" });
+      }
+    }),
+    sonnet46ProviderSettings: adminProcedure.query(() => getSonnet46ProviderSettings()),
+    sonnet46FailureLogs: adminProcedure.query(async () => (await getRecentSonnet46FailureLogs(200)).map(entry => ({ ...entry, publicMessage: PUBLIC_PROVIDER_ERROR_MESSAGE }))),
+    updateSonnet46ProviderSettings: adminProcedure.input(sonnet46ProviderSettingsInput).mutation(async ({ ctx, input }) => {
+      try {
+        const settings = await updateSonnet46ProviderSettings(input, ctx.user.id);
+        await writeAuditEvent({ actorUserId: ctx.user.id, action: "provider.sonnet46.runtime_updated", entityType: "provider", entityId: "claude-sonnet-4.6", metadata: { providerGroups: input.providers.length, enabledProviderGroups: input.providers.filter(provider => provider.enabled !== false).length } });
+        return settings;
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "TokenForge could not save Claude Sonnet 4.6 provider settings" });
       }
     }),
     deepseekV4ProProviderSettings: adminProcedure.query(() => getDeepseekV4ProProviderSettings()),

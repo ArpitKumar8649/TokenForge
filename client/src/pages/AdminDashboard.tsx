@@ -307,6 +307,23 @@ function ClaudeFable5ProviderBalancerPanel({ metrics }: { metrics?: ManagedProvi
   return <ClaudeOpus5ProviderBalancerPanel providerName="Claude Fable 5" drafts={drafts} settings={settings.data as ClaudeOpus5SettingsData | undefined} metrics={metrics} loading={settings.isLoading} saving={save.isPending} onChange={(id, update) => setDrafts(current => current.map(draft => draft.id === id ? update(draft) : draft))} onAddProvider={id => setDrafts(current => [...current, { id, label: `Provider ${current.length + 1}`, enabled: true, baseUrl: "", model: "", apiKeys: [""], removedSlots: [] }])} onRemoveProvider={id => setDrafts(current => current.filter(draft => draft.id !== id))} onSave={() => save.mutate({ providers: drafts })} />;
 }
 
+function Sonnet46ProviderBalancerPanel({ metrics }: { metrics?: ManagedProviderKeyMetricGroup }) {
+  const utils = trpc.useUtils();
+  const settings = trpc.admin.sonnet46ProviderSettings.useQuery();
+  const [drafts, setDrafts] = useState<ClaudeOpus5ProviderDraft[]>([]);
+  const [initialized, setInitialized] = useState(false);
+  useEffect(() => {
+    if (!settings.data || initialized) return;
+    setDrafts(settings.data.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] })));
+    setInitialized(true);
+  }, [initialized, settings.data]);
+  const save = trpc.admin.updateSonnet46ProviderSettings.useMutation({
+    onSuccess: async () => { await Promise.all([utils.admin.sonnet46ProviderSettings.invalidate(), utils.admin.overview.invalidate(), utils.admin.activity.invalidate()]); toast.success("Claude Sonnet 4.6 load balancer updated"); },
+    onError: error => toast.error(error.message),
+  });
+  return <><ClaudeOpus5ProviderBalancerPanel providerName="Claude Sonnet 4.6" drafts={drafts} settings={settings.data as ClaudeOpus5SettingsData | undefined} metrics={metrics} loading={settings.isLoading} saving={save.isPending} onChange={(id, update) => setDrafts(current => current.map(draft => draft.id === id ? update(draft) : draft))} onAddProvider={id => setDrafts(current => [...current, { id, label: `Provider ${current.length + 1}`, enabled: true, baseUrl: "", model: "", apiKeys: [""], removedSlots: [] }])} onRemoveProvider={id => setDrafts(current => current.filter(draft => draft.id !== id))} onSave={() => save.mutate({ providers: drafts })} /><ManagedModelFailureHistory model="claude-sonnet-4.6" title="Claude Sonnet 4.6" /></>;
+}
+
 export function Qwen38MaxProviderBalancerPanel({ metrics }: { metrics?: ManagedProviderKeyMetricGroup }) {
   const utils = trpc.useUtils();
   const settings = trpc.admin.qwen38MaxProviderSettings.useQuery();
@@ -744,17 +761,26 @@ export default function AdminDashboard() {
   const setRenderSwarmModel = (_value: string) => undefined;
   const setRenderSwarmEndpoints = (_value: { id: string; url: string; enabled: boolean }[]) => undefined;
   const saveRenderSwarmSettings = { isPending: false, mutate: (_value: unknown) => undefined };
-  const [selectedProvider, setSelectedProvider] = useState<"claude-fable-5" | "claude-opus-5" | "glm-5.3" | "deepseek-v4-pro" | "qwen3.8-max">("claude-fable-5");
+  const [selectedProvider, setSelectedProvider] = useState<"claude-fable-5" | "claude-opus-5" | "glm-5.3" | "claude-sonnet-4.6" | "deepseek-v4-pro" | "qwen3.8-max">("claude-fable-5");
   useEffect(() => {
     const selector = document.getElementById("managed-provider-selector") as HTMLSelectElement | null;
-    if (!selector || selector.querySelector("option[value='qwen3.8-max']")) return;
-    const option = document.createElement("option");
-    option.value = "qwen3.8-max";
-    option.textContent = "Qwen 3.8 Max";
-    selector.append(option);
+    if (!selector) return;
+    if (!selector.querySelector("option[value='qwen3.8-max']")) {
+      const qwenOption = document.createElement("option");
+      qwenOption.value = "qwen3.8-max";
+      qwenOption.textContent = "Qwen 3.8 Max";
+      selector.append(qwenOption);
+    }
+    if (!selector.querySelector("option[value='claude-sonnet-4.6']")) {
+      const sonnetOption = document.createElement("option");
+      sonnetOption.value = "claude-sonnet-4.6";
+      sonnetOption.textContent = "Claude Sonnet 4.6";
+      selector.append(sonnetOption);
+    }
   }, []);
   useEffect(() => {
     if (selectedProvider === "qwen3.8-max") window.location.assign("/admin/qwen3.8-max");
+    if (selectedProvider === "claude-sonnet-4.6") window.location.assign("/admin/sonnet4.6");
   }, [selectedProvider]);
   const [glm53BaseUrl, setGlm53BaseUrl] = useState("");
   const [glm53Model, setGlm53Model] = useState("");
@@ -880,6 +906,10 @@ export default function AdminDashboard() {
   const activitySection = <AuditTimeline events={(activityFeed.data ?? []) as AdminAuditRecord[]} onExport={downloadAuditExport} exporting={auditExport.isFetching} />;
   const body = loading ? <div className="grid h-80 place-items-center"><Loader2 className="animate-spin text-[#c9ff73]" /></div> : overview.error && !overview.data ? <div className="dashboard-card grid min-h-64 place-items-center p-6 text-center"><div><AlertTriangle className="mx-auto text-[#f0c180]" size={22} /><p className="mt-3 text-sm font-semibold text-white">Live operations data could not load</p><p className="mt-2 max-w-sm text-xs leading-5 text-[#9091a3]">Your administrator session is still active. Refresh the control-plane data to try again.</p><Button size="sm" variant="outline" className="mt-4 border-white/12 text-[#e2e1ea] hover:bg-white/10" onClick={() => overview.refetch()}>Retry live data</Button></div></div> : <div className="space-y-4">{overview.error && <div className="flex items-center justify-between gap-3 rounded-xl border border-[#f0c180]/20 bg-[#f0c180]/[.06] px-3 py-2 text-[11px] text-[#f0c180]"><span>Using the last successfully loaded operations data while a refresh is retried.</span><Button size="sm" variant="ghost" className="h-7 shrink-0 px-2 text-[#f0c180] hover:bg-[#f0c180]/10 hover:text-[#ffe1a4]" onClick={() => overview.refetch()}>Retry</Button></div>}{metrics}<div className="dashboard-card flex flex-wrap gap-2 p-2">{(["overview", "accounts", "campaign", "controls", "providers", "operations", "announcement", "activity"] as const).map(item => <Button key={item} size="sm" variant={section === item ? "default" : "ghost"} onClick={() => setSection(item)} className={section === item ? "bg-[#c9ff73] text-[#17210d] hover:bg-[#d8ff91]" : "text-[#b7b8c7] hover:bg-white/8 hover:text-white"}>{item === "overview" ? "Overview" : item === "accounts" ? "Accounts" : item === "campaign" ? "Special referral" : item === "controls" ? "Model controls" : item === "providers" ? "Provider settings" : item === "operations" ? "Operations" : item === "announcement" ? "Announcement" : "Activity"}</Button>)}</div>{section === "overview" && <div className="grid gap-4 xl:grid-cols-2">{accountSection}<section className="dashboard-card"><SectionHeader icon={<ChartNoAxesCombined size={17} />} title="Usage activity" detail="Recent request activity across the TokenForge gateway." /><AdminUsageChart usage={overview.data?.usage ?? []} modelUsage={(overview.data?.allAccountModelUsage ?? []) as AdminGlobalModelUsage[]} loading={overview.isLoading} /></section><section className="dashboard-card"><SectionHeader icon={<Mail size={17} />} title="Email provider distribution" detail="Live account counts by mailbox domain. Individual email addresses are never displayed." /><div className="mt-5"><EmailProviderChart providers={emailProviders} loading={overview.isLoading} /></div></section><div className="xl:col-span-2">{capacitySection}</div></div>}{section === "accounts" && accountSection}{section === "campaign" && specialReferralSection}{section === "controls" && controlSection}{section === "providers" && managedProviderSettingsSection}{section === "operations" && <OperationalControls />}{section === "announcement" && announcementSection}{section === "activity" && activitySection}</div>;
 
+  if (typeof window !== "undefined" && window.location.pathname === "/admin/sonnet4.6") {
+    return <DashboardLayout><div className="dashboard-page-surface"><div className="dashboard-page-content space-y-4"><section className="dashboard-card flex flex-wrap items-center justify-between gap-3"><div><p className="dashboard-kicker">Managed provider settings</p><h1 className="mt-1 text-xl font-bold text-white">Claude Sonnet 4.6</h1><p className="mt-1 text-xs leading-5 text-[#9495a7]">Encrypted provider groups, equal-share routing, masked API keys, live health metrics, and administrator-only timestamped diagnostics.</p></div><Button type="button" variant="outline" className="border-white/12 text-[#d9d8e1] hover:bg-white/10" onClick={() => window.location.assign("/admin")}>Back to provider settings</Button></section><Sonnet46ProviderBalancerPanel metrics={managedProviderKeyMetrics.find(item => item.modelId === "claude-sonnet-4.6")} /></div></div></DashboardLayout>;
+  }
+
   return <DashboardLayout><div className="dashboard-page-surface"><div className="dashboard-page-content"><div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><p className="dashboard-kicker">Operations console</p><h1 className="dashboard-title">Control plane</h1><p className="dashboard-subtitle">Passcode-scoped administrator access, live account oversight, inference availability, and safety operations.</p></div><AlertDialog><AlertDialogTrigger asChild><Button variant="outline" className="w-full border-white/12 text-[#d9d8e1] hover:bg-white/10 sm:w-auto"><LogOut size={15} /> Sign out of admin</Button></AlertDialogTrigger><AlertDialogContent className="border-white/10 bg-[#171820] text-white"><AlertDialogHeader><AlertDialogTitle>Revoke administrator access?</AlertDialogTitle><AlertDialogDescription className="text-[#a1a2b2]">This browser returns to standard-user access. You can unlock the control plane again only with the owner passcode.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel className="border-white/12 bg-transparent text-[#d9d8e1] hover:bg-white/10 hover:text-white">Keep admin access</AlertDialogCancel><AlertDialogAction onClick={() => signOutAdmin.mutate()} disabled={signOutAdmin.isPending} className="bg-[#ef929b] text-[#271216] hover:bg-[#ffabb2]">{signOutAdmin.isPending ? "Revoking…" : "Sign out of admin"}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog></div>{body}</div></div></DashboardLayout>;
 }
 
@@ -887,12 +917,13 @@ function Glm53ProviderSettingsWithHistory(props: any) {
   return <><ManagedProviderSettingsPanel {...props} providerId="glm53-inner" /><ManagedModelFailureHistory model="glm-5.3" title="GLM 5.3" /></>;
 }
 
-function ManagedModelFailureHistory({ model, title }: { model: "claude-fable-5" | "glm-5.3" | "deepseek-v4-pro" | "qwen3.8-max"; title: string }) {
+function ManagedModelFailureHistory({ model, title }: { model: "claude-fable-5" | "glm-5.3" | "claude-sonnet-4.6" | "deepseek-v4-pro" | "qwen3.8-max"; title: string }) {
   const fable = trpc.admin.claudeFable5FailureLogs.useQuery(undefined, { refetchInterval: 5_000, refetchIntervalInBackground: false });
   const glm = trpc.admin.glm53FailureLogs.useQuery(undefined, { refetchInterval: 5_000, refetchIntervalInBackground: false });
+  const sonnet = trpc.admin.sonnet46FailureLogs.useQuery(undefined, { refetchInterval: 5_000, refetchIntervalInBackground: false });
   const deepseek = trpc.admin.deepseekV4ProFailureLogs.useQuery(undefined, { refetchInterval: 5_000, refetchIntervalInBackground: false });
   const qwen = trpc.admin.qwen38MaxFailureLogs.useQuery(undefined, { refetchInterval: 5_000, refetchIntervalInBackground: false });
-  const query = model === "claude-fable-5" ? fable : model === "glm-5.3" ? glm : model === "qwen3.8-max" ? qwen : deepseek;
+  const query = model === "claude-fable-5" ? fable : model === "glm-5.3" ? glm : model === "claude-sonnet-4.6" ? sonnet : model === "qwen3.8-max" ? qwen : deepseek;
   const entries = (query.data ?? []) as ClaudeOpus5FailureLog[];
   return <section className="dashboard-card"><SectionHeader icon={<AlertTriangle size={17} />} title={`${title} failure history`} detail="Credential-redacted upstream diagnostics are visible only to administrators, beside the exact neutral caller message." /><div className="mt-4 h-[32rem] space-y-2 overflow-y-auto overscroll-contain pr-2">{query.isLoading ? <div className="grid min-h-32 place-items-center"><Loader2 className="animate-spin text-[#c9ff73]" size={18} /></div> : entries.length ? entries.map(entry => <div key={entry.id} className="rounded-xl border border-white/8 bg-black/15 p-3"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><Badge className="border border-violet-300/20 bg-violet-300/10 text-[9px] text-violet-100">Provider group</Badge><p className="font-mono text-[10px] font-semibold text-[#e6e6ee]">{entry.sourceLabel}</p></div><div className="mt-2 grid gap-2 lg:grid-cols-2"><div><p className="text-[9px] font-bold uppercase tracking-[.11em] text-amber-200">Credential-redacted upstream diagnostic</p><pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-[9px] leading-4 text-amber-100">{entry.callerMessage}</pre></div><div className="rounded-lg border border-[#c9ff73]/20 bg-[#c9ff73]/[.055] p-2"><p className="text-[9px] font-bold uppercase tracking-[.11em] text-[#c9ff73]">Caller-visible TokenForge message</p><p className="mt-1 font-mono text-[10px] leading-4 text-[#e6f7c5]">{entry.publicMessage ?? "The selected model is temporarily unavailable. Please retry shortly."}</p></div></div></div><div className="shrink-0 text-right"><p className="font-mono text-[10px] font-semibold text-amber-200">{entry.httpStatus ? `HTTP ${entry.httpStatus}` : entry.failureKind}</p><p className="mt-1 text-[9px] text-[#858697]">{entry.retryable ? "Failover eligible" : "No retry"}</p><time className="mt-1 block text-[9px] text-[#858697]" dateTime={new Date(entry.occurredAt).toISOString()}>Occurred: {new Date(entry.occurredAt).toLocaleString()}</time></div></div></div>) : <div className="grid min-h-32 place-items-center rounded-xl border border-dashed border-white/10 px-5 text-center text-[10px] text-[#858697]">No recorded upstream failures yet.</div>}</div><p className="mt-4 border-t border-white/8 pt-4 text-[10px] text-[#858697]">The latest 200 records refresh every five seconds. Secrets and credential-bearing URLs are redacted before storage.</p></section>;
 }

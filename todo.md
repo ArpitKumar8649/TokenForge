@@ -469,3 +469,6 @@
 - [x] Make saved Qwen model-pool deletion explicitly remove the model entry from encrypted Claude Opus provider configuration in the database.
 - [x] Make saved Qwen API-key deletion explicitly remove the selected encrypted key slot from database configuration while enforcing the two-active-key minimum.
 - [x] Add durable deletion regressions, validate TypeScript and relevant suites, restart the server, and publish the completed fix.
+- [x] Add Sonnet 4.6 to TokenForge routing, model controls, and managed multi-provider configuration with dynamic encrypted API-key pools and equal-share provider balancing.
+- [x] Add Sonnet 4.6 credential-redacted administrator failure history with timestamps, per-key health metrics, and neutral public error masking across Playground, OpenAI-compatible, Anthropic Messages, JSON, and SSE paths.
+- [x] Add focused Sonnet 4.6 provider, diagnostics, and masking regressions; validate TypeScript and relevant suites; restart the server; and publish the completed feature.

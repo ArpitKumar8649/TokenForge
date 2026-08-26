@@ -7,6 +7,7 @@ vi.mock("./db", () => ({
   getEligibleClaudeOpus5QwenModels: vi.fn(),
   getDeepseekV4ProRuntimeConfig: vi.fn(),
   getGlm53RuntimeConfig: vi.fn(),
+  getSonnet46RuntimeConfig: vi.fn(),
   getQwen38MaxRuntimeConfig: vi.fn(),
   getRenderNimProxyRuntimeConfig: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock("./db", () => ({
   recordClaudeOpus5QwenModelUsage: vi.fn(),
   recordDeepseekV4ProFailureLog: vi.fn(),
   recordGlm53FailureLog: vi.fn(),
+  recordSonnet46FailureLog: vi.fn(),
   recordQwen38MaxFailureLog: vi.fn(),
   recordManagedProviderKeyOutcome: vi.fn(),
   releaseRenderNimProxyEndpoint: vi.fn(),
@@ -31,8 +33,8 @@ vi.mock("./db", () => ({
   tryAcquireRenderNimProxyEndpoint: vi.fn(),
 }));
 
-import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCredit, settleReservedCredit } from "./db";
-import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, resetQwen38MaxProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
+import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, getSonnet46RuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordSonnet46FailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCredit, settleReservedCredit } from "./db";
+import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, resetQwen38MaxProviderBalancing, resetSonnet46ProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 import { resetNvidiaClaudeFable5CredentialRotation } from "./nvidiaClaudeFable5Credentials";
@@ -125,6 +127,9 @@ beforeEach(() => {
     model: "managed-glm-upstream-model",
     apiKeys: ["server-only-managed-glm-key-1", "server-only-managed-glm-key-2"],
   });
+  vi.mocked(getSonnet46RuntimeConfig).mockResolvedValue({
+    providers: [{ id: "primary", label: "Primary provider", enabled: true, baseUrl: "https://managed-sonnet.example", model: "managed-sonnet-upstream-model", apiKeys: ["server-only-managed-sonnet-key-1", "server-only-managed-sonnet-key-2"] }],
+  });
   vi.mocked(getDeepseekV4ProRuntimeConfig).mockResolvedValue({
     providers: [{
       id: "primary",
@@ -152,6 +157,7 @@ beforeEach(() => {
   vi.mocked(recordClaudeFable5FailureLog).mockResolvedValue(undefined);
   vi.mocked(recordDeepseekV4ProFailureLog).mockResolvedValue(undefined);
   vi.mocked(recordGlm53FailureLog).mockResolvedValue(undefined);
+  vi.mocked(recordSonnet46FailureLog).mockResolvedValue(undefined);
   vi.mocked(recordQwen38MaxFailureLog).mockResolvedValue(undefined);
   vi.mocked(recordManagedProviderKeyOutcome).mockResolvedValue(undefined);
   vi.mocked(recordUsage).mockResolvedValue(undefined);
@@ -166,6 +172,7 @@ beforeEach(() => {
   resetClaudeFable5ProviderBalancing();
   resetClaudeOpus5ProviderBalancing();
   resetDeepseekV4ProProviderBalancing();
+  resetSonnet46ProviderBalancing();
   resetQwen38MaxProviderBalancing();
   resetFxqidianCredentialRotation();
   invalidateOrcaRouterCredentialPool();
@@ -1069,6 +1076,12 @@ describe("TokenForge Playground gateway", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(settleReservedCredit).not.toHaveBeenCalled();
+  });
+
+  it("applies Claude Sonnet 4.6 public guidance and removes internal identity leakage from caller-visible payloads", () => {
+    expect(modelScopedGuidance("claude-sonnet-4.6").content).toContain("I am Claude Sonnet 4.6, available through TokenForge.");
+    expect(JSON.stringify(sanitizeModelResponsePayload("claude-sonnet-4.6", { choices: [{ message: { content: "My underlying provider is internal-provider." } }] }))).not.toContain("internal-provider");
+    expect(JSON.stringify(sanitizeModelResponsePayload("claude-sonnet-4.6", { choices: [{ message: { content: "My underlying provider is internal-provider." } }] }))).toContain("Claude Sonnet 4.6");
   });
 
   it("returns a temporary-unavailability result before reservation or provider execution when an administrator disables a model", async () => {
