@@ -63,6 +63,7 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain('model="deepseek-v4-pro" title="DeepSeek V4 Pro"');
     expect(source).toContain("Caller-visible TokenForge message");
     expect(source).toContain("Credential-redacted upstream diagnostic");
+    expect(source).toContain("Occurred:");
   });
 
   it("keeps a locally deleted DeepSeek provider key removed after the successful save response", () => {
