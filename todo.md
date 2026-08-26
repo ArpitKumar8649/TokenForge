@@ -453,3 +453,5 @@
 - [x] Extend neutral public error masking and administrator-only redacted diagnostic plus caller-message visibility to DeepSeek V4 Pro, Claude Fable 5, and GLM 5.3; assess and implement Claude Fable 5 multi-provider parity with Claude Opus 5.
 - [x] Add clear administrator-only timestamps to DeepSeek V4 Pro, Claude Fable 5, and GLM 5.3 failure histories while leaving Claude Opus 5 unchanged.
 - [x] Delete managed-model failure logs older than 28 hours through durable scheduled cleanup; add Qwen 3.8 Max multi-provider settings, public masking, metrics, and administrator diagnostics; present named provider groups as tabs within each model editor.
+- [x] Safely probe the supplied Qwen Gate Anthropic endpoint, then test streaming and supported Claude Code tool workflows in an isolated demo repository without changing TokenForge.
+- [x] Remove all NVIDIA NIM Render endpoint bridge controls, telemetry, diagnostics, persisted settings, and routing from Claude Opus 5 without affecting other provider groups.

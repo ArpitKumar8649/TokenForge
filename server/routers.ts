@@ -70,8 +70,6 @@ import {
   updateDeepseekV4ProProviderSettings,
   getQwen38MaxProviderSettings,
   updateQwen38MaxProviderSettings,
-  getRenderNimProxySwarmSettings,
-  updateRenderNimProxySwarmSettings,
   listAdminPreProvisionedAccounts,
   preProvisionAccountEmail,
 } from "./db";
@@ -166,15 +164,6 @@ const claudeOpus5ProviderSettingsInput = z.object({
     apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys"),
     removeSlots: z.array(z.number().int().positive()).max(50).optional(),
   })).min(1, "Keep at least one Claude Opus 5 provider").max(12, "At most 12 Claude Opus 5 providers may be configured"),
-});
-const renderNimProxySwarmSettingsInput = z.object({
-  enabled: z.boolean().optional(),
-  model: z.string().trim().min(1, "Enter a model ID").max(256),
-  endpoints: z.array(z.object({
-    id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, "Use letters, numbers, hyphens, or underscores for the endpoint ID"),
-    url: z.string().trim().url("Enter a valid HTTPS endpoint URL").max(512),
-    enabled: z.boolean().optional(),
-  })).min(1, "Keep at least one Render endpoint").max(6, "At most six Render endpoints may be configured"),
 });
 const glm53ProviderSettingsInput = z.object({
   baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(),
@@ -559,22 +548,6 @@ export const appRouter = router({
         return settings;
       } catch (error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "TokenForge could not save Claude Opus 5 provider settings" });
-      }
-    }),
-    renderNimProxySwarmSettings: adminProcedure.query(() => getRenderNimProxySwarmSettings()),
-    updateRenderNimProxySwarmSettings: adminProcedure.input(renderNimProxySwarmSettingsInput).mutation(async ({ ctx, input }) => {
-      try {
-        const settings = await updateRenderNimProxySwarmSettings({ ...input, endpoints: input.endpoints.map(endpoint => ({ ...endpoint, enabled: endpoint.enabled !== false })) }, ctx.user.id);
-        await writeAuditEvent({
-          actorUserId: ctx.user.id,
-          action: "provider.render_nim_proxy_swarm_updated",
-          entityType: "provider",
-          entityId: "render-nim-proxy-swarm",
-          metadata: { enabled: settings.enabled, endpointCount: input.endpoints.length },
-        });
-        return settings;
-      } catch (error) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "TokenForge could not save Render proxy swarm settings" });
       }
     }),
     glm53ProviderSettings: adminProcedure.query(() => getGlm53ProviderSettings()),

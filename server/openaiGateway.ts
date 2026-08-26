@@ -801,8 +801,6 @@ async function tryForwardClaudeOpus5ThroughRenderSwarm(input: ChatInput, signal:
 
 /** Claude Opus 5 balances each new call evenly across configured provider groups, then across eligible keys in that group. */
 async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: AbortSignal) {
-  const renderResponse = await tryForwardClaudeOpus5ThroughRenderSwarm(input, signal);
-  if (renderResponse) return renderResponse;
   const runtime = await getClaudeOpus5RuntimeConfig();
   const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeOpus5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
   claudeOpus5ProviderCursor = runtime.providers.length ? (claudeOpus5ProviderCursor + 1) % runtime.providers.length : 0;

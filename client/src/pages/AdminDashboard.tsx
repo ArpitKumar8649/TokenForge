@@ -296,8 +296,8 @@ function RenderNimProxySwarmCore({ enabled, model, endpoints, settings, loading,
 }
 
 function RenderNimProxySwarmPanel(props: Parameters<typeof RenderNimProxySwarmCore>[0]) {
-  const failureLogs = trpc.admin.claudeOpus5FailureLogs.useQuery(undefined, { refetchInterval: 5_000, refetchIntervalInBackground: false });
-  return <><ClaudeOpus5FailureHistory logs={failureLogs.data as ClaudeOpus5FailureLog[] | undefined} loading={failureLogs.isLoading} /><RenderNimProxySwarmCore {...props} /></>;
+  void props;
+  return null;
 }
 
 function AdminUsageChart({ usage, modelUsage, loading }: { usage: { day: string; requests: number; tokens: number }[]; modelUsage: AdminGlobalModelUsage[]; loading: boolean }) {
@@ -617,11 +617,14 @@ export default function AdminDashboard() {
   const fableSettings = trpc.admin.claudeFable5ProviderSettings.useQuery(undefined, { enabled: isAdminSession });
   const [opusProviderDrafts, setOpusProviderDrafts] = useState<ClaudeOpus5ProviderDraft[]>([]);
   const opusSettings = trpc.admin.claudeOpus5ProviderSettings.useQuery(undefined, { enabled: isAdminSession });
-  const [renderSwarmEnabled, setRenderSwarmEnabled] = useState(false);
-  const [renderSwarmModel, setRenderSwarmModel] = useState("");
-  const [renderSwarmEndpoints, setRenderSwarmEndpoints] = useState<{ id: string; url: string; enabled: boolean }[]>([]);
-  const [renderSwarmDraftInitialized, setRenderSwarmDraftInitialized] = useState(false);
-  const renderSwarmSettings = trpc.admin.renderNimProxySwarmSettings.useQuery(undefined, { enabled: isAdminSession, refetchInterval: 5_000, refetchIntervalInBackground: false });
+  const renderSwarmEnabled = false;
+  const renderSwarmModel = "";
+  const renderSwarmEndpoints: { id: string; url: string; enabled: boolean }[] = [];
+  const renderSwarmSettings = { data: undefined, isLoading: false };
+  const setRenderSwarmEnabled = (_value: boolean) => undefined;
+  const setRenderSwarmModel = (_value: string) => undefined;
+  const setRenderSwarmEndpoints = (_value: { id: string; url: string; enabled: boolean }[]) => undefined;
+  const saveRenderSwarmSettings = { isPending: false, mutate: (_value: unknown) => undefined };
   const [selectedProvider, setSelectedProvider] = useState<"claude-fable-5" | "claude-opus-5" | "glm-5.3" | "deepseek-v4-pro" | "qwen3.8-max">("claude-fable-5");
   useEffect(() => {
     const selector = document.getElementById("managed-provider-selector") as HTMLSelectElement | null;
@@ -694,7 +697,6 @@ export default function AdminDashboard() {
   useEffect(() => { if (announcement.data !== undefined) setAnnouncementText(announcement.data ?? ""); }, [announcement.data]);
   useEffect(() => { if (fableSettings.data) { const legacy = fableSettings.data as any; setFableProviderDrafts(fableSettings.data.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] }))); setFableBaseUrl(legacy.baseUrl ?? fableSettings.data.providers[0]?.baseUrl ?? ""); setFableModel(legacy.model ?? fableSettings.data.providers[0]?.model ?? ""); setFableApiKeys((legacy.apiKeyMasks ?? fableSettings.data.providers[0]?.apiKeyMasks ?? []).length ? (legacy.apiKeyMasks ?? fableSettings.data.providers[0]?.apiKeyMasks ?? []).map(() => "") : [""]); setFableRemovedSlots([]); } }, [fableSettings.data]);
   useEffect(() => { if (opusSettings.data) setOpusProviderDrafts(opusSettings.data.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] }))); }, [opusSettings.data]);
-  useEffect(() => { if (renderSwarmSettings.data && !renderSwarmDraftInitialized) { setRenderSwarmEnabled(renderSwarmSettings.data.enabled); setRenderSwarmModel(renderSwarmSettings.data.model); setRenderSwarmEndpoints(renderSwarmSettings.data.endpoints.map(endpoint => ({ id: endpoint.id, url: endpoint.url, enabled: endpoint.enabled }))); setRenderSwarmDraftInitialized(true); } }, [renderSwarmDraftInitialized, renderSwarmSettings.data]);
   useEffect(() => { if (glm53Settings.data) { setGlm53BaseUrl(glm53Settings.data.baseUrl); setGlm53Model(glm53Settings.data.model); setGlm53ApiKeys(glm53Settings.data.apiKeyMasks.length ? glm53Settings.data.apiKeyMasks.map(() => "") : [""]); setGlm53RemovedSlots([]); } }, [glm53Settings.data]);
   useEffect(() => { if (deepseekV4ProSettings.data) { setDeepseekV4ProBaseUrl(deepseekV4ProSettings.data.baseUrl); setDeepseekV4ProModel(deepseekV4ProSettings.data.model); setDeepseekV4ProApiKeys(deepseekV4ProSettings.data.apiKeyMasks.length ? deepseekV4ProSettings.data.apiKeyMasks.map(() => "") : [""]); setDeepseekV4ProRemovedSlots([]); } }, [deepseekV4ProSettings.data]);
   const saveFableSettings = trpc.admin.updateClaudeFable5ProviderSettings.useMutation({
@@ -703,10 +705,6 @@ export default function AdminDashboard() {
   });
   const saveOpusSettings = trpc.admin.updateClaudeOpus5ProviderSettings.useMutation({
     onSuccess: async () => { await Promise.all([utils.admin.claudeOpus5ProviderSettings.invalidate(), utils.admin.overview.invalidate(), utils.admin.activity.invalidate()]); toast.success("Claude Opus 5 load balancer updated"); },
-    onError: error => toast.error(error.message),
-  });
-  const saveRenderSwarmSettings = trpc.admin.updateRenderNimProxySwarmSettings.useMutation({
-    onSuccess: async () => { setRenderSwarmDraftInitialized(false); await Promise.all([utils.admin.renderNimProxySwarmSettings.invalidate(), utils.admin.activity.invalidate()]); toast.success("Render capacity bridge updated"); },
     onError: error => toast.error(error.message),
   });
   const saveGlm53Settings = trpc.admin.updateGlm53ProviderSettings.useMutation({
