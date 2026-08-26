@@ -86,6 +86,21 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("provider groups");
   });
 
+  it("adds an administrator-only Qwen model pool to Claude Opus with editable quotas and live retirement progress", () => {
+    expect(source).toContain("function ClaudeOpus5QwenModelPoolPanel");
+    expect(source).toContain("Claude Opus 5 · Qwen model-pool provider");
+    expect(source).toContain("Rotating model IDs");
+    expect(source).toContain("Retired at quota");
+    expect(source).toContain("Save Qwen model pool");
+    expect(source).toContain("Two active server-side API keys are required");
+    expect(source).toContain("never returned by Playground, OpenAI-compatible, or Anthropic-compatible responses");
+  });
+
+  it("lays overview metrics out as compact boxes on narrow screens rather than a single vertical list", () => {
+    expect(source).toContain('grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5');
+    expect(source).toContain('dashboard-card min-w-0 p-3 sm:p-4');
+  });
+
   it("keeps a locally deleted DeepSeek provider key removed after the successful save response", () => {
     expect(source).toContain("setInitialized(true);");
     expect(source).not.toContain("setInitialized(false);");

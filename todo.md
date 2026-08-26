@@ -457,3 +457,4 @@
 - [x] Remove all NVIDIA NIM Render endpoint bridge controls, telemetry, diagnostics, persisted settings, and routing from Claude Opus 5 without affecting other provider groups.
 - [x] Stop logging managed-provider empty-output and zero-output-token cases as administrator failures while retaining real upstream failure diagnostics.
 - [x] Restore the Claude Opus provider failure-history box for real provider errors while continuing to exclude empty-output and zero-output-token entries.
+- [x] Reflow administrator overview metrics into compact responsive boxes and add a Claude Opus Qwen provider with two-key support, rotating model IDs, editable administrator-only per-model billable-token totals and 1,000,000-token quotas, automatic retirement, and strict public upstream-ID masking.

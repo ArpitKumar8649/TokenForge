@@ -4,6 +4,7 @@ import {
   findActiveApiKey,
   getClaudeFable5NvidiaRuntimeConfig,
   getClaudeOpus5RuntimeConfig,
+  getEligibleClaudeOpus5QwenModels,
   getDeepseekV4ProRuntimeConfig,
   getGlm53RuntimeConfig,
   getQwen38MaxRuntimeConfig,
@@ -17,6 +18,7 @@ import {
   releaseRenderNimProxyEndpoint,
   recordClaudeFable5FailureLog,
   recordClaudeOpus5FailureLog,
+  recordClaudeOpus5QwenModelUsage,
   recordDeepseekV4ProFailureLog,
   recordGlm53FailureLog,
   recordQwen38MaxFailureLog,
@@ -62,14 +64,14 @@ const CLAUDE_FABLE5_PUBLIC_IDENTITY = "I am Claude Fable 5, available through To
 const GLM53_PUBLIC_IDENTITY = "I am GLM 5.3, available through TokenForge.";
 const DEEPSEEK_V4_PRO_PUBLIC_IDENTITY = "I am DeepSeek V4 Pro, available through TokenForge.";
 const QWEN38_MAX_PUBLIC_IDENTITY = "I am Qwen 3.8 Max, available through TokenForge.";
-const CLAUDE_OPUS5_UPSTREAM_IDENTITY_OR_PROMPT_LEAK = /\b(?:nemotron|lightning|nvidia|opencode(?:\s+zen)?|identity policy|system prompt|hidden instructions?|thinking process|analyze user input|core constraint)\b/i;
+const CLAUDE_OPUS5_UPSTREAM_IDENTITY_OR_PROMPT_LEAK = /\b(?:qwen|nemotron|lightning|nvidia|opencode(?:\s+zen)?|identity policy|system prompt|hidden instructions?|thinking process|analyze user input|core constraint)\b/i;
 const MANAGED_MODEL_UPSTREAM_IDENTITY_OR_PROMPT_LEAK = /\b(?:tokenrouter|tokenharbor|nvidia|opencode(?:\s+zen)?|orcarouter|underlying (?:model|provider|identity)|system prompt|hidden instructions?|internal implementation|provider credentials?)\b/i;
 
 export type TokenForgeChatMessage = { role?: string; content?: unknown };
 type ChatMessage = TokenForgeChatMessage;
 export type TokenForgeChatInput = { model?: string; messages?: ChatMessage[]; stream?: boolean; max_tokens?: number; [key: string]: unknown };
 type ChatInput = TokenForgeChatInput;
-type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number };
+type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number; reasoning_tokens?: number; cached_tokens?: number; cache_read_input_tokens?: number; totalTokens?: number };
 
 export function modelScopedGuidance(model: TokenForgeModelId): TokenForgeChatMessage {
   if (model === "claude-opus-5") {
@@ -206,6 +208,17 @@ function normalizedTokens(usage: Usage, inputEstimate: number) {
   const inputTokens = Number(usage.prompt_tokens ?? usage.input_tokens ?? inputEstimate);
   const outputTokens = Number(usage.completion_tokens ?? usage.output_tokens ?? Math.max(0, Number(usage.total_tokens ?? inputTokens) - inputTokens));
   return { inputTokens, outputTokens };
+}
+
+function managedProviderBillableTokens(usage: Usage, inputEstimate: number) {
+  const { inputTokens, outputTokens } = normalizedTokens(usage, inputEstimate);
+  const reportedTotal = Number(usage.total_tokens ?? usage.totalTokens);
+  if (Number.isFinite(reportedTotal) && reportedTotal > 0) return { inputTokens, outputTokens, totalTokens: Math.max(inputTokens + outputTokens, Math.trunc(reportedTotal)) };
+  const extras = [usage.reasoning_tokens, usage.cached_tokens, usage.cache_read_input_tokens]
+    .map(value => Number(value ?? 0))
+    .filter(value => Number.isFinite(value) && value > 0)
+    .reduce((total, value) => total + Math.trunc(value), 0);
+  return { inputTokens, outputTokens, totalTokens: Math.max(0, inputTokens + outputTokens + extras) };
 }
 
 /** A Claude Opus response with explicit zero output or no usable assistant output is a provider failure, never a successful caller response. */
@@ -508,10 +521,12 @@ async function forwardDedicatedDeepseekV4ProRequest(input: ChatInput, signal: Ab
 
 let claudeOpus5ProviderCursor = 0;
 const claudeOpus5KeyCursors = new Map<string, number>();
+const claudeOpus5QwenModelCursors = new Map<string, number>();
 
 export function resetClaudeOpus5ProviderBalancing() {
   claudeOpus5ProviderCursor = 0;
   claudeOpus5KeyCursors.clear();
+  claudeOpus5QwenModelCursors.clear();
 }
 
 function selectNextClaudeOpus5Credential(provider: { id: string; apiKeys: string[] }) {
@@ -528,6 +543,18 @@ function selectNextClaudeOpus5Credential(provider: { id: string; apiKeys: string
 
 function isBailuClaudeOpus5Provider(provider: { label: string }) {
   return provider.label.trim().toLowerCase() === "bailu";
+}
+
+function isQwenClaudeOpus5Provider(provider: { label: string }) {
+  return provider.label.trim().toLowerCase() === "qwen";
+}
+
+function selectNextClaudeOpus5QwenModel(providerId: string, models: Array<{ id: string; model: string; quotaTokens: number }>) {
+  if (!models.length) return null;
+  const index = claudeOpus5QwenModelCursors.get(providerId) ?? 0;
+  const selected = models[index % models.length]!;
+  claudeOpus5QwenModelCursors.set(providerId, (index + 1) % models.length);
+  return selected;
 }
 
 let renderNimProxyEndpointCursor = 0;
@@ -585,7 +612,7 @@ function wrapRenderResponseWithLease(response: globalThis.Response, endpointId: 
 }
 
 /** Record a provider stream failure after headers without treating a client cancellation as an upstream outage. */
-function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal) {
+function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal, onCompleteUsage?: (usage: Usage) => void) {
   if (!response.body || response.body.locked) return response;
   const reader = response.body.getReader();
   let recorded = false;
@@ -638,6 +665,7 @@ function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Resp
         const next = await reader.read();
         if (next.done) {
           writeNeutralBailuFailure(controller);
+          onCompleteUsage?.(finalUsage);
           return controller.close();
         }
         inspectSseChunk(next.value);
@@ -806,6 +834,27 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
     const configuredBase = provider.baseUrl.replace(/\/$/, "");
     const url = configuredBase?.endsWith("/chat/completions") ? configuredBase : configuredBase ? `${configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase}/v1`}/chat/completions` : null;
     if (!url || !provider.model) continue;
+    const qwenModel = isQwenClaudeOpus5Provider(provider)
+      ? selectNextClaudeOpus5QwenModel(provider.id, await getEligibleClaudeOpus5QwenModels(provider))
+      : null;
+    if (isQwenClaudeOpus5Provider(provider) && !qwenModel) {
+      lastError = new Error("Every active Qwen model entry has reached its configured token quota or is disabled.");
+      lastFailureStatus = 503;
+      continue;
+    }
+    const upstreamModel = qwenModel?.model ?? provider.model;
+    const recordQwenModelUsage = (usage: Usage) => {
+      if (!qwenModel) return;
+      const tokens = managedProviderBillableTokens(usage, estimateInputTokens(input.messages ?? []));
+      void recordClaudeOpus5QwenModelUsage({
+        providerGroupId: provider.id,
+        modelEntryId: qwenModel.id,
+        inputTokens: tokens.inputTokens,
+        outputTokens: tokens.outputTokens,
+        totalTokens: tokens.totalTokens,
+        quotaTokens: qwenModel.quotaTokens,
+      }).catch(() => undefined);
+    };
     for (let attempt = 0; attempt < provider.apiKeys.length; attempt += 1) {
       const selectedCredential = selectNextClaudeOpus5Credential(provider);
       if (!selectedCredential) break;
@@ -814,7 +863,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
         const response = await fetch(url, {
           method: "POST",
           headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
-          body: JSON.stringify({ ...input, model: provider.model }),
+          body: JSON.stringify({ ...input, model: upstreamModel }),
           signal: responseStart.signal,
         });
         responseStart.clear();
@@ -834,7 +883,10 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
           }
           recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
           void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
-          return wrapClaudeOpus5ProviderResponseWithFailureLog(response, provider, signal);
+          if (!input.stream && qwenModel) {
+            void response.clone().json().then(payload => recordQwenModelUsage(usageFrom(payload))).catch(() => undefined);
+          }
+          return wrapClaudeOpus5ProviderResponseWithFailureLog(response, provider, signal, qwenModel ? recordQwenModelUsage : undefined);
         }
         const retryable = retryableProviderStatus(response.status);
         const rawBody = await response.text().catch(() => "");
@@ -1274,7 +1326,8 @@ function stripGlm53RawReasoning(payload: unknown) {
  */
 function redactClaudeOpus5IdentityLeak(payload: unknown) {
   if (!payload || typeof payload !== "object") return payload;
-  const clone = JSON.parse(JSON.stringify(payload)) as { choices?: Array<{ message?: Record<string, unknown>; delta?: Record<string, unknown> }> };
+  const clone = JSON.parse(JSON.stringify(payload)) as { model?: unknown; choices?: Array<{ message?: Record<string, unknown>; delta?: Record<string, unknown> }> };
+  if ("model" in clone) clone.model = "claude-opus-5";
   for (const choice of clone.choices ?? []) {
     for (const segment of [choice.message, choice.delta]) {
       if (typeof segment?.content === "string" && CLAUDE_OPUS5_UPSTREAM_IDENTITY_OR_PROMPT_LEAK.test(segment.content)) {

@@ -26,6 +26,7 @@ import {
   platformSettings,
   preProvisionedAccounts,
   providerKeyMetrics,
+  managedProviderModelUsage,
   providerConfigs,
   renderProxyEndpointMetrics,
   referralAttributions,
@@ -1293,10 +1294,20 @@ export type ClaudeOpus5ProviderRuntime = {
   baseUrl: string;
   model: string;
   apiKeys: string[];
+  modelPool?: ClaudeOpus5QwenModelRuntime[];
+};
+
+export type ClaudeOpus5QwenModelRuntime = {
+  id: string;
+  model: string;
+  enabled: boolean;
+  quotaTokens: number;
 };
 
 export type ClaudeOpus5RuntimePayload = { providers: ClaudeOpus5ProviderRuntime[] };
 const MAX_CLAUDE_OPUS5_PROVIDERS = 12;
+export const CLAUDE_OPUS5_QWEN_DEFAULT_MODEL_TOKEN_QUOTA = 1_000_000;
+const MAX_CLAUDE_OPUS5_QWEN_MODELS = 50;
 
 export const RENDER_NIM_PROXY_MAX_CONCURRENT_REQUESTS = 7;
 const DEFAULT_RENDER_NIM_PROXY_ENDPOINTS = [
@@ -1606,6 +1617,28 @@ function normalizeClaudeOpus5ProviderId(value: unknown, fallback: string) {
   return /^[a-z0-9][a-z0-9_-]{0,63}$/.test(normalized) ? normalized : fallback;
 }
 
+function isClaudeOpus5QwenProvider(label: string) {
+  return label.trim().toLowerCase() === "qwen";
+}
+
+function normalizeClaudeOpus5QwenModelPool(value: unknown) {
+  if (!Array.isArray(value)) return [] as ClaudeOpus5QwenModelRuntime[];
+  const seen = new Set<string>();
+  return value.flatMap((candidate, index) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const raw = candidate as Partial<ClaudeOpus5QwenModelRuntime>;
+    const id = normalizeClaudeOpus5ProviderId(raw.id, `qwen-model-${index + 1}`);
+    const model = typeof raw.model === "string" ? raw.model.trim().slice(0, 256) : "";
+    const quotaCandidate = Number(raw.quotaTokens);
+    const quotaTokens = Number.isFinite(quotaCandidate)
+      ? Math.min(100_000_000, Math.max(1_000, Math.trunc(quotaCandidate)))
+      : CLAUDE_OPUS5_QWEN_DEFAULT_MODEL_TOKEN_QUOTA;
+    if (!model || seen.has(id)) return [];
+    seen.add(id);
+    return [{ id, model, enabled: raw.enabled !== false, quotaTokens }];
+  }).slice(0, MAX_CLAUDE_OPUS5_QWEN_MODELS);
+}
+
 function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5ProviderRuntime[]) {
   if (!Array.isArray(value)) return fallback;
   const seen = new Set<string>();
@@ -1619,18 +1652,90 @@ function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5Prov
       ? raw.apiKeys.map(key => typeof key === "string" ? key.trim() : "").filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS)
       : [];
     const baseUrl = typeof raw.baseUrl === "string" ? raw.baseUrl.trim() : "";
-    const model = typeof raw.model === "string" ? raw.model.trim() : "";
+    const label = typeof raw.label === "string" && raw.label.trim() ? raw.label.trim().slice(0, 80) : `Provider ${index + 1}`;
+    const modelPool = isClaudeOpus5QwenProvider(label) ? normalizeClaudeOpus5QwenModelPool(raw.modelPool) : [];
+    const model = (typeof raw.model === "string" ? raw.model.trim() : "") || modelPool[0]?.model || "";
     if (!baseUrl || !model || !apiKeys.length) return [];
     return [{
       id,
-      label: typeof raw.label === "string" && raw.label.trim() ? raw.label.trim().slice(0, 80) : `Provider ${index + 1}`,
+      label,
       enabled: raw.enabled !== false,
       baseUrl,
       model,
       apiKeys,
+      ...(modelPool.length ? { modelPool } : {}),
     }];
   }).slice(0, MAX_CLAUDE_OPUS5_PROVIDERS);
   return providers.length ? providers : fallback;
+}
+
+type ClaudeOpus5QwenModelUsage = {
+  modelEntryId: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  requestCount: number;
+  lastUsedAt: Date | null;
+  retiredAt: Date | null;
+};
+
+export async function getClaudeOpus5QwenModelUsage(providerGroupId: string) {
+  const db = await getDb();
+  if (!db) return new Map<string, ClaudeOpus5QwenModelUsage>();
+  const rows = await db.select().from(managedProviderModelUsage).where(and(
+    eq(managedProviderModelUsage.providerModelId, "claude-opus-5"),
+    eq(managedProviderModelUsage.providerGroupId, providerGroupId),
+  ));
+  return new Map(rows.map(row => [row.modelEntryId, {
+    modelEntryId: row.modelEntryId,
+    inputTokens: Number(row.inputTokens),
+    outputTokens: Number(row.outputTokens),
+    totalTokens: Number(row.totalTokens),
+    requestCount: Number(row.requestCount),
+    lastUsedAt: row.lastUsedAt ?? null,
+    retiredAt: row.retiredAt ?? null,
+  }]));
+}
+
+/** Returns only eligible encrypted Qwen model entries; this server-only helper is never exposed to callers. */
+export async function getEligibleClaudeOpus5QwenModels(provider: ClaudeOpus5ProviderRuntime) {
+  const pool = provider.modelPool ?? [];
+  const usage = await getClaudeOpus5QwenModelUsage(provider.id);
+  return pool.filter(entry => entry.enabled && (usage.get(entry.id)?.totalTokens ?? 0) < entry.quotaTokens);
+}
+
+/** Adds actual upstream billable tokens and marks an internal Qwen model entry retired once its configured quota is reached. */
+export async function recordClaudeOpus5QwenModelUsage(input: { providerGroupId: string; modelEntryId: string; inputTokens: number; outputTokens: number; totalTokens: number; quotaTokens: number; occurredAt?: Date }) {
+  const db = await getDb();
+  if (!db) return;
+  const inputTokens = Math.max(0, Math.trunc(input.inputTokens));
+  const outputTokens = Math.max(0, Math.trunc(input.outputTokens));
+  const totalTokens = Math.max(inputTokens + outputTokens, Math.trunc(input.totalTokens));
+  if (!input.providerGroupId || !input.modelEntryId || !totalTokens) return;
+  const occurredAt = input.occurredAt ?? new Date();
+  await db.insert(managedProviderModelUsage).values({
+    providerModelId: "claude-opus-5",
+    providerGroupId: input.providerGroupId,
+    modelEntryId: input.modelEntryId,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    requestCount: 1,
+    lastUsedAt: occurredAt,
+  }).onDuplicateKeyUpdate({ set: {
+    inputTokens: sql`${managedProviderModelUsage.inputTokens} + ${inputTokens}`,
+    outputTokens: sql`${managedProviderModelUsage.outputTokens} + ${outputTokens}`,
+    totalTokens: sql`${managedProviderModelUsage.totalTokens} + ${totalTokens}`,
+    requestCount: sql`${managedProviderModelUsage.requestCount} + 1`,
+    lastUsedAt: occurredAt,
+  } });
+  await db.update(managedProviderModelUsage).set({ retiredAt: occurredAt }).where(and(
+    eq(managedProviderModelUsage.providerModelId, "claude-opus-5"),
+    eq(managedProviderModelUsage.providerGroupId, input.providerGroupId),
+    eq(managedProviderModelUsage.modelEntryId, input.modelEntryId),
+    gte(managedProviderModelUsage.totalTokens, Math.max(1_000, Math.trunc(input.quotaTokens))),
+    isNull(managedProviderModelUsage.retiredAt),
+  ));
 }
 
 function claudeOpus5RuntimeFromEnvironment(): ClaudeOpus5RuntimePayload {
@@ -1692,22 +1797,45 @@ export async function getClaudeOpus5RuntimeConfig(): Promise<ClaudeOpus5RuntimeP
 export async function getClaudeOpus5ProviderSettings() {
   const runtime = await getClaudeOpus5RuntimeConfig();
   const override = await readClaudeOpus5RuntimeOverride();
+  const usageByProvider = new Map(await Promise.all(runtime.providers.filter(provider => isClaudeOpus5QwenProvider(provider.label)).map(async provider => [provider.id, await getClaudeOpus5QwenModelUsage(provider.id)] as const)));
   return {
-    providers: runtime.providers.map(provider => ({
-      id: provider.id,
-      label: provider.label,
-      enabled: provider.enabled,
-      baseUrl: provider.baseUrl,
-      model: provider.model,
-      apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
-    })),
+    providers: runtime.providers.map(provider => {
+      const usage = usageByProvider.get(provider.id);
+      return {
+        id: provider.id,
+        label: provider.label,
+        enabled: provider.enabled,
+        baseUrl: provider.baseUrl,
+        model: provider.model,
+        apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+        ...(isClaudeOpus5QwenProvider(provider.label) ? {
+          modelPool: (provider.modelPool ?? []).map(entry => {
+            const totals = usage?.get(entry.id);
+            const totalTokens = totals?.totalTokens ?? 0;
+            return {
+              id: entry.id,
+              model: entry.model,
+              enabled: entry.enabled,
+              quotaTokens: entry.quotaTokens,
+              inputTokens: totals?.inputTokens ?? 0,
+              outputTokens: totals?.outputTokens ?? 0,
+              totalTokens,
+              requestCount: totals?.requestCount ?? 0,
+              retired: totalTokens >= entry.quotaTokens,
+              retiredAt: totals?.retiredAt ?? null,
+              lastUsedAt: totals?.lastUsedAt ?? null,
+            };
+          }),
+        } : {}),
+      };
+    }),
     source: override ? "database" as const : "environment" as const,
     updatedAt: override?.updatedAt ?? null,
     updatedByUserId: override?.updatedByUserId ?? null,
   };
 }
 
-export async function updateClaudeOpus5ProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] }> }, updatedByUserId: number) {
+export async function updateClaudeOpus5ProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[]; modelPool?: Array<{ id: string; model: string; enabled?: boolean; quotaTokens?: number }> }> }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getClaudeOpus5RuntimeConfig();
@@ -1718,17 +1846,24 @@ export async function updateClaudeOpus5ProviderSettings(input: { providers: Arra
     const retainedKeys = (existing?.apiKeys ?? []).filter((_, keyIndex) => !removedSlots.has(keyIndex + 1));
     const patchedExistingKeys = retainedKeys.map((key, keyIndex) => submitted.apiKeys[keyIndex]?.trim() || key);
     const appendedKeys = submitted.apiKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
+    const id = normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`);
+    const label = submitted.label.trim() || `Provider ${index + 1}`;
+    const submittedPool = submitted.modelPool === undefined ? existing?.modelPool : submitted.modelPool;
+    const qwenPool = isClaudeOpus5QwenProvider(label)
+      ? normalizeClaudeOpus5QwenModelPool(submittedPool?.length ? submittedPool : [{ id: "qwen-model-1", model: submitted.model, enabled: true, quotaTokens: CLAUDE_OPUS5_QWEN_DEFAULT_MODEL_TOKEN_QUOTA }])
+      : [];
     return {
-      id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`),
-      label: submitted.label.trim() || `Provider ${index + 1}`,
+      id,
+      label,
       enabled: submitted.enabled !== false,
       baseUrl: submitted.baseUrl.trim(),
-      model: submitted.model.trim(),
+      model: submitted.model.trim() || qwenPool[0]?.model || "",
       apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
+      ...(qwenPool.length ? { modelPool: qwenPool } : {}),
     };
   });
   const ids = new Set(nextProviders.map(provider => provider.id));
-  if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length)) {
+  if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length || (isClaudeOpus5QwenProvider(provider.label) && provider.apiKeys.length < 2))) {
     throw new Error("Each Claude Opus 5 provider needs a unique identifier, base URL, model ID, and at least one API key");
   }
   const next: ClaudeOpus5RuntimePayload = { providers: nextProviders };

@@ -405,6 +405,32 @@ export const providerKeyMetrics = mysqlTable(
   ],
 );
 
+/**
+ * Administrator-only aggregate usage for internal model entries within a managed provider group.
+ * It stores opaque entry IDs rather than the upstream model identifier, which remains encrypted
+ * in the provider runtime setting and is never part of public gateway payloads.
+ */
+export const managedProviderModelUsage = mysqlTable(
+  "managed_provider_model_usage",
+  {
+    providerModelId: varchar("providerModelId", { length: 64 }).notNull(),
+    providerGroupId: varchar("providerGroupId", { length: 96 }).notNull(),
+    modelEntryId: varchar("modelEntryId", { length: 96 }).notNull(),
+    inputTokens: bigint("inputTokens", { mode: "number" }).default(0).notNull(),
+    outputTokens: bigint("outputTokens", { mode: "number" }).default(0).notNull(),
+    totalTokens: bigint("totalTokens", { mode: "number" }).default(0).notNull(),
+    requestCount: bigint("requestCount", { mode: "number" }).default(0).notNull(),
+    lastUsedAt: timestamp("lastUsedAt"),
+    retiredAt: timestamp("retiredAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("managed_provider_model_usage_entry_unique_idx").on(table.providerModelId, table.providerGroupId, table.modelEntryId),
+    index("managed_provider_model_usage_group_updated_idx").on(table.providerModelId, table.providerGroupId, table.updatedAt),
+  ],
+);
+
 /** Durable request-capacity and health telemetry for the administrator-authorized Render proxy endpoints. */
 export const renderProxyEndpointMetrics = mysqlTable(
   "render_proxy_endpoint_metrics",

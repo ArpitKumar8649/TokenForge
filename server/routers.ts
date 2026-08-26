@@ -163,6 +163,12 @@ const claudeOpus5ProviderSettingsInput = z.object({
     model: z.string().trim().min(1, "Enter a model ID").max(256),
     apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys"),
     removeSlots: z.array(z.number().int().positive()).max(50).optional(),
+    modelPool: z.array(z.object({
+      id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, "Use letters, numbers, hyphens, or underscores for the model entry ID"),
+      model: z.string().trim().min(1, "Enter a model ID").max(256),
+      enabled: z.boolean().optional(),
+      quotaTokens: z.number().int().min(1_000).max(100_000_000).optional(),
+    })).max(50, "A Qwen provider can contain at most 50 model IDs").optional(),
   })).min(1, "Keep at least one Claude Opus 5 provider").max(12, "At most 12 Claude Opus 5 providers may be configured"),
 });
 const glm53ProviderSettingsInput = z.object({

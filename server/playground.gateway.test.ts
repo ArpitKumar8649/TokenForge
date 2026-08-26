@@ -4,6 +4,7 @@ vi.mock("./db", () => ({
   findActiveApiKey: vi.fn(),
   getClaudeFable5NvidiaRuntimeConfig: vi.fn(),
   getClaudeOpus5RuntimeConfig: vi.fn(),
+  getEligibleClaudeOpus5QwenModels: vi.fn(),
   getDeepseekV4ProRuntimeConfig: vi.fn(),
   getGlm53RuntimeConfig: vi.fn(),
   getQwen38MaxRuntimeConfig: vi.fn(),
@@ -17,6 +18,7 @@ vi.mock("./db", () => ({
   loadOrcaRouterCredentialSlotCiphertexts: vi.fn(),
   recordClaudeFable5FailureLog: vi.fn(),
   recordClaudeOpus5FailureLog: vi.fn(),
+  recordClaudeOpus5QwenModelUsage: vi.fn(),
   recordDeepseekV4ProFailureLog: vi.fn(),
   recordGlm53FailureLog: vi.fn(),
   recordQwen38MaxFailureLog: vi.fn(),
@@ -31,7 +33,7 @@ vi.mock("./db", () => ({
   tryAcquireRenderNimProxyEndpoint: vi.fn(),
 }));
 
-import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
+import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, resetQwen38MaxProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
@@ -149,6 +151,7 @@ beforeEach(() => {
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
   vi.mocked(recordClaudeOpus5FailureLog).mockResolvedValue(undefined);
+  vi.mocked(recordClaudeOpus5QwenModelUsage).mockResolvedValue(undefined);
   vi.mocked(recordClaudeFable5FailureLog).mockResolvedValue(undefined);
   vi.mocked(recordDeepseekV4ProFailureLog).mockResolvedValue(undefined);
   vi.mocked(recordGlm53FailureLog).mockResolvedValue(undefined);
@@ -366,6 +369,35 @@ describe("TokenForge Playground gateway", () => {
       "Bearer provider-a-key-1",
     ]);
     expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body as string).model)).toEqual(["upstream-a", "upstream-b", "upstream-a", "upstream-b", "upstream-a"]);
+  });
+
+  it("rotates a Claude Opus Qwen provider across eligible internal model IDs and skips a quota-retired entry without exposing it publicly", async () => {
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
+      providers: [{ id: "qwen", label: "Qwen", enabled: true, baseUrl: "https://qwen-provider.example", model: "internal-qwen-a", apiKeys: ["qwen-key-1", "qwen-key-2"], modelPool: [
+        { id: "qwen-model-a", model: "internal-qwen-a", enabled: true, quotaTokens: 1_000_000 },
+        { id: "qwen-model-b", model: "internal-qwen-b", enabled: true, quotaTokens: 1_000_000 },
+      ] }],
+    });
+    vi.mocked(getEligibleClaudeOpus5QwenModels)
+      .mockResolvedValueOnce([{ id: "qwen-model-a", model: "internal-qwen-a", enabled: true, quotaTokens: 1_000_000 }, { id: "qwen-model-b", model: "internal-qwen-b", enabled: true, quotaTokens: 1_000_000 }])
+      .mockResolvedValueOnce([{ id: "qwen-model-a", model: "internal-qwen-a", enabled: true, quotaTokens: 1_000_000 }, { id: "qwen-model-b", model: "internal-qwen-b", enabled: true, quotaTokens: 1_000_000 }])
+      .mockResolvedValueOnce([{ id: "qwen-model-b", model: "internal-qwen-b", enabled: true, quotaTokens: 1_000_000 }]);
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: "A public Claude Opus answer." } }], usage: { prompt_tokens: 7, completion_tokens: 11, total_tokens: 23 } }), { status: 200, headers: { "content-type": "application/json" } })));
+    vi.stubGlobal("fetch", fetchMock);
+    const signal = new AbortController().signal;
+
+    const first = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "First." }] }, signal);
+    const second = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Second." }] }, signal);
+    const third = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Third." }] }, signal);
+    await Promise.all([first.text(), second.text(), third.text()]);
+    await Promise.resolve();
+
+    expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body as string).model)).toEqual(["internal-qwen-a", "internal-qwen-b", "internal-qwen-b"]);
+    expect(recordClaudeOpus5QwenModelUsage).toHaveBeenCalledWith(expect.objectContaining({ providerGroupId: "qwen", modelEntryId: "qwen-model-a", totalTokens: 23, quotaTokens: 1_000_000 }));
+    expect(recordClaudeOpus5QwenModelUsage).toHaveBeenCalledWith(expect.objectContaining({ providerGroupId: "qwen", modelEntryId: "qwen-model-b", totalTokens: 23, quotaTokens: 1_000_000 }));
+    const publicPayload = sanitizeModelResponsePayload("claude-opus-5", { model: "internal-qwen-a", choices: [{ message: { content: "qwen internal identity" } }] }) as { model?: string; choices?: Array<{ message?: { content?: string } }> };
+    expect(publicPayload.model).toBe("claude-opus-5");
+    expect(publicPayload.choices?.[0]?.message?.content).toBe("I am Claude Opus 5, available through TokenForge.");
   });
 
   it("excludes disabled Claude Opus 5 provider groups from equal-share routing and failover", async () => {
