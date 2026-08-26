@@ -147,4 +147,18 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).not.toContain("setInitialized(false);");
     expect(source).toContain("removedSlots: saved?.apiKeyMasks[keyIndex]?.slot");
   });
+
+  it("separates every managed model’s error history into configured provider-name tabs and exposes b.ai diagnostics only to administrators", () => {
+    expect(source).toContain("function ProviderScopedFailureHistory");
+    expect(source).toContain("providerLabels = Array.from(new Set(entries.map(entry => entry.sourceLabel)))");
+    expect(source).toContain('role="tablist"');
+    expect(source).toContain("`${title} failure providers`");
+    expect(source).toContain("entries.filter(entry => entry.sourceLabel === activeProvider)");
+    expect(source).toContain("function ProviderFailureLogEntry");
+    expect(source).toContain("function BaiDiagnosticViewer");
+    expect(source).toContain("b.ai diagnostic viewer");
+    expect(source).toContain("Name the configured provider group “b.ai”");
+    expect(source).toContain('<ProviderScopedFailureHistory model="claude-opus-5" title="Claude Opus 5" />');
+    expect(source).toContain('<ProviderScopedFailureHistory model={model} title={title} />');
+  });
 });

@@ -477,3 +477,6 @@
 - [x] Implement shared strict public JSON and SSE projection for all managed models so internal model IDs, provider metadata, fingerprints, reasoning, and unknown vendor fields cannot reach callers.
 - [x] Ensure every managed-model provider failure and stream error is converted to the neutral TokenForge error contract across Playground, OpenAI-compatible, and Anthropic Messages paths while retaining redacted administrator diagnostics.
 - [x] Research documented b.ai errors, map their caller-safe behavior, add cross-model disclosure regressions, validate TypeScript and focused suites, restart the server, and publish the hardening update.
+- [x] Add administrator-only b.ai diagnostic visibility using credential-redacted stored failure details that remain hidden from end users.
+- [x] Reorganize every managed model failure history into configured provider-name tabs so each tab contains only that provider group’s errors.
+- [x] Add provider-scoped diagnostics regressions, validate TypeScript and relevant suites, restart the server, publish the UI update, and explain a non-implemented failure-rate alert design.
