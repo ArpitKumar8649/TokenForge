@@ -119,6 +119,16 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("onAddProvider={id => setOpusProviderDrafts");
   });
 
+  it("routes saved Qwen trash actions through direct durable-deletion mutations", () => {
+    expect(source).toContain("trpc.admin.deleteClaudeOpus5QwenModel.useMutation");
+    expect(source).toContain("trpc.admin.deleteClaudeOpus5QwenApiKey.useMutation");
+    expect(source).toContain("Qwen model ID permanently deleted");
+    expect(source).toContain("Qwen API key permanently deleted");
+    expect(source).toContain("const requiredKeyCount = providerName === \"Claude Opus Qwen\" ? Math.max(2, minKeys) : minKeys;");
+    expect(source).toContain("deleteSavedModel.mutate({ providerId: provider.id, modelEntryId: id })");
+    expect(source).toContain("deleteSavedApiKey.mutate({ providerId: provider.id, slot });");
+  });
+
   it("lays overview metrics out as compact boxes on narrow screens rather than a single vertical list", () => {
     expect(source).toContain('grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5');
     expect(source).toContain('dashboard-card min-w-0 p-3 sm:p-4');

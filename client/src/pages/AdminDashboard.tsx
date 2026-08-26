@@ -10,7 +10,7 @@ import { TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
 import { trpc } from "@/lib/trpc";
 import { coalesceDailyUsage } from "../../../shared/usageSeries";
 import { Activity, AlertTriangle, ChartNoAxesCombined, Download, Gauge, KeyRound, Loader2, LogOut, Mail, Megaphone, Plus, Power, RefreshCw, Search, ServerCog, ShieldAlert, Trash2, UsersRound, WalletCards } from "lucide-react";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 type AdminAccount = {
@@ -73,8 +73,10 @@ function Toggle({ label, enabled, onChange, pending }: { label: string; enabled:
   </div>;
 }
 
-function DynamicProviderKeyPool({ providerName, values, masks, onChange, onRemove, onAdd, disabled }: { providerName: string; values: string[]; masks: { slot: number; value: string }[]; onChange: (index: number, value: string) => void; onRemove: (index: number) => void; onAdd: () => void; disabled?: boolean }) {
-  return <div><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold text-[#dedfe7]">API keys</p><p className="mt-1 text-[10px] leading-5 text-[#858697]">Saved rows rotate in round-robin. Use the bin to remove a saved key from the active pool; at least one key must remain.</p></div><Badge className="border-0 bg-[#c9ff73]/10 text-[10px] text-[#c9ff73]">{values.length}/50 active slots</Badge></div><div className="mt-3 grid gap-2">{values.map((value, index) => <div key={`${masks[index]?.slot ?? "new"}-${index}`} className="grid gap-2 sm:grid-cols-[5rem_minmax(0,1fr)_2.25rem] sm:items-center"><span className="text-[10px] font-bold uppercase tracking-[.12em] text-[#858697]">Key {index + 1}</span><Input type="password" value={value} onChange={event => onChange(index, event.target.value)} placeholder={masks[index]?.value ?? "Enter a new server-only API key"} className="border-white/10 bg-black/15 font-mono text-xs placeholder:text-[#9b9dac]" autoComplete="new-password" disabled={disabled} /><Button type="button" size="icon" variant="outline" className="h-9 border-red-300/20 text-red-200 hover:bg-red-400/10 hover:text-red-100" aria-label={`Remove ${providerName} API key ${index + 1}`} title={values.length <= 1 ? "At least one key is required" : `Remove key ${index + 1}`} onClick={() => onRemove(index)} disabled={disabled || values.length <= 1}><Trash2 size={14} /></Button></div>)}</div><Button type="button" size="sm" variant="outline" className="mt-3 border-[#c9ff73]/25 text-[#c9ff73] hover:bg-[#c9ff73]/10 hover:text-[#d8ff91]" onClick={onAdd} disabled={disabled || values.length >= 50}><Plus size={14} /> Add API key</Button></div>;
+function DynamicProviderKeyPool({ providerName, values, masks, onChange, onRemove, onAdd, disabled, minKeys = 1 }: { providerName: string; values: string[]; masks: { slot: number; value: string }[]; onChange: (index: number, value: string) => void; onRemove: (index: number) => void; onAdd: () => void; disabled?: boolean; minKeys?: number }) {
+  const requiredKeyCount = providerName === "Claude Opus Qwen" ? Math.max(2, minKeys) : minKeys;
+  const canRemove = values.length > requiredKeyCount;
+  return <div><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-semibold text-[#dedfe7]">API keys</p><p className="mt-1 text-[10px] leading-5 text-[#858697]">Saved rows rotate in round-robin. Use the bin to permanently remove a saved key from the active pool; at least {requiredKeyCount} key{requiredKeyCount === 1 ? "" : "s"} must remain.</p></div><Badge className="border-0 bg-[#c9ff73]/10 text-[10px] text-[#c9ff73]">{values.length}/50 active slots</Badge></div><div className="mt-3 grid gap-2">{values.map((value, index) => <div key={`${masks[index]?.slot ?? "new"}-${index}`} className="grid gap-2 sm:grid-cols-[5rem_minmax(0,1fr)_2.25rem] sm:items-center"><span className="text-[10px] font-bold uppercase tracking-[.12em] text-[#858697]">Key {index + 1}</span><Input type="password" value={value} onChange={event => onChange(index, event.target.value)} placeholder={masks[index]?.value ?? "Enter a new server-only API key"} className="border-white/10 bg-black/15 font-mono text-xs placeholder:text-[#9b9dac]" autoComplete="new-password" disabled={disabled} /><Button type="button" size="icon" variant="outline" className="h-9 border-red-300/20 text-red-200 hover:bg-red-400/10 hover:text-red-100" aria-label={`Remove ${providerName} API key ${index + 1}`} title={canRemove ? `Remove key ${index + 1}` : `At least ${requiredKeyCount} active key${requiredKeyCount === 1 ? "" : "s"} are required`} onClick={() => onRemove(index)} disabled={disabled || !canRemove}><Trash2 size={14} /></Button></div>)}</div><Button type="button" size="sm" variant="outline" className="mt-3 border-[#c9ff73]/25 text-[#c9ff73] hover:bg-[#c9ff73]/10 hover:text-[#d8ff91]" onClick={onAdd} disabled={disabled || values.length >= 50}><Plus size={14} /> Add API key</Button></div>;
 }
 
 type ManagedProviderSettingsData = { baseUrl: string; model: string; apiKeyMasks: { slot: number; value: string }[]; source: "database" | "environment" };
@@ -191,6 +193,7 @@ function ClaudeOpus5QwenModelPoolPanel() {
   const [removedSlots, setRemovedSlots] = useState<number[]>([]);
   const [models, setModels] = useState<ClaudeOpus5QwenModelDraft[]>([]);
   const [removedModelIds, setRemovedModelIds] = useState<string[]>([]);
+  const pendingQwenKeyDeletionSlots = useRef<number[]>([]);
   const provider = (settings.data?.providers as ClaudeOpus5ProviderSettingsData[] | undefined)?.find(item => item.label.trim().toLowerCase() === "qwen");
   useEffect(() => {
     if (!settings.data || initialized) return;
@@ -226,8 +229,38 @@ function ClaudeOpus5QwenModelPoolPanel() {
     },
     onError: error => toast.error(error.message),
   });
+  const deleteSavedModel = trpc.admin.deleteClaudeOpus5QwenModel.useMutation({
+    onSuccess: async (_settings, input) => {
+      setRemovedModelIds(current => current.includes(input.modelEntryId) ? current : [...current, input.modelEntryId]);
+      setModels(current => current.filter(entry => entry.id !== input.modelEntryId));
+      await Promise.all([utils.admin.claudeOpus5ProviderSettings.invalidate(), utils.admin.claudeOpus5FailureLogs.invalidate(), utils.admin.overview.invalidate(), utils.admin.activity.invalidate()]);
+      toast.success("Qwen model ID permanently deleted");
+    },
+    onError: error => toast.error(error.message),
+  });
+  const deleteSavedApiKey = trpc.admin.deleteClaudeOpus5QwenApiKey.useMutation({
+    onSuccess: async () => {
+      pendingQwenKeyDeletionSlots.current = [];
+      setRemovedSlots([]);
+      await Promise.all([utils.admin.claudeOpus5ProviderSettings.invalidate(), utils.admin.overview.invalidate(), utils.admin.activity.invalidate()]);
+      toast.success("Qwen API key permanently deleted");
+    },
+    onError: error => {
+      pendingQwenKeyDeletionSlots.current = [];
+      setRemovedSlots([]);
+      toast.error(error.message);
+    },
+  });
+  useEffect(() => {
+    if (!provider || deleteSavedApiKey.isPending) return;
+    const slot = removedSlots.find(candidate => !pendingQwenKeyDeletionSlots.current.includes(candidate));
+    if (!slot) return;
+    pendingQwenKeyDeletionSlots.current.push(slot);
+    deleteSavedApiKey.mutate({ providerId: provider.id, slot });
+  }, [deleteSavedApiKey, provider, removedSlots]);
   const updateModel = (id: string, update: (current: ClaudeOpus5QwenModelDraft) => ClaudeOpus5QwenModelDraft) => setModels(current => current.map(item => item.id === id ? update(item) : item));
-  const valid = Boolean(baseUrl.trim() && models.length && models.every(item => item.model.trim() && item.quotaTokens >= 1_000) && (provider?.apiKeyMasks.length ?? 0) + apiKeys.filter(Boolean).length >= 2);
+  const configuredQwenKeyCount = Math.max(0, (provider?.apiKeyMasks.length ?? 0) - removedSlots.length);
+  const valid = Boolean(baseUrl.trim() && models.length && models.every(item => item.model.trim() && item.quotaTokens >= 1_000) && configuredQwenKeyCount + apiKeys.filter(Boolean).length >= 2);
   const otherProviders = ((settings.data?.providers ?? []) as ClaudeOpus5ProviderSettingsData[]).filter(item => item.label.trim().toLowerCase() !== "qwen").map(item => ({ id: item.id, label: item.label, enabled: item.enabled, baseUrl: item.baseUrl, model: item.model, apiKeys: item.apiKeyMasks.map(() => ""), removeSlots: [] }));
   const savePool = () => save.mutate({ providers: [...otherProviders, {
     id: provider?.id ?? "qwen",
@@ -239,8 +272,12 @@ function ClaudeOpus5QwenModelPoolPanel() {
     removeSlots: removedSlots,
     modelPool: models.map(item => ({ id: item.id, model: item.model, enabled: item.enabled, quotaTokens: item.quotaTokens })),
   }] });
-  const disabled = settings.isLoading || save.isPending;
+  const disabled = settings.isLoading || save.isPending || deleteSavedModel.isPending || deleteSavedApiKey.isPending;
   const removeModel = (id: string) => {
+    if (provider?.modelPool?.some(entry => entry.id === id)) {
+      deleteSavedModel.mutate({ providerId: provider.id, modelEntryId: id });
+      return;
+    }
     setRemovedModelIds(current => current.includes(id) ? current : [...current, id]);
     setModels(current => current.filter(entry => entry.id !== id));
   };

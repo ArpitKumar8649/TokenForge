@@ -64,6 +64,8 @@ import {
   getRecentQwen38MaxFailureLogs,
   getClaudeOpus5ProviderSettings,
   updateClaudeOpus5ProviderSettings,
+  deleteClaudeOpus5QwenApiKey,
+  deleteClaudeOpus5QwenModel,
   getGlm53ProviderSettings,
   updateGlm53ProviderSettings,
   getDeepseekV4ProProviderSettings,
@@ -170,6 +172,14 @@ const claudeOpus5ProviderSettingsInput = z.object({
       quotaTokens: z.number().int().min(1_000).max(100_000_000).optional(),
     })).max(50, "A Qwen provider can contain at most 50 model IDs").optional(),
   })).min(1, "Keep at least one Claude Opus 5 provider").max(12, "At most 12 Claude Opus 5 providers may be configured"),
+});
+const claudeOpus5QwenModelDeleteInput = z.object({
+  providerId: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i),
+  modelEntryId: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i),
+});
+const claudeOpus5QwenApiKeyDeleteInput = z.object({
+  providerId: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i),
+  slot: z.number().int().positive(),
 });
 const glm53ProviderSettingsInput = z.object({
   baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(),
@@ -554,6 +564,24 @@ export const appRouter = router({
         return settings;
       } catch (error) {
         throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "TokenForge could not save Claude Opus 5 provider settings" });
+      }
+    }),
+    deleteClaudeOpus5QwenModel: adminProcedure.input(claudeOpus5QwenModelDeleteInput).mutation(async ({ ctx, input }) => {
+      try {
+        const settings = await deleteClaudeOpus5QwenModel(input, ctx.user.id);
+        await writeAuditEvent({ actorUserId: ctx.user.id, action: "provider.claude_opus5.qwen_model_deleted", entityType: "provider", entityId: input.providerId, metadata: { modelEntryId: input.modelEntryId } });
+        return settings;
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "TokenForge could not delete the Qwen model" });
+      }
+    }),
+    deleteClaudeOpus5QwenApiKey: adminProcedure.input(claudeOpus5QwenApiKeyDeleteInput).mutation(async ({ ctx, input }) => {
+      try {
+        const settings = await deleteClaudeOpus5QwenApiKey(input, ctx.user.id);
+        await writeAuditEvent({ actorUserId: ctx.user.id, action: "provider.claude_opus5.qwen_key_deleted", entityType: "provider", entityId: input.providerId, metadata: { slot: input.slot } });
+        return settings;
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "TokenForge could not delete the Qwen API key" });
       }
     }),
     glm53ProviderSettings: adminProcedure.query(() => getGlm53ProviderSettings()),

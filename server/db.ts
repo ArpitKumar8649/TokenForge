@@ -1669,6 +1669,36 @@ function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5Prov
   return providers.length ? providers : fallback;
 }
 
+export function removeClaudeOpus5QwenModelFromRuntime(runtime: ClaudeOpus5RuntimePayload, providerId: string, modelEntryId: string): ClaudeOpus5RuntimePayload {
+  const provider = runtime.providers.find(candidate => candidate.id === providerId && isClaudeOpus5QwenProvider(candidate.label));
+  if (!provider) throw new Error("Qwen provider configuration was not found");
+  const pool = provider.modelPool ?? [];
+  if (!pool.some(entry => entry.id === modelEntryId)) throw new Error("Qwen model entry was not found");
+  if (pool.length <= 1) throw new Error("Keep at least one Qwen model ID in the pool");
+  const nextPool = pool.filter(entry => entry.id !== modelEntryId);
+  return { providers: runtime.providers.map(candidate => candidate.id === provider.id ? {
+    ...candidate,
+    model: nextPool[0]!.model,
+    modelPool: nextPool,
+  } : candidate) };
+}
+
+export function removeClaudeOpus5QwenApiKeyFromRuntime(runtime: ClaudeOpus5RuntimePayload, providerId: string, slot: number): { runtime: ClaudeOpus5RuntimePayload; removedApiKey: string } {
+  const provider = runtime.providers.find(candidate => candidate.id === providerId && isClaudeOpus5QwenProvider(candidate.label));
+  if (!provider) throw new Error("Qwen provider configuration was not found");
+  const keyIndex = Math.trunc(slot) - 1;
+  const removedApiKey = provider.apiKeys[keyIndex];
+  if (!removedApiKey) throw new Error("Qwen API-key slot was not found");
+  if (provider.apiKeys.length <= 2) throw new Error("Keep at least two active Qwen API keys");
+  return {
+    removedApiKey,
+    runtime: { providers: runtime.providers.map(candidate => candidate.id === provider.id ? {
+      ...candidate,
+      apiKeys: candidate.apiKeys.filter((_, index) => index !== keyIndex),
+    } : candidate) },
+  };
+}
+
 type ClaudeOpus5QwenModelUsage = {
   modelEntryId: string;
   inputTokens: number;
@@ -1877,6 +1907,52 @@ export async function updateClaudeOpus5ProviderSettings(input: { providers: Arra
     value: JSON.stringify(encrypted),
     updatedByUserId,
   }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+  return getClaudeOpus5ProviderSettings();
+}
+
+export async function deleteClaudeOpus5QwenModel(input: { providerId: string; modelEntryId: string }, updatedByUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const current = await getClaudeOpus5RuntimeConfig();
+  const next = removeClaudeOpus5QwenModelFromRuntime(current, input.providerId, input.modelEntryId);
+  const encrypted = encryptProviderRuntimeConfig(next);
+  await db.transaction(async tx => {
+    await tx.insert(platformSettings).values({
+      settingKey: CLAUDE_OPUS5_TOKENREPLY_RUNTIME_SETTING_KEY,
+      value: JSON.stringify(encrypted),
+      updatedByUserId,
+    }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+    await tx.delete(managedProviderModelUsage).where(and(
+      eq(managedProviderModelUsage.providerModelId, "claude-opus-5"),
+      eq(managedProviderModelUsage.providerGroupId, input.providerId),
+      eq(managedProviderModelUsage.modelEntryId, input.modelEntryId),
+    ));
+    await tx.delete(claudeOpus5FailureLogs).where(and(
+      eq(claudeOpus5FailureLogs.modelId, "claude-opus-5"),
+      eq(claudeOpus5FailureLogs.sourceId, `qwen:${input.modelEntryId}`),
+    ));
+  });
+  return getClaudeOpus5ProviderSettings();
+}
+
+export async function deleteClaudeOpus5QwenApiKey(input: { providerId: string; slot: number }, updatedByUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const current = await getClaudeOpus5RuntimeConfig();
+  const { runtime, removedApiKey } = removeClaudeOpus5QwenApiKeyFromRuntime(current, input.providerId, input.slot);
+  const encrypted = encryptProviderRuntimeConfig(runtime);
+  const fingerprint = managedProviderCredentialFingerprint("claude-opus-5", removedApiKey, input.providerId);
+  await db.transaction(async tx => {
+    await tx.insert(platformSettings).values({
+      settingKey: CLAUDE_OPUS5_TOKENREPLY_RUNTIME_SETTING_KEY,
+      value: JSON.stringify(encrypted),
+      updatedByUserId,
+    }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+    await tx.delete(providerKeyMetrics).where(and(
+      eq(providerKeyMetrics.providerModelId, "claude-opus-5"),
+      eq(providerKeyMetrics.credentialFingerprint, fingerprint),
+    ));
+  });
   return getClaudeOpus5ProviderSettings();
 }
 

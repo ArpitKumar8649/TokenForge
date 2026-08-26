@@ -466,3 +466,6 @@
 - [x] Fix Claude Opus Qwen model-pool deletion so removed entries are persisted and do not return after a reload.
 - [x] Fix Claude Opus generic provider creation so administrators can add, configure, save, and reload new non-Qwen provider groups.
 - [x] Add focused persistence regressions, validate TypeScript and relevant suites, restart the server, and publish the administrator workflow fixes.
+- [x] Make saved Qwen model-pool deletion explicitly remove the model entry from encrypted Claude Opus provider configuration in the database.
+- [x] Make saved Qwen API-key deletion explicitly remove the selected encrypted key slot from database configuration while enforcing the two-active-key minimum.
+- [x] Add durable deletion regressions, validate TypeScript and relevant suites, restart the server, and publish the completed fix.
