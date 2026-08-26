@@ -94,6 +94,10 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("Save Qwen model pool");
     expect(source).toContain("Two active server-side API keys are required");
     expect(source).toContain("never returned by Playground, OpenAI-compatible, or Anthropic-compatible responses");
+    expect(source).toContain("return [...mergedSaved, ...unsavedDrafts]");
+    expect(source).toContain('filter(provider => provider.label.trim().toLowerCase() !== "qwen")');
+    expect(source).toContain('className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/8"');
+    expect(source).toContain("Add model ID");
   });
 
   it("lays overview metrics out as compact boxes on narrow screens rather than a single vertical list", () => {

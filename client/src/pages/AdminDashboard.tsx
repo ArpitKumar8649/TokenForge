@@ -201,10 +201,15 @@ function ClaudeOpus5QwenModelPoolPanel() {
     const current = (settings.data.providers as ClaudeOpus5ProviderSettingsData[]).find(item => item.label.trim().toLowerCase() === "qwen");
     const livePool = current?.modelPool ?? [];
     if (!livePool.length) return;
-    setModels(previous => previous.map(draft => {
-      const live = livePool.find(item => item.id === draft.id);
-      return live ? { ...draft, totalTokens: live.totalTokens, requestCount: live.requestCount, retired: live.retired, retiredAt: live.retiredAt, lastUsedAt: live.lastUsedAt } : draft;
-    }));
+    setModels(previous => {
+      const fromLive = (live: ClaudeOpus5QwenModelSetting): ClaudeOpus5QwenModelDraft => ({ id: live.id, model: live.model, enabled: live.enabled, quotaTokens: live.quotaTokens, totalTokens: live.totalTokens, requestCount: live.requestCount, retired: live.retired, retiredAt: live.retiredAt, lastUsedAt: live.lastUsedAt });
+      const mergedSaved = livePool.map(live => {
+        const draft = previous.find(item => item.id === live.id);
+        return draft ? { ...draft, totalTokens: live.totalTokens, requestCount: live.requestCount, retired: live.retired, retiredAt: live.retiredAt, lastUsedAt: live.lastUsedAt } : fromLive(live);
+      });
+      const unsavedDrafts = previous.filter(draft => !livePool.some(live => live.id === draft.id));
+      return [...mergedSaved, ...unsavedDrafts];
+    });
   }, [initialized, settings.data]);
   const save = trpc.admin.updateClaudeOpus5ProviderSettings.useMutation({
     onSuccess: async () => {
@@ -754,7 +759,7 @@ export default function AdminDashboard() {
   useEffect(() => { setAccountPage(1); }, [deferredAccountSearch, accountSort, accountStatus]);
   useEffect(() => { if (announcement.data !== undefined) setAnnouncementText(announcement.data ?? ""); }, [announcement.data]);
   useEffect(() => { if (fableSettings.data) { const legacy = fableSettings.data as any; setFableProviderDrafts(fableSettings.data.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] }))); setFableBaseUrl(legacy.baseUrl ?? fableSettings.data.providers[0]?.baseUrl ?? ""); setFableModel(legacy.model ?? fableSettings.data.providers[0]?.model ?? ""); setFableApiKeys((legacy.apiKeyMasks ?? fableSettings.data.providers[0]?.apiKeyMasks ?? []).length ? (legacy.apiKeyMasks ?? fableSettings.data.providers[0]?.apiKeyMasks ?? []).map(() => "") : [""]); setFableRemovedSlots([]); } }, [fableSettings.data]);
-  useEffect(() => { if (opusSettings.data) setOpusProviderDrafts(opusSettings.data.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] }))); }, [opusSettings.data]);
+  useEffect(() => { if (opusSettings.data) setOpusProviderDrafts(opusSettings.data.providers.filter(provider => provider.label.trim().toLowerCase() !== "qwen").map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] }))); }, [opusSettings.data]);
   useEffect(() => { if (glm53Settings.data) { setGlm53BaseUrl(glm53Settings.data.baseUrl); setGlm53Model(glm53Settings.data.model); setGlm53ApiKeys(glm53Settings.data.apiKeyMasks.length ? glm53Settings.data.apiKeyMasks.map(() => "") : [""]); setGlm53RemovedSlots([]); } }, [glm53Settings.data]);
   useEffect(() => { if (deepseekV4ProSettings.data) { setDeepseekV4ProBaseUrl(deepseekV4ProSettings.data.baseUrl); setDeepseekV4ProModel(deepseekV4ProSettings.data.model); setDeepseekV4ProApiKeys(deepseekV4ProSettings.data.apiKeyMasks.length ? deepseekV4ProSettings.data.apiKeyMasks.map(() => "") : [""]); setDeepseekV4ProRemovedSlots([]); } }, [deepseekV4ProSettings.data]);
   const saveFableSettings = trpc.admin.updateClaudeFable5ProviderSettings.useMutation({

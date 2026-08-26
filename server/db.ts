@@ -1862,6 +1862,10 @@ export async function updateClaudeOpus5ProviderSettings(input: { providers: Arra
       ...(qwenPool.length ? { modelPool: qwenPool } : {}),
     };
   });
+  const submittedProviderIds = new Set(nextProviders.map(provider => provider.id));
+  for (const provider of current.providers) {
+    if (isClaudeOpus5QwenProvider(provider.label) && !submittedProviderIds.has(provider.id)) nextProviders.push(provider);
+  }
   const ids = new Set(nextProviders.map(provider => provider.id));
   if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length || (isClaudeOpus5QwenProvider(provider.label) && provider.apiKeys.length < 2))) {
     throw new Error("Each Claude Opus 5 provider needs a unique identifier, base URL, model ID, and at least one API key");
