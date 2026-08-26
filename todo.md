@@ -460,3 +460,6 @@
 - [x] Reflow administrator overview metrics into compact responsive boxes and add a Claude Opus Qwen provider with two-key support, rotating model IDs, editable administrator-only per-model billable-token totals and 1,000,000-token quotas, automatic retirement, and strict public upstream-ID masking.
 - [x] Fix Qwen model-pool drafts so all added model IDs remain visible and editable; remove Qwen from generic Claude Opus provider tabs; improve per-model 1,000,000-token quota progress bars for variable pool sizes.
 - [x] Record Claude Opus Qwen zero-output outcomes with their failing internal model-entry ID and add a separate real-time scrollable Qwen failure panel with timestamps, credential-redacted diagnostics, and the exact neutral caller-visible message.
+- [x] Remove GLM 5.3's 82-request per-key retirement limit and retain normal enabled-provider rotation without automatic model shutdown.
+- [x] Ensure every GLM 5.3 provider failure path returns only the neutral TokenForge envelope to Playground, OpenAI-compatible, Anthropic Messages, JSON, and SSE callers while retaining credential-redacted diagnostics for administrators.
+- [x] Add focused GLM 5.3 regression coverage, verify TypeScript and relevant tests, restart the server, and publish the completed update.

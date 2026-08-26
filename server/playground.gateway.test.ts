@@ -10,7 +10,6 @@ vi.mock("./db", () => ({
   getQwen38MaxRuntimeConfig: vi.fn(),
   getRenderNimProxyRuntimeConfig: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
-  isCappedManagedProviderMetricModel: vi.fn((modelId: string) => modelId === "glm-5.3"),
   PLATFORM_MAINTENANCE_ERROR_MESSAGE: "Site entered in maintainence mode due to massive request.",
   getQuotaStatus: vi.fn(),
   getModelAvailabilitySnapshot: vi.fn(),
@@ -25,7 +24,6 @@ vi.mock("./db", () => ({
   recordManagedProviderKeyOutcome: vi.fn(),
   releaseRenderNimProxyEndpoint: vi.fn(),
   recordUsage: vi.fn(),
-  reserveCappedManagedProviderCredentialRequest: vi.fn(),
   reserveCredit: vi.fn(),
   sanitizeRenderNimProxyFailureMessage: vi.fn((value: unknown) => typeof value === "string" ? value.replace(/Bearer\s+\S+/gi, "Bearer [redacted]") : "Upstream request failed."),
   settleReservedCredit: vi.fn(),
@@ -33,7 +31,7 @@ vi.mock("./db", () => ({
   tryAcquireRenderNimProxyEndpoint: vi.fn(),
 }));
 
-import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
+import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCredit, settleReservedCredit } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, resetQwen38MaxProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
@@ -112,7 +110,6 @@ beforeEach(() => {
   process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL = "upstream-claude-opus-5";
   process.env.TOKENROUTER_GLM53_MODEL = "upstream-glm-5.3-model";
   vi.mocked(getPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
-  vi.mocked(reserveCappedManagedProviderCredentialRequest).mockResolvedValue({ allowed: true, exhausted: false });
   vi.mocked(getClaudeFable5NvidiaRuntimeConfig).mockResolvedValue({ providers: [{ id: "primary", label: "Primary provider", enabled: true, baseUrl: "https://nvidia.example", model: "upstream-nvidia-claude-fable-5-model", apiKeys: ["server-only-nvidia-fable5-secret-1", "server-only-nvidia-fable5-secret-2", "server-only-nvidia-fable5-secret-3", "server-only-nvidia-fable5-secret-4", "server-only-nvidia-fable5-secret-5"] }] });
   vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
     providers: [{
@@ -552,7 +549,7 @@ describe("TokenForge Playground gateway", () => {
     expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "deepseek-v4-pro", status: "success", inputTokens: 10, outputTokens: 20 }));
   });
 
-  it("balances DeepSeek V4 Pro equally across enabled provider groups without reserving an 82-request slot", async () => {
+  it("balances DeepSeek V4 Pro equally across enabled provider groups", async () => {
     vi.mocked(getDeepseekV4ProRuntimeConfig).mockResolvedValue({
       providers: [
         { id: "provider-a", label: "Provider A", enabled: true, baseUrl: "https://deepseek-a.example", model: "upstream-a", apiKeys: ["deepseek-a-key"] },
@@ -569,7 +566,6 @@ describe("TokenForge Playground gateway", () => {
       "https://deepseek-a.example/v1/chat/completions",
       "https://deepseek-b.example/v1/chat/completions",
     ]);
-    expect(vi.mocked(reserveCappedManagedProviderCredentialRequest)).not.toHaveBeenCalled();
   });
 
   it("records raw credential-redacted DeepSeek provider HTTP failures with the responsible provider group", async () => {
@@ -855,6 +851,41 @@ describe("TokenForge Playground gateway", () => {
     expect(forwardedPayload).toMatchObject({ model: "managed-glm-upstream-model", stream: false });
     expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-managed-glm-key-1");
     expect(JSON.stringify(forwardedPayload)).not.toContain("TOKENROUTER_GLM53_MODEL");
+  });
+
+  it("keeps GLM 5.3 keys in ordinary round-robin rotation beyond the removed 82-request policy", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: "GLM response" } }],
+      usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const signal = new AbortController().signal;
+
+    await forwardProviderRequest("glm-5.3", { model: "glm-5.3", messages: [{ role: "user", content: "First" }] }, signal);
+    await forwardProviderRequest("glm-5.3", { model: "glm-5.3", messages: [{ role: "user", content: "Second" }] }, signal);
+    await forwardProviderRequest("glm-5.3", { model: "glm-5.3", messages: [{ role: "user", content: "Third" }] }, signal);
+
+    expect(fetchMock.mock.calls.map(([, init]) => (init.headers as Record<string, string>).Authorization)).toEqual([
+      "Bearer server-only-managed-glm-key-1",
+      "Bearer server-only-managed-glm-key-2",
+      "Bearer server-only-managed-glm-key-1",
+    ]);
+    expect(recordManagedProviderKeyOutcome).toHaveBeenCalledTimes(3);
+  });
+
+  it("masks GLM 5.3 HTTP and SSE provider diagnostics while retaining only a redacted administrator failure record", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: "upstream GLM route at https://private.example failed with key secret-detail" } }), { status: 400, headers: { "content-type": "application/json" } })));
+
+    const response = await forwardProviderRequest("glm-5.3", { model: "glm-5.3", messages: [{ role: "user", content: "Respond safely." }] }, new AbortController().signal);
+    const body = await response.text();
+
+    expect(body).toContain(PUBLIC_PROVIDER_ERROR_MESSAGE);
+    expect(body).not.toContain("private.example");
+    expect(body).not.toContain("secret-detail");
+    expect(recordGlm53FailureLog).toHaveBeenCalledWith(expect.objectContaining({ failureKind: "http", sourceLabel: "GLM 5.3 provider" }));
+    const sse = sanitizeModelSseData("glm-5.3", '{"error":{"message":"private GLM route secret-detail"}}');
+    expect(sse).toContain(PUBLIC_PROVIDER_ERROR_MESSAGE);
+    expect(sse).not.toContain("secret-detail");
   });
 
   it("masks a zero-output GLM 5.3 response publicly without recording an administrator failure", async () => {

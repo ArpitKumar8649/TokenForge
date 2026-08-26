@@ -22,15 +22,12 @@ import {
   recordDeepseekV4ProFailureLog,
   recordGlm53FailureLog,
   recordQwen38MaxFailureLog,
-  reserveCappedManagedProviderCredentialRequest,
   reserveCredit,
   recordManagedProviderKeyOutcome,
   settleReservedCredit,
   touchApiKey,
   tryAcquireRenderNimProxyEndpoint,
-  isCappedManagedProviderMetricModel,
   sanitizeRenderNimProxyFailureMessage,
-  type ManagedProviderMetricModel,
 } from "./db";
 import { selectNextClusterProtocolCredentialWithSlot } from "./clusterProtocolCredentials";
 import { selectNextBluesMindsClaudeFable5CredentialWithSlot } from "./bluesMindsClaudeFable5Credentials";
@@ -251,7 +248,7 @@ function retryableProviderStatus(status: number) {
   return status === 401 || status === 403 || status === 408 || status === 429 || status >= 500;
 }
 
-async function forwardWithCredentialFailover(providerSlug: CredentialTelemetryProvider, input: ChatInput, signal: AbortSignal, selectCredential: () => CredentialSelection | null | Promise<CredentialSelection | null>, request: (credential: string) => Promise<globalThis.Response>, managedMetricModel?: ManagedProviderMetricModel) {
+async function forwardWithCredentialFailover(providerSlug: CredentialTelemetryProvider, input: ChatInput, signal: AbortSignal, selectCredential: () => CredentialSelection | null | Promise<CredentialSelection | null>, request: (credential: string) => Promise<globalThis.Response>) {
   const first = await selectCredential();
   if (!first) throw new Error("TokenForge inference is not configured");
   let candidate = first;
@@ -264,28 +261,16 @@ async function forwardWithCredentialFailover(providerSlug: CredentialTelemetryPr
         continue;
       }
     }
-    if (managedMetricModel && isCappedManagedProviderMetricModel(managedMetricModel)) {
-      const reservation = await reserveCappedManagedProviderCredentialRequest(managedMetricModel, candidate.credential);
-      if (!reservation.allowed) {
-        if (reservation.exhausted) throw new TokenForgePlaygroundError("model_unavailable", "The requested model is currently unavailable in the active TokenForge catalogue.");
-        const next = await selectCredential();
-        if (next) candidate = next;
-        continue;
-      }
-    }
     try {
       const response = await request(candidate.credential);
       lastResponse = response;
       if (response.ok || !retryableProviderStatus(response.status)) {
         recordCredentialSuccess(providerSlug, candidate.slot);
-        if (managedMetricModel) void recordManagedProviderKeyOutcome(managedMetricModel, candidate.credential, true, new Date(), !isCappedManagedProviderMetricModel(managedMetricModel)).catch(() => undefined);
         return response;
       }
       recordCredentialFailure(providerSlug, candidate.slot);
-      if (managedMetricModel) void recordManagedProviderKeyOutcome(managedMetricModel, candidate.credential, false, new Date(), !isCappedManagedProviderMetricModel(managedMetricModel)).catch(() => undefined);
     } catch (error) {
       recordCredentialFailure(providerSlug, candidate.slot);
-      if (managedMetricModel) void recordManagedProviderKeyOutcome(managedMetricModel, candidate.credential, false, new Date(), !isCappedManagedProviderMetricModel(managedMetricModel)).catch(() => undefined);
       if (signal.aborted || attempt === candidate.poolSize - 1) throw error;
     }
     if (attempt < candidate.poolSize - 1) {
