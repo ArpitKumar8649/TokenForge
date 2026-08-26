@@ -366,7 +366,6 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
           const payload = await response.clone().json().catch(() => null);
           if (isClaudeOpus5ZeroOutputFailure(payload)) {
             const diagnostic = "GLM 5.3 returned a successful response with zero output tokens or no assistant output.";
-            void recordGlm53FailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, failureKind: "empty_output", retryable: true, callerMessage: diagnostic }).catch(() => undefined);
             recordCredentialFailure("glm-5.3", selectedCredential.slot);
             void recordManagedProviderKeyOutcome("glm-5.3", selectedCredential.credential, false).catch(() => undefined);
             response.body?.cancel().catch(() => undefined);
@@ -451,8 +450,7 @@ async function forwardDedicatedDeepseekV4ProRequest(input: ChatInput, signal: Ab
             const payload = await response.clone().json().catch(() => null);
             if (isClaudeOpus5ZeroOutputFailure(payload)) {
               const diagnostic = "DeepSeek V4 Pro returned a successful response with zero output tokens or no assistant output.";
-              void recordDeepseekV4ProFailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, failureKind: "empty_output", retryable: true, callerMessage: diagnostic }).catch(() => undefined);
-              recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
+            recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
               void recordManagedProviderKeyOutcome("deepseek-v4-pro", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
               response.body?.cancel().catch(() => undefined);
               lastError = new Error(diagnostic);
@@ -597,14 +595,14 @@ function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Resp
   let buffer = "";
   let finalUsage: Usage = {};
   let receivedOutput = false;
-  const recordStreamFailure = (error: unknown, failureKind: "stream" | "empty_output" = "stream") => {
+  const recordStreamFailure = (error: unknown) => {
     if (recorded || clientSignal.aborted) return;
     recorded = true;
     void recordClaudeOpus5FailureLog({
       sourceType: "provider",
       sourceId: provider.id,
       sourceLabel: provider.label,
-      failureKind,
+      failureKind: "stream",
       retryable: false,
       callerMessage: typeof error === "string" ? error : error instanceof Error ? error.message : "Claude Opus 5 provider stream failed after response start.",
     }).catch(() => undefined);
@@ -632,7 +630,6 @@ function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Resp
     const outputTokens = finalUsage.completion_tokens ?? finalUsage.output_tokens;
     const explicitZeroOutput = typeof outputTokens === "number" && Number.isFinite(outputTokens) && outputTokens <= 0;
     if (!explicitZeroOutput && receivedOutput) return;
-    recordStreamFailure("Bailu returned a successful stream with zero output tokens or no assistant output.", "empty_output");
     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: { message: publicProviderErrorMessage(), type: "provider_unavailable", code: "provider_unavailable" } })}\n\n`));
   };
   const body = new ReadableStream<Uint8Array>({
@@ -657,7 +654,7 @@ function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Resp
   return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
 }
 
-type ManagedFailureLogger = (input: { sourceType: "provider"; sourceId: string; sourceLabel: string; failureKind: "stream" | "empty_output"; retryable: boolean; callerMessage: string }) => Promise<void>;
+type ManagedFailureLogger = (input: { sourceType: "provider"; sourceId: string; sourceLabel: string; failureKind: "stream"; retryable: boolean; callerMessage: string }) => Promise<void>;
 
 /** Preserve private diagnostics for administrators while ensuring an empty managed-provider stream becomes the neutral caller envelope. */
 function wrapManagedProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal, label: string, recordFailure: ManagedFailureLogger) {
@@ -669,14 +666,14 @@ function wrapManagedProviderResponseWithFailureLog(response: globalThis.Response
   let buffer = "";
   let finalUsage: Usage = {};
   let receivedOutput = false;
-  const recordStreamFailure = (error: unknown, failureKind: "stream" | "empty_output" = "stream") => {
+  const recordStreamFailure = (error: unknown) => {
     if (recorded || clientSignal.aborted) return;
     recorded = true;
     void recordFailure({
       sourceType: "provider",
       sourceId: provider.id,
       sourceLabel: provider.label,
-      failureKind,
+      failureKind: "stream",
       retryable: false,
       callerMessage: typeof error === "string" ? error : error instanceof Error ? error.message : `${label} provider stream failed after response start.`,
     }).catch(() => undefined);
@@ -702,7 +699,6 @@ function wrapManagedProviderResponseWithFailureLog(response: globalThis.Response
     const outputTokens = finalUsage.completion_tokens ?? finalUsage.output_tokens;
     const explicitZeroOutput = typeof outputTokens === "number" && Number.isFinite(outputTokens) && outputTokens <= 0;
     if (!explicitZeroOutput && receivedOutput) return;
-    recordStreamFailure(`${label} returned a successful stream with zero output tokens or no assistant output.`, "empty_output");
     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: { message: publicProviderErrorMessage(), type: "provider_unavailable", code: "provider_unavailable" } })}\n\n`));
   };
   const body = new ReadableStream<Uint8Array>({
@@ -827,14 +823,6 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
             const payload = await response.clone().json().catch(() => null);
             if (isClaudeOpus5ZeroOutputFailure(payload)) {
               const diagnostic = "Bailu returned a successful response with zero output tokens or no assistant output.";
-              void recordClaudeOpus5FailureLog({
-                sourceType: "provider",
-                sourceId: provider.id,
-                sourceLabel: provider.label,
-                failureKind: "empty_output",
-                retryable: true,
-                callerMessage: diagnostic,
-              }).catch(() => undefined);
               recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
               void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
               response.body?.cancel().catch(() => undefined);
@@ -935,7 +923,6 @@ async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: Abo
             const payload = await response.clone().json().catch(() => null);
             if (isClaudeOpus5ZeroOutputFailure(payload)) {
               const diagnostic = "Claude Fable 5 returned a successful response with zero output tokens or no assistant output.";
-              void recordClaudeFable5FailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, failureKind: "empty_output", retryable: true, callerMessage: diagnostic }).catch(() => undefined);
               recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
               void recordManagedProviderKeyOutcome("claude-fable-5", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
               response.body?.cancel().catch(() => undefined);
@@ -1013,7 +1000,6 @@ async function forwardDedicatedQwen38MaxRequest(input: ChatInput, signal: AbortS
         if (response.ok) {
           if (!input.stream && isClaudeOpus5ZeroOutputFailure(await response.clone().json().catch(() => null))) {
             const diagnostic = "Qwen 3.8 Max returned a successful response with zero output tokens or no assistant output.";
-            void recordQwen38MaxFailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, failureKind: "empty_output", retryable: true, callerMessage: diagnostic }).catch(() => undefined);
             recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
             void recordManagedProviderKeyOutcome("qwen3.8-max", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
             response.body?.cancel().catch(() => undefined);

@@ -615,7 +615,7 @@ describe("TokenForge Playground gateway", () => {
     }));
   });
 
-  it("treats Bailu zero-output success payloads as a retryable provider failure and returns only the neutral envelope", async () => {
+  it("treats Bailu zero-output success payloads as a retryable provider failure without adding a failure-history record", async () => {
     vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
       providers: [{ id: "provider-1787663686730-4", label: "Bailu", enabled: true, baseUrl: "https://bailu.example", model: "private-bailu-model", apiKeys: ["bailu-server-only-key"] }],
     });
@@ -628,14 +628,7 @@ describe("TokenForge Playground gateway", () => {
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({ error: { message: PUBLIC_PROVIDER_ERROR_MESSAGE, type: "provider_unavailable", code: "provider_unavailable" } });
-    expect(vi.mocked(recordClaudeOpus5FailureLog)).toHaveBeenCalledWith(expect.objectContaining({
-      sourceType: "provider",
-      sourceId: "provider-1787663686730-4",
-      sourceLabel: "Bailu",
-      failureKind: "empty_output",
-      retryable: true,
-      callerMessage: "Bailu returned a successful response with zero output tokens or no assistant output.",
-    }));
+    expect(vi.mocked(recordClaudeOpus5FailureLog)).not.toHaveBeenCalled();
   });
 
   it("appends only the neutral TokenForge envelope when a Bailu stream ends with zero output", async () => {
@@ -649,11 +642,7 @@ describe("TokenForge Playground gateway", () => {
 
     expect(body).toContain(PUBLIC_PROVIDER_ERROR_MESSAGE);
     expect(body).not.toContain("private-bailu-model");
-    expect(vi.mocked(recordClaudeOpus5FailureLog)).toHaveBeenCalledWith(expect.objectContaining({
-      sourceLabel: "Bailu",
-      failureKind: "empty_output",
-      callerMessage: "Bailu returned a successful stream with zero output tokens or no assistant output.",
-    }));
+    expect(vi.mocked(recordClaudeOpus5FailureLog)).not.toHaveBeenCalled();
   });
 
   it("returns the canonical Claude Opus 5 public identity without reaching the upstream for direct identity requests", async () => {
@@ -817,13 +806,13 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.stringify(forwardedPayload)).not.toContain("TOKENROUTER_GLM53_MODEL");
   });
 
-  it("masks a zero-output GLM 5.3 response publicly while recording an administrator-only failure", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "" } }], usage: { completion_tokens: 0 } }), { status: 200, headers: { "content-type": "application/json" } })));
+  it("masks a zero-output GLM 5.3 response publicly without recording an administrator failure", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: "" } }], usage: { completion_tokens: 0 } }), { status: 200, headers: { "content-type": "application/json" } }))));
     const response = await forwardProviderRequest("glm-5.3", { model: "glm-5.3", messages: [{ role: "user", content: "Return a response." }] }, new AbortController().signal);
     const body = await response.text();
     expect(body).toContain(PUBLIC_PROVIDER_ERROR_MESSAGE);
     expect(body).not.toContain("managed-glm-upstream-model");
-    expect(recordGlm53FailureLog).toHaveBeenCalledWith(expect.objectContaining({ failureKind: "empty_output" }));
+    expect(recordGlm53FailureLog).not.toHaveBeenCalled();
   });
 
   it("routes Claude Fable 5 through its dedicated NVIDIA NIM model configuration, preserves enforced reasoning, and retains its thinking summary", async () => {
