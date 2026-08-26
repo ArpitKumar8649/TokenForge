@@ -132,6 +132,7 @@ describe("dynamic managed provider API-key pool controls", () => {
   it("adds Claude Sonnet 4.6 managed multi-provider controls, metrics, and timestamped administrator-only diagnostics", () => {
     expect(source).toContain('sonnetOption.value = "claude-sonnet-4.6"');
     expect(source).toContain('window.location.assign("/admin/sonnet4.6")');
+    expect(source).toContain('<option value="claude-sonnet-4.6">Claude Sonnet 4.6</option>');
     expect(source).toContain('<Sonnet46ProviderBalancerPanel metrics={managedProviderKeyMetrics.find(item => item.modelId === "claude-sonnet-4.6")} />');
     expect(source).toContain('model="claude-sonnet-4.6" title="Claude Sonnet 4.6"');
     expect(source).toContain("sonnet46FailureLogs.useQuery");

@@ -480,3 +480,5 @@
 - [x] Add administrator-only b.ai diagnostic visibility using credential-redacted stored failure details that remain hidden from end users.
 - [x] Reorganize every managed model failure history into configured provider-name tabs so each tab contains only that provider group’s errors.
 - [x] Add provider-scoped diagnostics regressions, validate TypeScript and relevant suites, restart the server, publish the UI update, and explain a non-implemented failure-rate alert design.
+- [x] Add the missing Claude Sonnet 4.6 option to the active administrator Provider Settings selector and verify its route opens correctly on mobile.
+- [x] Add a focused selector regression, validate TypeScript and the provider-panel suite, and publish the correction.
