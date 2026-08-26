@@ -482,3 +482,11 @@
 - [x] Add provider-scoped diagnostics regressions, validate TypeScript and relevant suites, restart the server, publish the UI update, and explain a non-implemented failure-rate alert design.
 - [x] Add the missing Claude Sonnet 4.6 option to the active administrator Provider Settings selector and verify its route opens correctly on mobile.
 - [x] Add a focused selector regression, validate TypeScript and the provider-panel suite, and publish the correction.
+- [x] Inspect the Bailu provider request path for forwarded client-IP metadata and identify the source of the provider’s multiple-IP restriction.
+- [x] Assess a provider-authorized fixed-egress or allowlist solution that preserves client privacy without bypassing provider access controls.
+- [ ] Implement, validate, and publish any approved compliant Bailu routing remedy with regression coverage.
+- [ ] Provision a locked-down fixed-egress relay for Bailu and allowlist its single public address with the provider.
+- [ ] Route only Bailu upstream requests through the relay, strip client-identity headers, and verify a stable provider-visible source address.
+- [x] Pause the Bailu fixed-egress rollout pending the requested Claude Opus 5 and GLM 5.3 response-quality investigation.
+- [x] Run controlled Claude Opus 5 and GLM 5.3 gateway probes, compare normalized outputs with Playground rendering, and diagnose broken-response causes.
+- [x] Add opt-in quality regressions and validate that no reproducible Claude Opus 5 or GLM 5.3 gateway, SSE, or client text-corruption defect was present in the controlled probes.
