@@ -456,3 +456,4 @@
 - [x] Safely probe the supplied Qwen Gate Anthropic endpoint, then test streaming and supported Claude Code tool workflows in an isolated demo repository without changing TokenForge.
 - [x] Remove all NVIDIA NIM Render endpoint bridge controls, telemetry, diagnostics, persisted settings, and routing from Claude Opus 5 without affecting other provider groups.
 - [x] Stop logging managed-provider empty-output and zero-output-token cases as administrator failures while retaining real upstream failure diagnostics.
+- [x] Restore the Claude Opus provider failure-history box for real provider errors while continuing to exclude empty-output and zero-output-token entries.

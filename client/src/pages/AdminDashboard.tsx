@@ -297,7 +297,8 @@ function RenderNimProxySwarmCore({ enabled, model, endpoints, settings, loading,
 
 function RenderNimProxySwarmPanel(props: Parameters<typeof RenderNimProxySwarmCore>[0]) {
   void props;
-  return null;
+  const failureLogs = trpc.admin.claudeOpus5FailureLogs.useQuery(undefined, { refetchInterval: 5_000, refetchIntervalInBackground: false });
+  return <ClaudeOpus5FailureHistory logs={failureLogs.data as ClaudeOpus5FailureLog[] | undefined} loading={failureLogs.isLoading} />;
 }
 
 function AdminUsageChart({ usage, modelUsage, loading }: { usage: { day: string; requests: number; tokens: number }[]; modelUsage: AdminGlobalModelUsage[]; loading: boolean }) {

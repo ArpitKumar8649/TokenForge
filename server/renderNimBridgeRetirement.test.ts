@@ -20,6 +20,7 @@ describe("retired Render NVIDIA NIM bridge", () => {
     expect(adminSource).not.toContain("trpc.admin.renderNimProxySwarmSettings");
     expect(adminSource).not.toContain("trpc.admin.updateRenderNimProxySwarmSettings");
     expect(adminSource).toContain("function RenderNimProxySwarmPanel");
-    expect(adminSource).toContain("return null;");
+    expect(adminSource).toContain("trpc.admin.claudeOpus5FailureLogs.useQuery");
+    expect(adminSource).toContain("<ClaudeOpus5FailureHistory");
   });
 });
