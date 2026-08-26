@@ -400,6 +400,25 @@ describe("TokenForge Playground gateway", () => {
     expect(publicPayload.choices?.[0]?.message?.content).toBe("I am Claude Opus 5, available through TokenForge.");
   });
 
+  it("records a Qwen zero-output outcome with its internal model diagnostic while counting returned input tokens and masking callers", async () => {
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
+      providers: [{ id: "qwen", label: "Qwen", enabled: true, baseUrl: "https://qwen-provider.example", model: "internal-qwen-zero", apiKeys: ["qwen-key-1", "qwen-key-2"], modelPool: [{ id: "qwen-model-zero", model: "internal-qwen-zero", enabled: true, quotaTokens: 1_000_000 }] }],
+    });
+    vi.mocked(getEligibleClaudeOpus5QwenModels).mockResolvedValue([{ id: "qwen-model-zero", model: "internal-qwen-zero", enabled: true, quotaTokens: 1_000_000 }]);
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: "" } }], usage: { prompt_tokens: 11, completion_tokens: 0, total_tokens: 11 } }), { status: 200, headers: { "content-type": "application/json" } })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Return a response." }] }, new AbortController().signal);
+    const publicPayload = await response.json() as { error?: { message?: string } };
+    await Promise.resolve();
+
+    expect(response.status).toBe(503);
+    expect(publicPayload.error?.message).toBe(PUBLIC_PROVIDER_ERROR_MESSAGE);
+    expect(JSON.stringify(publicPayload)).not.toContain("internal-qwen-zero");
+    expect(recordClaudeOpus5FailureLog).toHaveBeenCalledWith(expect.objectContaining({ sourceId: "qwen:qwen-model-zero", sourceLabel: "Qwen · internal-qwen-zero", failureKind: "empty_output", retryable: true }));
+    expect(recordClaudeOpus5QwenModelUsage).toHaveBeenCalledWith(expect.objectContaining({ modelEntryId: "qwen-model-zero", inputTokens: 11, outputTokens: 0, totalTokens: 11 }));
+  });
+
   it("excludes disabled Claude Opus 5 provider groups from equal-share routing and failover", async () => {
     vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
       providers: [

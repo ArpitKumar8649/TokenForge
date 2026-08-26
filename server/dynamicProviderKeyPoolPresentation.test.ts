@@ -98,6 +98,11 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain('filter(provider => provider.label.trim().toLowerCase() !== "qwen")');
     expect(source).toContain('className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/8"');
     expect(source).toContain("Add model ID");
+    expect(source).toContain("function ClaudeOpus5QwenFailureHistory");
+    expect(source).toContain("Qwen live error history");
+    expect(source).toContain("Failing internal model ID");
+    expect(source).toContain("Qwen zero-output outcomes");
+    expect(source).toContain('entry.sourceId.startsWith("qwen:")');
   });
 
   it("lays overview metrics out as compact boxes on narrow screens rather than a single vertical list", () => {

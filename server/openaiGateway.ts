@@ -612,11 +612,12 @@ function wrapRenderResponseWithLease(response: globalThis.Response, endpointId: 
 }
 
 /** Record a provider stream failure after headers without treating a client cancellation as an upstream outage. */
-function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal, onCompleteUsage?: (usage: Usage) => void) {
+function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal, onCompleteUsage?: (usage: Usage) => void, onQwenZeroOutput?: (usage: Usage) => void, failureSource?: { sourceId: string; sourceLabel: string }) {
   if (!response.body || response.body.locked) return response;
   const reader = response.body.getReader();
   let recorded = false;
   const isBailu = isBailuClaudeOpus5Provider(provider);
+  const isQwen = isQwenClaudeOpus5Provider(provider);
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   let buffer = "";
@@ -627,8 +628,8 @@ function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Resp
     recorded = true;
     void recordClaudeOpus5FailureLog({
       sourceType: "provider",
-      sourceId: provider.id,
-      sourceLabel: provider.label,
+      sourceId: failureSource?.sourceId ?? provider.id,
+      sourceLabel: failureSource?.sourceLabel ?? provider.label,
       failureKind: "stream",
       retryable: false,
       callerMessage: typeof error === "string" ? error : error instanceof Error ? error.message : "Claude Opus 5 provider stream failed after response start.",
@@ -652,11 +653,12 @@ function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Resp
       } catch { /* Malformed records are converted to the neutral envelope by the caller SSE sanitizer. */ }
     }
   };
-  const writeNeutralBailuFailure = (controller: ReadableStreamDefaultController<Uint8Array>) => {
-    if (!isBailu || clientSignal.aborted) return;
+  const writeNeutralZeroOutputFailure = (controller: ReadableStreamDefaultController<Uint8Array>) => {
+    if ((!isBailu && !isQwen) || clientSignal.aborted) return;
     const outputTokens = finalUsage.completion_tokens ?? finalUsage.output_tokens;
     const explicitZeroOutput = typeof outputTokens === "number" && Number.isFinite(outputTokens) && outputTokens <= 0;
     if (!explicitZeroOutput && receivedOutput) return;
+    if (isQwen) onQwenZeroOutput?.(finalUsage);
     controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: { message: publicProviderErrorMessage(), type: "provider_unavailable", code: "provider_unavailable" } })}\n\n`));
   };
   const body = new ReadableStream<Uint8Array>({
@@ -664,7 +666,7 @@ function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Resp
       try {
         const next = await reader.read();
         if (next.done) {
-          writeNeutralBailuFailure(controller);
+          writeNeutralZeroOutputFailure(controller);
           onCompleteUsage?.(finalUsage);
           return controller.close();
         }
@@ -843,6 +845,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
       continue;
     }
     const upstreamModel = qwenModel?.model ?? provider.model;
+    const qwenFailureSource = qwenModel ? { sourceId: `${provider.id}:${qwenModel.id}`, sourceLabel: `Qwen · ${qwenModel.model}` } : undefined;
     const recordQwenModelUsage = (usage: Usage) => {
       if (!qwenModel) return;
       const tokens = managedProviderBillableTokens(usage, estimateInputTokens(input.messages ?? []));
@@ -853,6 +856,18 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
         outputTokens: tokens.outputTokens,
         totalTokens: tokens.totalTokens,
         quotaTokens: qwenModel.quotaTokens,
+      }).catch(() => undefined);
+    };
+    const recordQwenZeroOutput = (usage: Usage, retryable: boolean) => {
+      if (!qwenModel) return;
+      recordQwenModelUsage(usage);
+      void recordClaudeOpus5FailureLog({
+        sourceType: "provider",
+        sourceId: qwenFailureSource?.sourceId ?? provider.id,
+        sourceLabel: qwenFailureSource?.sourceLabel ?? provider.label,
+        failureKind: "empty_output",
+        retryable,
+        callerMessage: `Qwen returned a successful upstream response with zero output tokens or no usable assistant output for model ${qwenModel.model}.`,
       }).catch(() => undefined);
     };
     for (let attempt = 0; attempt < provider.apiKeys.length; attempt += 1) {
@@ -884,17 +899,28 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
           recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
           void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
           if (!input.stream && qwenModel) {
-            void response.clone().json().then(payload => recordQwenModelUsage(usageFrom(payload))).catch(() => undefined);
+            const payload = await response.clone().json().catch(() => null);
+            if (isClaudeOpus5ZeroOutputFailure(payload)) {
+              recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
+              void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+              recordQwenZeroOutput(usageFrom(payload), true);
+              response.body?.cancel().catch(() => undefined);
+              lastError = new Error("Qwen returned zero output tokens or no usable assistant output.");
+              lastFailureStatus = 503;
+              recordCredentialFailover(selectedCredential.telemetryProvider);
+              continue;
+            }
+            recordQwenModelUsage(usageFrom(payload));
           }
-          return wrapClaudeOpus5ProviderResponseWithFailureLog(response, provider, signal, qwenModel ? recordQwenModelUsage : undefined);
+          return wrapClaudeOpus5ProviderResponseWithFailureLog(response, provider, signal, qwenModel ? recordQwenModelUsage : undefined, qwenModel ? usage => recordQwenZeroOutput(usage, false) : undefined, qwenFailureSource);
         }
         const retryable = retryableProviderStatus(response.status);
         const rawBody = await response.text().catch(() => "");
         const diagnostic = renderedHttpFailureDiagnostic(response.status, rawBody);
         void recordClaudeOpus5FailureLog({
           sourceType: "provider",
-          sourceId: provider.id,
-          sourceLabel: provider.label,
+          sourceId: qwenFailureSource?.sourceId ?? provider.id,
+          sourceLabel: qwenFailureSource?.sourceLabel ?? provider.label,
           httpStatus: response.status,
           failureKind: "http",
           retryable,
@@ -917,8 +943,8 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
         const timeout = responseStart.timedOut() && !signal.aborted;
         void recordClaudeOpus5FailureLog({
           sourceType: "provider",
-          sourceId: provider.id,
-          sourceLabel: provider.label,
+          sourceId: qwenFailureSource?.sourceId ?? provider.id,
+          sourceLabel: qwenFailureSource?.sourceLabel ?? provider.label,
           failureKind: timeout ? "timeout" : "network",
           retryable: true,
           callerMessage: timeout ? `Claude Opus 5 provider response did not start within ${Math.round(PROVIDER_RESPONSE_START_TIMEOUT_MS / 1_000)} seconds.` : error instanceof Error ? error.message : "Claude Opus 5 provider network request failed.",
