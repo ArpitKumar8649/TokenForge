@@ -463,3 +463,6 @@
 - [x] Remove GLM 5.3's 82-request per-key retirement limit and retain normal enabled-provider rotation without automatic model shutdown.
 - [x] Ensure every GLM 5.3 provider failure path returns only the neutral TokenForge envelope to Playground, OpenAI-compatible, Anthropic Messages, JSON, and SSE callers while retaining credential-redacted diagnostics for administrators.
 - [x] Add focused GLM 5.3 regression coverage, verify TypeScript and relevant tests, restart the server, and publish the completed update.
+- [x] Fix Claude Opus Qwen model-pool deletion so removed entries are persisted and do not return after a reload.
+- [x] Fix Claude Opus generic provider creation so administrators can add, configure, save, and reload new non-Qwen provider groups.
+- [x] Add focused persistence regressions, validate TypeScript and relevant suites, restart the server, and publish the administrator workflow fixes.

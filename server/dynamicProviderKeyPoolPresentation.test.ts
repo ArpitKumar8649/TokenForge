@@ -105,6 +105,20 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain('entry.sourceId.startsWith("qwen:")');
   });
 
+  it("preserves intentional Qwen model deletions and newly added Claude Opus providers through live settings refreshes", () => {
+    expect(source).toContain("const [removedModelIds, setRemovedModelIds] = useState<string[]>([]);");
+    expect(source).toContain("const removedIds = new Set(removedModelIds);");
+    expect(source).toContain("livePool.filter(live => !removedIds.has(live.id))");
+    expect(source).toContain("const removeModel = (id: string) => {");
+    expect(source).toContain("setRemovedModelIds(current => current.includes(id) ? current : [...current, id]);");
+    expect(source).toContain("const [opusProviderDraftsInitialized, setOpusProviderDraftsInitialized] = useState(false);");
+    expect(source).toContain("const [removedOpusProviderIds, setRemovedOpusProviderIds] = useState<string[]>([]);");
+    expect(source).toContain("const unsavedDrafts = previous.filter(draft => !removedIds.has(draft.id) && !liveProviders.some(provider => provider.id === draft.id));");
+    expect(source).toContain("onAddProvider: (id: string) => void");
+    expect(source).toContain("setActiveProviderId(id);");
+    expect(source).toContain("onAddProvider={id => setOpusProviderDrafts");
+  });
+
   it("lays overview metrics out as compact boxes on narrow screens rather than a single vertical list", () => {
     expect(source).toContain('grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5');
     expect(source).toContain('dashboard-card min-w-0 p-3 sm:p-4');
