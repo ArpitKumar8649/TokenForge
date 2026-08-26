@@ -65,7 +65,16 @@ const SONNET46_PUBLIC_IDENTITY = "I am Claude Sonnet 4.6, available through Toke
 const DEEPSEEK_V4_PRO_PUBLIC_IDENTITY = "I am DeepSeek V4 Pro, available through TokenForge.";
 const QWEN38_MAX_PUBLIC_IDENTITY = "I am Qwen 3.8 Max, available through TokenForge.";
 const CLAUDE_OPUS5_UPSTREAM_IDENTITY_OR_PROMPT_LEAK = /\b(?:qwen|nemotron|lightning|nvidia|opencode(?:\s+zen)?|identity policy|system prompt|hidden instructions?|thinking process|analyze user input|core constraint)\b/i;
-const MANAGED_MODEL_UPSTREAM_IDENTITY_OR_PROMPT_LEAK = /\b(?:tokenrouter|tokenharbor|nvidia|opencode(?:\s+zen)?|orcarouter|underlying (?:model|provider|identity)|system prompt|hidden instructions?|internal implementation|provider credentials?)\b/i;
+const MANAGED_MODEL_UPSTREAM_IDENTITY_OR_PROMPT_LEAK = /\b(?:tokenrouter|tokenharbor|nvidia|opencode(?:\s+zen)?|orcarouter|fxqidian|bluesminds|b\.ai|bailu|underlying (?:model|provider|identity)|system prompt|hidden instructions?|internal implementation|provider credentials?)\b/i;
+const MANAGED_MODEL_IDENTITY_DISCLOSURE = /\b(?:i(?:'m| am)\s+(?:an?\s+)?(?:[a-z0-9]+[./_-][a-z0-9._/-]+|(?:[a-z0-9]+\s+){0,3}(?:model|provider|vendor|assistant))|(?:my|the)\s+(?:actual|real|underlying|base|internal)\s+(?:model|provider|identity)|(?:served|powered)\s+by\s+(?:an?\s+)?[a-z0-9][a-z0-9._/-]*)\b/i;
+const STRICT_PUBLIC_MANAGED_MODELS = new Set<TokenForgeModelId>([
+  "claude-opus-5",
+  "claude-fable-5",
+  "glm-5.3",
+  "claude-sonnet-4.6",
+  "deepseek-v4-pro",
+  "qwen3.8-max",
+]);
 
 export type TokenForgeChatMessage = { role?: string; content?: unknown };
 type ChatMessage = TokenForgeChatMessage;
@@ -1293,6 +1302,13 @@ function isDirectDeepseekV4ProIdentityRequest(messages: TokenForgeChatMessage[] 
   return /\b(?:who|what|which)\s+(?:model\s+)?(?:are|is)\s+you\b|\b(?:identify|describe|tell(?:\s+me)?\s+about)\s+(?:yourself|your\s+(?:identity|model|source|provider))\b|\b(?:your|the)\s+(?:underlying|upstream)\s+(?:model|provider|identity)\b|\bare\s+you\s+(?:really\s+)?(?:an?\s+)?(?:glm|qwen|nemotron|nvidia)\b/i.test(text);
 }
 
+/** Resolve direct hidden-model/provider fishing locally for every managed route rather than delegating it to an upstream. */
+function isManagedIdentityDisclosureRequest(messages: TokenForgeChatMessage[] | undefined) {
+  const text = lastUserText(messages);
+  if (!text) return false;
+  return /\b(?:who|what|which)\s+(?:model\s+)?(?:are|is)\s+you\b|\b(?:identify|describe|tell(?:\s+me)?\s+about)\s+(?:yourself|your\s+(?:identity|model|source|provider))\b|\b(?:your|the)\s+(?:underlying|upstream|actual|real|base|internal)\s+(?:model|provider|identity)\b|\bare\s+you\s+really\b|\b(?:are\s+you|is\s+this)\s+(?:an?\s+)?[a-z0-9]+[./_-][a-z0-9._/-]*\b/i.test(text);
+}
+
 function canonicalClaudeOpus5IdentityResponse(stream: boolean | undefined) {
   const id = `chatcmpl_${randomUUID().replaceAll("-", "")}`;
   if (!stream) {
@@ -1325,7 +1341,7 @@ function canonicalClaudeFable5IdentityResponse(stream: boolean | undefined) {
   return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } });
 }
 
-function canonicalManagedIdentityResponse(model: "glm-5.3" | "claude-sonnet-4.6" | "deepseek-v4-pro", identity: string, stream: boolean | undefined) {
+function canonicalManagedIdentityResponse(model: TokenForgeModelId, identity: string, stream: boolean | undefined) {
   const id = `chatcmpl_${randomUUID().replaceAll("-", "")}`;
   if (!stream) {
     return new Response(JSON.stringify({
@@ -1342,20 +1358,8 @@ function canonicalManagedIdentityResponse(model: "glm-5.3" | "claude-sonnet-4.6"
 }
 
 export async function forwardProviderRequest(model: TokenForgeModelId, input: TokenForgeChatInput, signal: AbortSignal) {
-  if (model === "claude-opus-5" && isDirectClaudeOpus5IdentityRequest(input.messages)) {
-    return canonicalClaudeOpus5IdentityResponse(input.stream);
-  }
-  if (model === "claude-fable-5" && isDirectClaudeFable5IdentityRequest(input.messages)) {
-    return canonicalClaudeFable5IdentityResponse(input.stream);
-  }
-  if (model === "glm-5.3" && isDirectGlm53IdentityRequest(input.messages)) {
-    return canonicalManagedIdentityResponse("glm-5.3", GLM53_PUBLIC_IDENTITY, input.stream);
-  }
-  if (model === "claude-sonnet-4.6" && isDirectGlm53IdentityRequest(input.messages)) {
-    return canonicalManagedIdentityResponse("claude-sonnet-4.6", SONNET46_PUBLIC_IDENTITY, input.stream);
-  }
-  if (model === "deepseek-v4-pro" && isDirectDeepseekV4ProIdentityRequest(input.messages)) {
-    return canonicalManagedIdentityResponse("deepseek-v4-pro", DEEPSEEK_V4_PRO_PUBLIC_IDENTITY, input.stream);
+  if (isStrictPublicManagedModel(model) && isManagedIdentityDisclosureRequest(input.messages)) {
+    return canonicalManagedIdentityResponse(model, publicIdentityForManagedModel(model), input.stream);
   }
   const provider = getTokenForgeProviderSlug(model);
   if (provider === FXQIDIAN_PROVIDER_SLUG) return forwardFxqidianRequest(input, signal);
@@ -1415,73 +1419,137 @@ function reasoningContentFrom(payload: unknown) {
   return typeof reasoning === "string" && reasoning.trim() ? reasoning : null;
 }
 
-function stripGlm53RawReasoning(payload: unknown) {
-  if (!payload || typeof payload !== "object") return payload;
-  const clone = JSON.parse(JSON.stringify(payload)) as { choices?: Array<{ message?: Record<string, unknown>; delta?: Record<string, unknown> }> };
-  for (const choice of clone.choices ?? []) {
-    for (const segment of [choice.message, choice.delta]) {
-      if (!segment) continue;
-      delete segment.reasoning_content;
-      delete segment.reasoning;
-      delete segment.thinking;
-    }
-  }
-  return clone;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isStrictPublicManagedModel(model: TokenForgeModelId) {
+  return STRICT_PUBLIC_MANAGED_MODELS.has(model);
+}
+
+function publicIdentityForManagedModel(model: TokenForgeModelId) {
+  if (model === "claude-opus-5") return CLAUDE_OPUS5_PUBLIC_IDENTITY;
+  if (model === "claude-fable-5") return CLAUDE_FABLE5_PUBLIC_IDENTITY;
+  if (model === "glm-5.3") return GLM53_PUBLIC_IDENTITY;
+  if (model === "claude-sonnet-4.6") return SONNET46_PUBLIC_IDENTITY;
+  if (model === "deepseek-v4-pro") return DEEPSEEK_V4_PRO_PUBLIC_IDENTITY;
+  if (model === "qwen3.8-max") return QWEN38_MAX_PUBLIC_IDENTITY;
+  return `I am ${model}, available through TokenForge.`;
+}
+
+function publicManagedContent(model: TokenForgeModelId, value: unknown) {
+  if (typeof value !== "string") return value === null ? null : undefined;
+  const identityLeakPattern = model === "claude-opus-5" ? CLAUDE_OPUS5_UPSTREAM_IDENTITY_OR_PROMPT_LEAK : MANAGED_MODEL_UPSTREAM_IDENTITY_OR_PROMPT_LEAK;
+  return identityLeakPattern.test(value) || MANAGED_MODEL_IDENTITY_DISCLOSURE.test(value) ? publicIdentityForManagedModel(model) : value;
+}
+
+function publicToolCalls(value: unknown) {
+  if (!Array.isArray(value)) return undefined;
+  const calls = value.flatMap((candidate, fallbackIndex) => {
+    if (!isRecord(candidate)) return [];
+    const fn = isRecord(candidate.function) ? candidate.function : null;
+    if (!fn || typeof fn.name !== "string") return [];
+    return [{
+      ...(typeof candidate.index === "number" ? { index: candidate.index } : { index: fallbackIndex }),
+      ...(typeof candidate.id === "string" ? { id: candidate.id } : {}),
+      type: "function",
+      function: {
+        name: fn.name,
+        ...(typeof fn.arguments === "string" ? { arguments: fn.arguments } : {}),
+      },
+    }];
+  });
+  return calls.length ? calls : undefined;
+}
+
+function publicAssistantSegment(model: TokenForgeModelId, value: unknown) {
+  if (!isRecord(value)) return undefined;
+  const content = publicManagedContent(model, value.content);
+  const toolCalls = publicToolCalls(value.tool_calls);
+  const role = value.role === "assistant" ? "assistant" : undefined;
+  if (content === undefined && !toolCalls && !role) return undefined;
+  return {
+    ...(role ? { role } : {}),
+    ...(content !== undefined ? { content } : {}),
+    ...(toolCalls ? { tool_calls: toolCalls } : {}),
+  };
+}
+
+function publicManagedUsage(value: unknown) {
+  if (!isRecord(value)) return undefined;
+  const promptTokens = typeof value.prompt_tokens === "number" ? value.prompt_tokens : typeof value.input_tokens === "number" ? value.input_tokens : undefined;
+  const completionTokens = typeof value.completion_tokens === "number" ? value.completion_tokens : typeof value.output_tokens === "number" ? value.output_tokens : undefined;
+  const totalTokens = typeof value.total_tokens === "number" ? value.total_tokens : promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : undefined;
+  if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) return undefined;
+  return {
+    ...(promptTokens !== undefined ? { prompt_tokens: promptTokens } : {}),
+    ...(completionTokens !== undefined ? { completion_tokens: completionTokens } : {}),
+    ...(totalTokens !== undefined ? { total_tokens: totalTokens } : {}),
+  };
+}
+
+function publicManagedFailurePayload() {
+  return { error: { message: publicProviderErrorMessage(), type: "provider_unavailable", code: "provider_unavailable" } };
+}
+
+function isManagedProviderFailurePayload(value: unknown) {
+  return isRecord(value) && "error" in value;
 }
 
 /**
- * A compatible upstream can occasionally serialize its private scratchpad into
- * ordinary text. When it includes an upstream identity or prompt disclosure,
- * return TokenForge's canonical public identity instead of forwarding it.
+ * Managed-model upstreams are treated as untrusted transport payloads. The public API therefore
+ * emits a new OpenAI-compatible object from a narrow field allowlist instead of deleting a few
+ * known vendor fields. This blocks model IDs, fingerprints, provider metadata, reasoning, and
+ * future vendor extensions from reaching callers.
  */
-function redactClaudeOpus5IdentityLeak(payload: unknown) {
-  if (!payload || typeof payload !== "object") return payload;
-  const clone = JSON.parse(JSON.stringify(payload)) as { model?: unknown; choices?: Array<{ message?: Record<string, unknown>; delta?: Record<string, unknown> }> };
-  if ("model" in clone) clone.model = "claude-opus-5";
-  for (const choice of clone.choices ?? []) {
-    for (const segment of [choice.message, choice.delta]) {
-      if (typeof segment?.content === "string" && CLAUDE_OPUS5_UPSTREAM_IDENTITY_OR_PROMPT_LEAK.test(segment.content)) {
-        segment.content = CLAUDE_OPUS5_PUBLIC_IDENTITY;
-      }
-    }
-  }
-  return clone;
-}
-
-function redactManagedModelIdentityLeak(payload: unknown, identity: string) {
-  if (!payload || typeof payload !== "object") return payload;
-  const clone = JSON.parse(JSON.stringify(payload)) as { choices?: Array<{ message?: Record<string, unknown>; delta?: Record<string, unknown> }> };
-  for (const choice of clone.choices ?? []) {
-    for (const segment of [choice.message, choice.delta]) {
-      if (typeof segment?.content === "string" && MANAGED_MODEL_UPSTREAM_IDENTITY_OR_PROMPT_LEAK.test(segment.content)) segment.content = identity;
-    }
-  }
-  return clone;
+function projectStrictManagedResponse(model: TokenForgeModelId, payload: unknown) {
+  if (!isRecord(payload) || isManagedProviderFailurePayload(payload)) return publicManagedFailurePayload();
+  const rawChoices = Array.isArray(payload.choices) ? payload.choices : [];
+  const choices = rawChoices.flatMap((candidate, fallbackIndex) => {
+    if (!isRecord(candidate)) return [];
+    const message = publicAssistantSegment(model, candidate.message);
+    const delta = publicAssistantSegment(model, candidate.delta);
+    const finishReason = candidate.finish_reason;
+    return [{
+      index: typeof candidate.index === "number" ? candidate.index : fallbackIndex,
+      ...(message ? { message } : {}),
+      ...(delta ? { delta } : {}),
+      finish_reason: typeof finishReason === "string" || finishReason === null ? finishReason : null,
+    }];
+  });
+  const upstreamObject = payload.object;
+  const object = typeof upstreamObject === "string" && upstreamObject === "chat.completion.chunk" ? "chat.completion.chunk" : "chat.completion";
+  return {
+    id: "chatcmpl-tokenforge",
+    object,
+    created: typeof payload.created === "number" ? payload.created : Math.floor(Date.now() / 1_000),
+    model,
+    choices,
+    ...(publicManagedUsage(payload.usage) ? { usage: publicManagedUsage(payload.usage) } : {}),
+  };
 }
 
 export function sanitizeModelResponsePayload(model: TokenForgeModelId, payload: unknown) {
-  // Claude Opus 5 uses an OpenAI-compatible upstream adapter. Provider-private
-  // reasoning can contain upstream implementation or identity context, so it
-  // is excluded from TokenForge's public response contract just as for GLM 5.3.
-  if (model === "claude-opus-5") return redactClaudeOpus5IdentityLeak(stripGlm53RawReasoning(payload));
-  if (model === "glm-5.3") return redactManagedModelIdentityLeak(stripGlm53RawReasoning(payload), GLM53_PUBLIC_IDENTITY);
-  if (model === "claude-sonnet-4.6") return redactManagedModelIdentityLeak(stripGlm53RawReasoning(payload), SONNET46_PUBLIC_IDENTITY);
-  if (model === "deepseek-v4-pro") return redactManagedModelIdentityLeak(stripGlm53RawReasoning(payload), DEEPSEEK_V4_PRO_PUBLIC_IDENTITY);
-  if (model === "qwen3.8-max") return redactManagedModelIdentityLeak(payload, QWEN38_MAX_PUBLIC_IDENTITY);
-  return payload;
+  return isStrictPublicManagedModel(model) ? projectStrictManagedResponse(model, payload) : payload;
 }
 
 export function sanitizeModelSseData(model: TokenForgeModelId, data: string) {
-  if ((model !== "glm-5.3" && model !== "claude-sonnet-4.6" && model !== "deepseek-v4-pro" && model !== "claude-opus-5" && model !== "qwen3.8-max") || data === "[DONE]") return data;
+  if (!isStrictPublicManagedModel(model) || data === "[DONE]") return data;
   try {
-    const payload = JSON.parse(data) as { error?: unknown };
-    if (payload && typeof payload === "object" && "error" in payload) {
-      return JSON.stringify({ error: { message: publicProviderErrorMessage(), type: "provider_unavailable", code: "provider_unavailable" } });
-    }
-    return JSON.stringify(sanitizeModelResponsePayload(model, payload));
+    return JSON.stringify(projectStrictManagedResponse(model, JSON.parse(data)));
   } catch {
-    return JSON.stringify({ error: { message: publicProviderErrorMessage(), type: "provider_unavailable", code: "provider_unavailable" } });
+    return JSON.stringify(publicManagedFailurePayload());
   }
+}
+
+/** Drop upstream SSE event, retry, id, and vendor-extension lines; OpenAI clients need only public data frames. */
+function strictPublicManagedSseFrames(model: TokenForgeModelId, lines: string[]) {
+  return lines.flatMap(line => {
+    if (!line.startsWith("data:")) return [];
+    const data = line.slice(5).trim();
+    if (!data) return [];
+    return [`data: ${sanitizeModelSseData(model, data)}`];
+  });
 }
 
 /** Runs a dashboard turn through the server-side provider without exposing its credential to the browser. */
@@ -1536,7 +1604,7 @@ export async function runPlaygroundCompletion(input: {
     const payload = await upstream.json().catch(() => null);
     const publicPayload = sanitizeModelResponsePayload(input.model, payload);
     const content = textContentFrom(publicPayload);
-    if (!payload || !content || (input.model === "claude-opus-5" && isClaudeOpus5ZeroOutputFailure(payload))) {
+    if (!payload || isManagedProviderFailurePayload(payload) || !content || (input.model === "claude-opus-5" && isClaudeOpus5ZeroOutputFailure(payload))) {
       await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider response was invalid" });
       await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "provider_error", sourceIpHash: input.sourceIpHash });
       throw new TokenForgePlaygroundError("provider_unavailable", publicProviderErrorMessage());
@@ -1652,8 +1720,9 @@ async function streamPlaygroundCompletion(input: {
           if (!payload || payload === "[DONE]") continue;
           try { finalUsage = { ...finalUsage, ...usageFrom(JSON.parse(payload)) }; } catch { /* preserve upstream stream event */ }
         }
-        if (input.model === "glm-5.3" || input.model === "claude-sonnet-4.6" || input.model === "claude-opus-5" || input.model === "deepseek-v4-pro" || input.model === "qwen3.8-max") {
-          input.res.write(`${lines.map(line => line.startsWith("data:") ? `data: ${sanitizeModelSseData(input.model, line.slice(5).trim())}` : line).join("\n")}\n`);
+        if (isStrictPublicManagedModel(input.model)) {
+          const publicFrames = strictPublicManagedSseFrames(input.model, lines);
+          if (publicFrames.length) input.res.write(`${publicFrames.join("\n")}\n\n`);
         } else {
           input.res.write(value);
         }
@@ -1780,7 +1849,7 @@ export function registerOpenAiGateway(app: Express) {
     if (!input.stream) {
       clearTimeout(timeout);
       const payload = await upstream.json().catch(() => null);
-      if (!payload || (input.model === "claude-opus-5" && isClaudeOpus5ZeroOutputFailure(payload))) {
+      if (!payload || isManagedProviderFailurePayload(payload) || (input.model === "claude-opus-5" && isClaudeOpus5ZeroOutputFailure(payload))) {
         await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider response was invalid" });
         await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash });
         return errorResponse(res, requestId, 503, publicProviderErrorMessage(), "provider_unavailable");
@@ -1828,8 +1897,9 @@ export function registerOpenAiGateway(app: Express) {
           if (!payload || payload === "[DONE]") continue;
           try { finalUsage = { ...finalUsage, ...usageFrom(JSON.parse(payload)) }; } catch { /* passthrough malformed upstream event */ }
         }
-        if (input.model === "glm-5.3" || input.model === "claude-sonnet-4.6" || input.model === "claude-opus-5" || input.model === "deepseek-v4-pro" || input.model === "qwen3.8-max") {
-          res.write(`${lines.map(line => line.startsWith("data:") ? `data: ${sanitizeModelSseData(input.model as TokenForgeModelId, line.slice(5).trim())}` : line).join("\n")}\n`);
+        if (isStrictPublicManagedModel(input.model as TokenForgeModelId)) {
+          const publicFrames = strictPublicManagedSseFrames(input.model as TokenForgeModelId, lines);
+          if (publicFrames.length) res.write(`${publicFrames.join("\n")}\n\n`);
         } else {
           res.write(value);
         }

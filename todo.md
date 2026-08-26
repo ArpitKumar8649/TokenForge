@@ -472,3 +472,8 @@
 - [x] Add Sonnet 4.6 to TokenForge routing, model controls, and managed multi-provider configuration with dynamic encrypted API-key pools and equal-share provider balancing.
 - [x] Add Sonnet 4.6 credential-redacted administrator failure history with timestamps, per-key health metrics, and neutral public error masking across Playground, OpenAI-compatible, Anthropic Messages, JSON, and SSE paths.
 - [x] Add focused Sonnet 4.6 provider, diagnostics, and masking regressions; validate TypeScript and relevant suites; restart the server; and publish the completed feature.
+- [x] Audit Claude Sonnet 4.6 caller-visible error masking across response, HTTP, network, timeout, stream, and Anthropic Messages paths.
+- [x] Assess and prioritize practical TokenForge enhancements across reliability, security, observability, administration, and developer experience.
+- [x] Implement shared strict public JSON and SSE projection for all managed models so internal model IDs, provider metadata, fingerprints, reasoning, and unknown vendor fields cannot reach callers.
+- [x] Ensure every managed-model provider failure and stream error is converted to the neutral TokenForge error contract across Playground, OpenAI-compatible, and Anthropic Messages paths while retaining redacted administrator diagnostics.
+- [x] Research documented b.ai errors, map their caller-safe behavior, add cross-model disclosure regressions, validate TypeScript and focused suites, restart the server, and publish the hardening update.
