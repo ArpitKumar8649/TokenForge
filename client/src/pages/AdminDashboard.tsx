@@ -120,7 +120,57 @@ function ClaudeOpus5FailureHistory({ logs, loading }: { logs?: ClaudeOpus5Failur
 function ClaudeOpus5ProviderBalancerPanel({ providerName = "Claude Opus 5", drafts, settings, metrics, loading, saving, onChange, onAddProvider, onRemoveProvider, onSave }: { providerName?: string; drafts: ClaudeOpus5ProviderDraft[]; settings?: ClaudeOpus5SettingsData; metrics?: ManagedProviderKeyMetricGroup; loading: boolean; saving: boolean; onChange: (id: string, update: (draft: ClaudeOpus5ProviderDraft) => ClaudeOpus5ProviderDraft) => void; onAddProvider: () => void; onRemoveProvider: (id: string) => void; onSave: () => void }) {
   const configured = new Map((settings?.providers ?? []).map(provider => [provider.id, provider]));
   const disabled = loading || saving;
+  const [activeProviderId, setActiveProviderId] = useState("");
+  useEffect(() => {
+    if (!drafts.length) return;
+    if (!drafts.some(draft => draft.id === activeProviderId)) setActiveProviderId(drafts[0]!.id);
+  }, [activeProviderId, drafts]);
   const canSave = drafts.length > 0 && drafts.every(draft => Boolean(draft.label.trim() && draft.baseUrl.trim() && draft.model.trim() && (configured.get(draft.id)?.apiKeyMasks.length || draft.apiKeys.some(key => key.trim()))));
+  useEffect(() => {
+    const heading = Array.from(document.querySelectorAll("section.dashboard-card p")).find(node => node.textContent === `${providerName} multi-provider load balancer`);
+    const section = heading?.closest("section");
+    const forms = section?.querySelector(".mt-5.space-y-4");
+    if (!forms || !drafts.length) return;
+    const selectedId = drafts.some(draft => draft.id === activeProviderId) ? activeProviderId : drafts[0]!.id;
+    const cards = Array.from(forms.children) as HTMLElement[];
+    const tabList = document.createElement("div");
+    tabList.setAttribute("role", "tablist");
+    tabList.setAttribute("aria-label", `${providerName} provider groups`);
+    tabList.className = "mb-4 flex gap-2 overflow-x-auto border-b border-white/10 pb-2";
+    const activate = (id: string) => {
+      setActiveProviderId(id);
+      cards.forEach((card, index) => { card.hidden = drafts[index]?.id !== id; });
+      Array.from(tabList.querySelectorAll<HTMLButtonElement>("button[role='tab']")).forEach(button => {
+        const selected = button.dataset.providerId === id;
+        button.setAttribute("aria-selected", String(selected));
+        button.tabIndex = selected ? 0 : -1;
+        button.className = selected ? "shrink-0 rounded-md bg-[#c9ff73]/15 px-3 py-1.5 text-xs font-semibold text-[#d8ff91]" : "shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold text-[#a8a9b8] hover:bg-white/6 hover:text-white";
+      });
+    };
+    drafts.forEach((draft, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.providerId = draft.id;
+      button.setAttribute("role", "tab");
+      button.setAttribute("aria-controls", `${draft.id}-provider-panel`);
+      button.textContent = draft.label.trim() || `Provider ${index + 1}`;
+      button.addEventListener("click", () => activate(draft.id));
+      button.addEventListener("keydown", event => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        const next = (index + (event.key === "ArrowRight" ? 1 : drafts.length - 1)) % drafts.length;
+        activate(drafts[next]!.id);
+        (tabList.querySelectorAll<HTMLButtonElement>("button[role='tab']")[next]).focus();
+      });
+      tabList.append(button);
+      cards[index]?.setAttribute("role", "tabpanel");
+      cards[index]?.setAttribute("id", `${draft.id}-provider-panel`);
+      cards[index]?.setAttribute("aria-label", draft.label.trim() || `Provider ${index + 1}`);
+    });
+    forms.before(tabList);
+    activate(selectedId);
+    return () => { tabList.remove(); cards.forEach(card => { card.hidden = false; card.removeAttribute("role"); card.removeAttribute("aria-label"); }); };
+  }, [activeProviderId, drafts, providerName]);
   return <section className="dashboard-card"><SectionHeader icon={<KeyRound size={17} />} title={`${providerName} multi-provider load balancer`} detail="Every new request rotates evenly across enabled provider groups, then across eligible keys within the selected group. A failed provider is skipped before a response starts." /><div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="max-w-2xl text-[10px] leading-5 text-[#858697]">Provider base URLs, underlying model IDs, and API keys stay server-side. Providers have equal share; no provider weights are applied. Turn a group off to preserve its configuration and metrics while excluding it from new calls and failover.</p><Badge className="border-0 bg-[#c9ff73]/10 text-[10px] text-[#c9ff73]">{drafts.filter(draft => draft.enabled).length}/{drafts.length} enabled</Badge></div><div className="mt-5 space-y-4">{drafts.map((draft, providerIndex) => { const saved = configured.get(draft.id); return <div key={draft.id} className={`rounded-xl border p-4 ${draft.enabled ? "border-white/8 bg-black/15" : "border-white/5 bg-black/30 opacity-80"}`}><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold text-[#dedfe7]">Provider {providerIndex + 1}</p><p className="mt-1 text-[10px] text-[#858697]">{draft.enabled ? "Equal-share group with an independent health-aware key pool." : "Disabled — preserved but excluded from new calls and failover."}</p></div><div className="flex items-center gap-2"><Toggle label={`${draft.label || `Provider ${providerIndex + 1}`} routing`} enabled={draft.enabled} pending={disabled} onChange={enabled => onChange(draft.id, current => ({ ...current, enabled }))} /><Button type="button" size="sm" variant="outline" className="border-red-300/20 text-red-200 hover:bg-red-400/10 hover:text-red-100" onClick={() => onRemoveProvider(draft.id)} disabled={disabled || drafts.length <= 1}><Trash2 size={14} /> Remove provider</Button></div></div><div className="mt-4 grid gap-3 md:grid-cols-2"><div><label className="text-xs font-semibold text-[#dedfe7]" htmlFor={`${draft.id}-label`}>Provider label</label><Input id={`${draft.id}-label`} value={draft.label} onChange={event => onChange(draft.id, current => ({ ...current, label: event.target.value }))} className="mt-2 border-white/10 bg-black/15 text-xs" disabled={disabled} /></div><div><label className="text-xs font-semibold text-[#dedfe7]" htmlFor={`${draft.id}-model`}>Underlying model ID</label><Input id={`${draft.id}-model`} value={draft.model} onChange={event => onChange(draft.id, current => ({ ...current, model: event.target.value }))} className="mt-2 border-white/10 bg-black/15 font-mono text-xs" disabled={disabled} /></div></div><div className="mt-3"><label className="text-xs font-semibold text-[#dedfe7]" htmlFor={`${draft.id}-base-url`}>Base URL</label><Input id={`${draft.id}-base-url`} value={draft.baseUrl} onChange={event => onChange(draft.id, current => ({ ...current, baseUrl: event.target.value }))} className="mt-2 border-white/10 bg-black/15 font-mono text-xs" disabled={disabled} /></div><div className="mt-4"><DynamicProviderKeyPool providerName={draft.label || `Provider ${providerIndex + 1}`} values={draft.apiKeys} masks={saved?.apiKeyMasks ?? []} disabled={disabled} onChange={(keyIndex, value) => onChange(draft.id, current => ({ ...current, apiKeys: current.apiKeys.map((key, index) => index === keyIndex ? value : key) }))} onRemove={keyIndex => onChange(draft.id, current => ({ ...current, removedSlots: saved?.apiKeyMasks[keyIndex]?.slot ? Array.from(new Set(current.removedSlots.concat([saved.apiKeyMasks[keyIndex]!.slot]))) : current.removedSlots, apiKeys: current.apiKeys.filter((_, index) => index !== keyIndex) }))} onAdd={() => onChange(draft.id, current => ({ ...current, apiKeys: [...current.apiKeys, ""] }))} /></div></div>; })}</div><div className="mt-4 flex flex-wrap gap-3"><Button type="button" variant="outline" className="border-[#c9ff73]/25 text-[#c9ff73] hover:bg-[#c9ff73]/10 hover:text-[#d8ff91]" onClick={onAddProvider} disabled={disabled || drafts.length >= 12}><Plus size={14} /> Add provider</Button><Button onClick={onSave} disabled={disabled || !canSave} className="bg-[#c9ff73] text-[#17210d] hover:bg-[#d8ff91]">{saving ? <><Loader2 className="animate-spin" size={14} />Saving…</> : "Save load balancer"}</Button></div><div className="mt-5 rounded-xl border border-white/8 bg-black/15 p-4"><p className="text-[10px] font-bold uppercase tracking-[.13em] text-[#858697]">Provider and credential observability</p><ManagedProviderKeyMetrics providerName={providerName} metrics={metrics} /><p className="mt-4 text-[10px] leading-5 text-[#858697]">Metrics are provider-group scoped and use non-reversible server-side credential fingerprints. They show request, success, failure, cooldown, and recent activity information without exposing API keys.</p></div></section>;
 }
 
@@ -139,6 +189,23 @@ function ClaudeFable5ProviderBalancerPanel({ metrics }: { metrics?: ManagedProvi
     onError: error => toast.error(error.message),
   });
   return <ClaudeOpus5ProviderBalancerPanel providerName="Claude Fable 5" drafts={drafts} settings={settings.data as ClaudeOpus5SettingsData | undefined} metrics={metrics} loading={settings.isLoading} saving={save.isPending} onChange={(id, update) => setDrafts(current => current.map(draft => draft.id === id ? update(draft) : draft))} onAddProvider={() => setDrafts(current => [...current, { id: `provider-${Date.now()}-${current.length + 1}`, label: `Provider ${current.length + 1}`, enabled: true, baseUrl: "", model: "", apiKeys: [""], removedSlots: [] }])} onRemoveProvider={id => setDrafts(current => current.filter(draft => draft.id !== id))} onSave={() => save.mutate({ providers: drafts })} />;
+}
+
+export function Qwen38MaxProviderBalancerPanel({ metrics }: { metrics?: ManagedProviderKeyMetricGroup }) {
+  const utils = trpc.useUtils();
+  const settings = trpc.admin.qwen38MaxProviderSettings.useQuery();
+  const [drafts, setDrafts] = useState<ClaudeOpus5ProviderDraft[]>([]);
+  const [initialized, setInitialized] = useState(false);
+  useEffect(() => {
+    if (!settings.data || initialized) return;
+    setDrafts(settings.data.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] })));
+    setInitialized(true);
+  }, [initialized, settings.data]);
+  const save = trpc.admin.updateQwen38MaxProviderSettings.useMutation({
+    onSuccess: async () => { await Promise.all([utils.admin.qwen38MaxProviderSettings.invalidate(), utils.admin.overview.invalidate(), utils.admin.activity.invalidate()]); toast.success("Qwen 3.8 Max load balancer updated"); },
+    onError: error => toast.error(error.message),
+  });
+  return <><ClaudeOpus5ProviderBalancerPanel providerName="Qwen 3.8 Max" drafts={drafts} settings={settings.data as ClaudeOpus5SettingsData | undefined} metrics={metrics} loading={settings.isLoading} saving={save.isPending} onChange={(id, update) => setDrafts(current => current.map(draft => draft.id === id ? update(draft) : draft))} onAddProvider={() => setDrafts(current => [...current, { id: `provider-${Date.now()}-${current.length + 1}`, label: `Provider ${current.length + 1}`, enabled: true, baseUrl: "", model: "", apiKeys: [""], removedSlots: [] }])} onRemoveProvider={id => setDrafts(current => current.filter(draft => draft.id !== id))} onSave={() => save.mutate({ providers: drafts })} /><ManagedModelFailureHistory model="qwen3.8-max" title="Qwen 3.8 Max" /></>;
 }
 
 function DeepseekV4ProProviderBalancerPanel({ metrics }: { metrics?: ManagedProviderKeyMetricGroup }) {
@@ -164,6 +231,56 @@ function DeepseekV4ProProviderBalancerPanel({ metrics }: { metrics?: ManagedProv
   const disabled = settings.isLoading || save.isPending;
   const update = (id: string, transform: (draft: ClaudeOpus5ProviderDraft) => ClaudeOpus5ProviderDraft) => setDrafts(current => current.map(draft => draft.id === id ? transform(draft) : draft));
   const valid = drafts.length > 0 && drafts.every(draft => Boolean(draft.label.trim() && draft.baseUrl.trim() && draft.model.trim() && (configured.get(draft.id)?.apiKeyMasks.length || draft.apiKeys.some(key => key.trim()))));
+  const [activeProviderId, setActiveProviderId] = useState("");
+  useEffect(() => {
+    if (!drafts.length) return;
+    if (!drafts.some(draft => draft.id === activeProviderId)) setActiveProviderId(drafts[0]!.id);
+  }, [activeProviderId, drafts]);
+  useEffect(() => {
+    const heading = Array.from(document.querySelectorAll("section.dashboard-card p")).find(node => node.textContent === "DeepSeek V4 Pro multi-provider load balancer");
+    const section = heading?.closest("section");
+    const forms = section?.querySelector(".mt-5.space-y-4");
+    if (!forms || !drafts.length) return;
+    const selectedId = drafts.some(draft => draft.id === activeProviderId) ? activeProviderId : drafts[0]!.id;
+    const cards = Array.from(forms.children) as HTMLElement[];
+    const tabList = document.createElement("div");
+    tabList.setAttribute("role", "tablist");
+    tabList.setAttribute("aria-label", "DeepSeek V4 Pro provider groups");
+    tabList.className = "mb-4 flex gap-2 overflow-x-auto border-b border-white/10 pb-2";
+    const activate = (id: string) => {
+      setActiveProviderId(id);
+      cards.forEach((card, index) => { card.hidden = drafts[index]?.id !== id; });
+      Array.from(tabList.querySelectorAll<HTMLButtonElement>("button[role='tab']")).forEach(button => {
+        const selected = button.dataset.providerId === id;
+        button.setAttribute("aria-selected", String(selected));
+        button.tabIndex = selected ? 0 : -1;
+        button.className = selected ? "shrink-0 rounded-md bg-[#c9ff73]/15 px-3 py-1.5 text-xs font-semibold text-[#d8ff91]" : "shrink-0 rounded-md px-3 py-1.5 text-xs font-semibold text-[#a8a9b8] hover:bg-white/6 hover:text-white";
+      });
+    };
+    drafts.forEach((draft, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.providerId = draft.id;
+      button.setAttribute("role", "tab");
+      button.setAttribute("aria-controls", `${draft.id}-deepseek-provider-panel`);
+      button.textContent = draft.label.trim() || `Provider ${index + 1}`;
+      button.addEventListener("click", () => activate(draft.id));
+      button.addEventListener("keydown", event => {
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        const next = (index + (event.key === "ArrowRight" ? 1 : drafts.length - 1)) % drafts.length;
+        activate(drafts[next]!.id);
+        (tabList.querySelectorAll<HTMLButtonElement>("button[role='tab']")[next]).focus();
+      });
+      tabList.append(button);
+      cards[index]?.setAttribute("role", "tabpanel");
+      cards[index]?.setAttribute("id", `${draft.id}-deepseek-provider-panel`);
+      cards[index]?.setAttribute("aria-label", draft.label.trim() || `Provider ${index + 1}`);
+    });
+    forms.before(tabList);
+    activate(selectedId);
+    return () => { tabList.remove(); cards.forEach(card => { card.hidden = false; card.removeAttribute("role"); card.removeAttribute("aria-label"); }); };
+  }, [activeProviderId, drafts]);
   return <section className="dashboard-card"><SectionHeader icon={<ServerCog size={17} />} title="DeepSeek V4 Pro multi-provider load balancer" detail="Equal-share provider groups route each new request across enabled providers, then across the selected group’s healthy encrypted API-key pool." /><div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="max-w-2xl text-[10px] leading-5 text-[#858697]">DeepSeek V4 Pro has no TokenForge 82-request lifetime retirement. A retryable upstream failure advances through available keys and then other enabled provider groups; disabled groups are preserved but receive no traffic.</p><Badge className="border-0 bg-[#c9ff73]/10 text-[10px] text-[#c9ff73]">{drafts.filter(draft => draft.enabled).length}/{drafts.length} enabled</Badge></div><div className="mt-5 space-y-4">{drafts.map((draft, index) => { const saved = configured.get(draft.id); return <div key={draft.id} className={`rounded-xl border p-4 ${draft.enabled ? "border-white/8 bg-black/15" : "border-white/5 bg-black/30 opacity-80"}`}><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold text-[#dedfe7]">Provider {index + 1}</p><p className="mt-1 text-[10px] text-[#858697]">{draft.enabled ? "Enabled equal-share group with independent key health and failover." : "Disabled — retained but excluded from new DeepSeek traffic."}</p></div><div className="flex items-center gap-2"><Toggle label={`${draft.label || `Provider ${index + 1}`} routing`} enabled={draft.enabled} pending={disabled} onChange={enabled => update(draft.id, current => ({ ...current, enabled }))} /><Button type="button" size="sm" variant="outline" className="border-red-300/20 text-red-200 hover:bg-red-400/10 hover:text-red-100" onClick={() => setDrafts(current => current.filter(item => item.id !== draft.id))} disabled={disabled || drafts.length <= 1}><Trash2 size={14} /> Remove provider</Button></div></div><div className="mt-4 grid gap-3 md:grid-cols-2"><div><label className="text-xs font-semibold text-[#dedfe7]">Provider label</label><Input value={draft.label} onChange={event => update(draft.id, current => ({ ...current, label: event.target.value }))} className="mt-2 border-white/10 bg-black/15 text-xs" disabled={disabled} /></div><div><label className="text-xs font-semibold text-[#dedfe7]">Underlying model ID</label><Input value={draft.model} onChange={event => update(draft.id, current => ({ ...current, model: event.target.value }))} className="mt-2 border-white/10 bg-black/15 font-mono text-xs" disabled={disabled} /></div></div><div className="mt-3"><label className="text-xs font-semibold text-[#dedfe7]">Base URL</label><Input value={draft.baseUrl} onChange={event => update(draft.id, current => ({ ...current, baseUrl: event.target.value }))} className="mt-2 border-white/10 bg-black/15 font-mono text-xs" disabled={disabled} /></div><div className="mt-4"><DynamicProviderKeyPool providerName={draft.label || `Provider ${index + 1}`} values={draft.apiKeys} masks={saved?.apiKeyMasks ?? []} disabled={disabled} onChange={(keyIndex, value) => update(draft.id, current => ({ ...current, apiKeys: current.apiKeys.map((key, slot) => slot === keyIndex ? value : key) }))} onRemove={keyIndex => update(draft.id, current => ({ ...current, removedSlots: saved?.apiKeyMasks[keyIndex]?.slot ? Array.from(new Set(current.removedSlots.concat([saved.apiKeyMasks[keyIndex]!.slot]))) : current.removedSlots, apiKeys: current.apiKeys.filter((_, slot) => slot !== keyIndex) }))} onAdd={() => update(draft.id, current => ({ ...current, apiKeys: [...current.apiKeys, ""] }))} /></div></div>; })}</div><div className="mt-4 flex flex-wrap gap-3"><Button type="button" variant="outline" className="border-[#c9ff73]/25 text-[#c9ff73] hover:bg-[#c9ff73]/10 hover:text-[#d8ff91]" onClick={() => setDrafts(current => [...current, { id: `provider-${Date.now()}-${current.length + 1}`, label: `Provider ${current.length + 1}`, enabled: true, baseUrl: "", model: "", apiKeys: [""], removedSlots: [] }])} disabled={disabled || drafts.length >= 12}><Plus size={14} /> Add provider</Button><Button onClick={() => save.mutate({ providers: drafts })} disabled={disabled || !valid} className="bg-[#c9ff73] text-[#17210d] hover:bg-[#d8ff91]">{save.isPending ? <><Loader2 className="animate-spin" size={14} />Saving…</> : "Save load balancer"}</Button></div><div className="mt-5 rounded-xl border border-white/8 bg-black/15 p-4"><p className="text-[10px] font-bold uppercase tracking-[.13em] text-[#858697]">Provider and credential observability</p><ManagedProviderKeyMetrics providerName="DeepSeek V4 Pro" metrics={metrics} /><p className="mt-4 text-[10px] leading-5 text-[#858697]">Metrics are scoped to provider group and server-side credential fingerprint. They never reveal raw keys, and DeepSeek request counters remain informational rather than admission caps.</p></div></section>;
 }
 
@@ -505,7 +622,18 @@ export default function AdminDashboard() {
   const [renderSwarmEndpoints, setRenderSwarmEndpoints] = useState<{ id: string; url: string; enabled: boolean }[]>([]);
   const [renderSwarmDraftInitialized, setRenderSwarmDraftInitialized] = useState(false);
   const renderSwarmSettings = trpc.admin.renderNimProxySwarmSettings.useQuery(undefined, { enabled: isAdminSession, refetchInterval: 5_000, refetchIntervalInBackground: false });
-  const [selectedProvider, setSelectedProvider] = useState<"claude-fable-5" | "claude-opus-5" | "glm-5.3" | "deepseek-v4-pro">("claude-fable-5");
+  const [selectedProvider, setSelectedProvider] = useState<"claude-fable-5" | "claude-opus-5" | "glm-5.3" | "deepseek-v4-pro" | "qwen3.8-max">("claude-fable-5");
+  useEffect(() => {
+    const selector = document.getElementById("managed-provider-selector") as HTMLSelectElement | null;
+    if (!selector || selector.querySelector("option[value='qwen3.8-max']")) return;
+    const option = document.createElement("option");
+    option.value = "qwen3.8-max";
+    option.textContent = "Qwen 3.8 Max";
+    selector.append(option);
+  }, []);
+  useEffect(() => {
+    if (selectedProvider === "qwen3.8-max") window.location.assign("/admin/qwen3.8-max");
+  }, [selectedProvider]);
   const [glm53BaseUrl, setGlm53BaseUrl] = useState("");
   const [glm53Model, setGlm53Model] = useState("");
   const [glm53ApiKeys, setGlm53ApiKeys] = useState<string[]>([""]);
@@ -630,11 +758,12 @@ function Glm53ProviderSettingsWithHistory(props: any) {
   return <><ManagedProviderSettingsPanel {...props} providerId="glm53-inner" /><ManagedModelFailureHistory model="glm-5.3" title="GLM 5.3" /></>;
 }
 
-function ManagedModelFailureHistory({ model, title }: { model: "claude-fable-5" | "glm-5.3" | "deepseek-v4-pro"; title: string }) {
+function ManagedModelFailureHistory({ model, title }: { model: "claude-fable-5" | "glm-5.3" | "deepseek-v4-pro" | "qwen3.8-max"; title: string }) {
   const fable = trpc.admin.claudeFable5FailureLogs.useQuery(undefined, { refetchInterval: 5_000, refetchIntervalInBackground: false });
   const glm = trpc.admin.glm53FailureLogs.useQuery(undefined, { refetchInterval: 5_000, refetchIntervalInBackground: false });
   const deepseek = trpc.admin.deepseekV4ProFailureLogs.useQuery(undefined, { refetchInterval: 5_000, refetchIntervalInBackground: false });
-  const query = model === "claude-fable-5" ? fable : model === "glm-5.3" ? glm : deepseek;
+  const qwen = trpc.admin.qwen38MaxFailureLogs.useQuery(undefined, { refetchInterval: 5_000, refetchIntervalInBackground: false });
+  const query = model === "claude-fable-5" ? fable : model === "glm-5.3" ? glm : model === "qwen3.8-max" ? qwen : deepseek;
   const entries = (query.data ?? []) as ClaudeOpus5FailureLog[];
   return <section className="dashboard-card"><SectionHeader icon={<AlertTriangle size={17} />} title={`${title} failure history`} detail="Credential-redacted upstream diagnostics are visible only to administrators, beside the exact neutral caller message." /><div className="mt-4 h-[32rem] space-y-2 overflow-y-auto overscroll-contain pr-2">{query.isLoading ? <div className="grid min-h-32 place-items-center"><Loader2 className="animate-spin text-[#c9ff73]" size={18} /></div> : entries.length ? entries.map(entry => <div key={entry.id} className="rounded-xl border border-white/8 bg-black/15 p-3"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><Badge className="border border-violet-300/20 bg-violet-300/10 text-[9px] text-violet-100">Provider group</Badge><p className="font-mono text-[10px] font-semibold text-[#e6e6ee]">{entry.sourceLabel}</p></div><div className="mt-2 grid gap-2 lg:grid-cols-2"><div><p className="text-[9px] font-bold uppercase tracking-[.11em] text-amber-200">Credential-redacted upstream diagnostic</p><pre className="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono text-[9px] leading-4 text-amber-100">{entry.callerMessage}</pre></div><div className="rounded-lg border border-[#c9ff73]/20 bg-[#c9ff73]/[.055] p-2"><p className="text-[9px] font-bold uppercase tracking-[.11em] text-[#c9ff73]">Caller-visible TokenForge message</p><p className="mt-1 font-mono text-[10px] leading-4 text-[#e6f7c5]">{entry.publicMessage ?? "The selected model is temporarily unavailable. Please retry shortly."}</p></div></div></div><div className="shrink-0 text-right"><p className="font-mono text-[10px] font-semibold text-amber-200">{entry.httpStatus ? `HTTP ${entry.httpStatus}` : entry.failureKind}</p><p className="mt-1 text-[9px] text-[#858697]">{entry.retryable ? "Failover eligible" : "No retry"}</p><time className="mt-1 block text-[9px] text-[#858697]" dateTime={new Date(entry.occurredAt).toISOString()}>Occurred: {new Date(entry.occurredAt).toLocaleString()}</time></div></div></div>) : <div className="grid min-h-32 place-items-center rounded-xl border border-dashed border-white/10 px-5 text-center text-[10px] text-[#858697]">No recorded upstream failures yet.</div>}</div><p className="mt-4 border-t border-white/8 pt-4 text-[10px] text-[#858697]">The latest 200 records refresh every five seconds. Secrets and credential-bearing URLs are redacted before storage.</p></section>;
 }

@@ -61,6 +61,7 @@ const CLAUDE_FABLE5_NVIDIA_RUNTIME_SETTING_KEY = "claude_fable5_nvidia_runtime_v
 const CLAUDE_OPUS5_TOKENREPLY_RUNTIME_SETTING_KEY = "claude_opus5_tokenreply_runtime_v1";
 const GLM53_RUNTIME_SETTING_KEY = "glm53_runtime_v1";
 const DEEPSEEK_V4PRO_RUNTIME_SETTING_KEY = "deepseek_v4pro_runtime_v1";
+const QWEN38_MAX_RUNTIME_SETTING_KEY = "qwen38_max_runtime_v1";
 const RENDER_NIM_PROXY_SWARM_SETTING_KEY = "render_nim_proxy_swarm_v1";
 const SPECIAL_REFERRAL_CAMPAIGN_KEY = "special-referral-150-v1";
 export const SPECIAL_REFERRAL_CAMPAIGN_CAP = 150;
@@ -1108,6 +1109,7 @@ export async function setAnnouncementText(text: string, updatedByUserId: number)
 const MAX_MANAGED_PROVIDER_API_KEYS = 50;
 
 type ClaudeFable5RuntimePayload = { providers: ClaudeOpus5ProviderRuntime[] };
+type Qwen38MaxRuntimePayload = { providers: ClaudeOpus5ProviderRuntime[] };
 
 function claudeFable5RuntimeFromEnvironment(): ClaudeFable5RuntimePayload {
   return {
@@ -1216,6 +1218,72 @@ export async function updateClaudeFable5NvidiaProviderSettings(input: { provider
     updatedByUserId,
   }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
   return getClaudeFable5NvidiaProviderSettings();
+}
+
+function qwen38MaxRuntimeFromEnvironment(): Qwen38MaxRuntimePayload {
+  return {
+    providers: normalizeClaudeOpus5Providers([{
+      id: "environment-default",
+      label: "TokenRouter default",
+      enabled: true,
+      baseUrl: process.env.TOKENROUTER_BASE_URL?.trim() ?? "",
+      model: process.env.TOKENROUTER_MODEL?.trim() ?? "",
+      apiKeys: getTokenRouterCredentialPool(),
+    }], []),
+  };
+}
+
+async function readQwen38MaxRuntimeOverride() {
+  const db = await getDb();
+  if (!db) return null;
+  const record = (await db.select().from(platformSettings).where(eq(platformSettings.settingKey, QWEN38_MAX_RUNTIME_SETTING_KEY)).limit(1))[0];
+  if (!record) return null;
+  try {
+    const encoded = JSON.parse(record.value) as { ciphertext?: string; iv?: string; authTag?: string };
+    const decrypted = decryptProviderRuntimeConfig({ ciphertext: String(encoded.ciphertext ?? ""), iv: String(encoded.iv ?? ""), authTag: String(encoded.authTag ?? "") });
+    if (!decrypted || typeof decrypted !== "object") return null;
+    const candidate = decrypted as Partial<Qwen38MaxRuntimePayload>;
+    return { payload: { providers: normalizeClaudeOpus5Providers(candidate.providers, []) }, updatedAt: record.updatedAt, updatedByUserId: record.updatedByUserId };
+  } catch {
+    return null;
+  }
+}
+
+export async function getQwen38MaxRuntimeConfig(): Promise<Qwen38MaxRuntimePayload> {
+  const fallback = qwen38MaxRuntimeFromEnvironment();
+  const override = await readQwen38MaxRuntimeOverride();
+  return { providers: override?.payload.providers.length ? override.payload.providers : fallback.providers };
+}
+
+export async function getQwen38MaxProviderSettings() {
+  const runtime = await getQwen38MaxRuntimeConfig();
+  const override = await readQwen38MaxRuntimeOverride();
+  return {
+    providers: runtime.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })) })),
+    source: override ? "database" as const : "environment" as const,
+    updatedAt: override?.updatedAt ?? null,
+    updatedByUserId: override?.updatedByUserId ?? null,
+  };
+}
+
+export async function updateQwen38MaxProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] }> }, updatedByUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const current = await getQwen38MaxRuntimeConfig();
+  const currentById = new Map(current.providers.map(provider => [provider.id, provider]));
+  const nextProviders = input.providers.map((submitted, index) => {
+    const existing = currentById.get(submitted.id);
+    const removedSlots = new Set(submitted.removeSlots ?? []);
+    const retainedKeys = (existing?.apiKeys ?? []).filter((_, keyIndex) => !removedSlots.has(keyIndex + 1));
+    const patchedExistingKeys = retainedKeys.map((key, keyIndex) => submitted.apiKeys[keyIndex]?.trim() || key);
+    const appendedKeys = submitted.apiKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
+    return { id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`), label: submitted.label.trim() || `Provider ${index + 1}`, enabled: submitted.enabled !== false, baseUrl: submitted.baseUrl.trim(), model: submitted.model.trim(), apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS) };
+  });
+  const ids = new Set(nextProviders.map(provider => provider.id));
+  if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length)) throw new Error("Each Qwen 3.8 Max provider needs a unique identifier, base URL, model ID, and at least one API key");
+  const encrypted = encryptProviderRuntimeConfig({ providers: nextProviders } satisfies Qwen38MaxRuntimePayload);
+  await db.insert(platformSettings).values({ settingKey: QWEN38_MAX_RUNTIME_SETTING_KEY, value: JSON.stringify(encrypted), updatedByUserId }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+  return getQwen38MaxProviderSettings();
 }
 
 export type ClaudeOpus5ProviderRuntime = {
@@ -1450,7 +1518,7 @@ export type ManagedProviderFailureLogInput = {
   callerMessage?: string;
 };
 
-type ManagedProviderFailureLogModel = "claude-opus-5" | "claude-fable-5" | "glm-5.3" | "deepseek-v4-pro";
+type ManagedProviderFailureLogModel = "claude-opus-5" | "claude-fable-5" | "glm-5.3" | "deepseek-v4-pro" | "qwen3.8-max";
 
 /**
  * Stores a raw credential-redacted managed-model upstream failure attempt.
@@ -1490,6 +1558,10 @@ export async function recordGlm53FailureLog(input: ManagedProviderFailureLogInpu
   return recordManagedProviderFailureLog("glm-5.3", input);
 }
 
+export async function recordQwen38MaxFailureLog(input: ManagedProviderFailureLogInput) {
+  return recordManagedProviderFailureLog("qwen3.8-max", input);
+}
+
 export async function getRecentClaudeOpus5FailureLogs(limit = 100) {
   return getRecentManagedProviderFailureLogs("claude-opus-5", limit);
 }
@@ -1504,6 +1576,21 @@ export async function getRecentClaudeFable5FailureLogs(limit = 100) {
 
 export async function getRecentGlm53FailureLogs(limit = 100) {
   return getRecentManagedProviderFailureLogs("glm-5.3", limit);
+}
+
+export async function getRecentQwen38MaxFailureLogs(limit = 100) {
+  return getRecentManagedProviderFailureLogs("qwen3.8-max", limit);
+}
+
+export const MANAGED_PROVIDER_FAILURE_LOG_RETENTION_MS = 28 * 60 * 60 * 1_000;
+
+/** Removes credential-redacted provider diagnostics after their 28-hour administrator retention window. */
+export async function pruneExpiredManagedProviderFailureLogs(now = new Date()) {
+  const db = await getDb();
+  const cutoff = new Date(now.getTime() - MANAGED_PROVIDER_FAILURE_LOG_RETENTION_MS);
+  if (!db) return { cutoff, deleted: false };
+  await db.delete(claudeOpus5FailureLogs).where(lt(claudeOpus5FailureLogs.occurredAt, cutoff));
+  return { cutoff, deleted: true };
 }
 
 /** The administrator history is bounded by record count while preserving each credential-redacted raw response body. */
@@ -1866,7 +1953,7 @@ export async function updateDeepseekV4ProProviderSettings(input: { providers: De
   return getDeepseekV4ProProviderSettings();
 }
 
-export const MANAGED_PROVIDER_METRIC_MODEL_IDS = ["claude-fable-5", "claude-opus-5", "glm-5.3", "deepseek-v4-pro"] as const;
+export const MANAGED_PROVIDER_METRIC_MODEL_IDS = ["claude-fable-5", "claude-opus-5", "glm-5.3", "deepseek-v4-pro", "qwen3.8-max"] as const;
 export type ManagedProviderMetricModel = typeof MANAGED_PROVIDER_METRIC_MODEL_IDS[number];
 export const MANAGED_PROVIDER_KEY_REQUEST_CAP = 82;
 export const CAPPED_MANAGED_PROVIDER_METRIC_MODEL_IDS = ["glm-5.3"] as const;
@@ -1883,7 +1970,7 @@ export function isManagedProviderKeyRetired(modelId: ManagedProviderMetricModel,
 export function managedProviderCredentialFingerprint(modelId: ManagedProviderMetricModel, credential: string, providerGroupId?: string) {
   const secret = process.env.JWT_SECRET?.trim();
   if (!secret) throw new Error("TokenForge provider metric vault is unavailable");
-  const groupScope = (modelId === "claude-opus-5" || modelId === "deepseek-v4-pro") && providerGroupId && providerGroupId !== "primary" ? `\u0000provider:${providerGroupId}` : "";
+  const groupScope = (modelId === "claude-opus-5" || modelId === "deepseek-v4-pro" || modelId === "claude-fable-5" || modelId === "qwen3.8-max") && providerGroupId && providerGroupId !== "primary" ? `\u0000provider:${providerGroupId}` : "";
   return createHmac("sha256", secret).update(`TokenForge:ProviderKeyMetrics:v1\u0000${modelId}${groupScope}\u0000${credential}`).digest("hex");
 }
 
@@ -1919,6 +2006,10 @@ async function getManagedProviderMetricRuntime(modelId: ManagedProviderMetricMod
   }
   if (modelId === "claude-opus-5") {
     const runtime = await getClaudeOpus5RuntimeConfig();
+    return { apiKeys: runtime.providers.flatMap(provider => provider.apiKeys) };
+  }
+  if (modelId === "qwen3.8-max") {
+    const runtime = await getQwen38MaxRuntimeConfig();
     return { apiKeys: runtime.providers.flatMap(provider => provider.apiKeys) };
   }
   if (modelId === "glm-5.3") return getGlm53RuntimeConfig();
@@ -1968,9 +2059,10 @@ export async function reserveCappedManagedProviderCredentialRequest(modelId: Cap
 /** Administrator-only view model: keeps fingerprints and raw credentials server-side, returning only current masks and aggregated counts. */
 export async function getManagedProviderKeyMetrics() {
   const db = await getDb();
-  const runtimes = await Promise.all(MANAGED_PROVIDER_METRIC_MODEL_IDS.filter(modelId => modelId !== "claude-opus-5" && modelId !== "deepseek-v4-pro").map(async modelId => ({ modelId, runtime: await getManagedProviderMetricRuntime(modelId) })));
+  const runtimes = await Promise.all(MANAGED_PROVIDER_METRIC_MODEL_IDS.filter(modelId => modelId !== "claude-opus-5" && modelId !== "deepseek-v4-pro" && modelId !== "qwen3.8-max").map(async modelId => ({ modelId, runtime: await getManagedProviderMetricRuntime(modelId) })));
   const opusRuntime = await getClaudeOpus5RuntimeConfig();
   const deepseekRuntime = await getDeepseekV4ProRuntimeConfig();
+  const qwenRuntime = await getQwen38MaxRuntimeConfig();
   const rows = db
     ? await db.select().from(providerKeyMetrics).where(inArray(providerKeyMetrics.providerModelId, [...MANAGED_PROVIDER_METRIC_MODEL_IDS]))
     : [];
@@ -2047,7 +2139,29 @@ export async function getManagedProviderKeyMetrics() {
       };
     }),
   }));
-  return [...standardMetrics, { modelId: "claude-opus-5", slots: [], providers: opusProviders }, { modelId: "deepseek-v4-pro", slots: [], providers: deepseekProviders }];
+  const qwenProviders = qwenRuntime.providers.map(provider => ({
+    id: provider.id,
+    label: provider.label,
+    slots: provider.apiKeys.map((credential, index) => {
+      const metric = metricsByKey.get(`qwen3.8-max:${managedProviderCredentialFingerprint("qwen3.8-max", credential, provider.id)}`);
+      const liveSlot = getCredentialSlotTelemetry(`qwen3.8-max:${provider.id}`, index);
+      return {
+        slot: index + 1,
+        keyMask: maskProviderApiKey(credential),
+        requestCount: Number(metric?.requestCount ?? 0),
+        successCount: Number(metric?.successCount ?? 0),
+        failureCount: Number(metric?.failureCount ?? 0),
+        health: liveSlot.health,
+        cooldownUntil: liveSlot.cooldownUntil,
+        lastRequestAt: metric?.lastRequestAt ?? null,
+        lastSuccessAt: metric?.lastSuccessAt ?? null,
+        lastFailureAt: metric?.lastFailureAt ?? null,
+        requestCap: null,
+        retired: false,
+      };
+    }),
+  }));
+  return [...standardMetrics, { modelId: "claude-opus-5", slots: [], providers: opusProviders }, { modelId: "deepseek-v4-pro", slots: [], providers: deepseekProviders }, { modelId: "qwen3.8-max", slots: [], providers: qwenProviders }];
 }
 
 export async function promoteUserToAdmin(userId: number) {

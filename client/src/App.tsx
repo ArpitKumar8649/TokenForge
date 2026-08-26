@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Docs from "./pages/Docs";
 import DeveloperDashboard from "./pages/DeveloperDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
+import Qwen38MaxProviderSettings from "./pages/Qwen38MaxProviderSettings";
 import AdminSettings from "./pages/AdminSettings";
 import DemoWorkspace from "./pages/DemoWorkspace";
 import Home from "./pages/Home";
@@ -40,6 +41,7 @@ function Router() {
       <Route path={"/dashboard/usage"}>{() => <DeveloperDashboard section="usage" />}</Route>
       <Route path={"/dashboard/profile"}>{() => <DeveloperDashboard section="profile" />}</Route>
       <Route path={"/admin/settings"} component={AdminSettings} />
+      <Route path={"/admin/qwen3.8-max"} component={Qwen38MaxProviderSettings} />
       <Route path={"/admin"} component={AdminDashboard} />
       <Route path={"/legal/:page"} component={Legal} />
       <Route path={"/404"} component={NotFound} />

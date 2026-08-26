@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const projectRoot = path.resolve(import.meta.dirname, "..");
 const source = readFileSync(path.join(projectRoot, "client/src/pages/AdminDashboard.tsx"), "utf8");
+const qwenSource = readFileSync(path.join(projectRoot, "client/src/pages/Qwen38MaxProviderSettings.tsx"), "utf8");
 
 describe("dynamic managed provider API-key pool controls", () => {
   it("provides masked add and remove controls for all managed provider pools", () => {
@@ -33,6 +34,8 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain('selectedProvider === "claude-opus-5"');
     expect(source).toContain('selectedProvider === "glm-5.3"');
     expect(source).toContain('selectedProvider === "deepseek-v4-pro"');
+    expect(source).toContain('option.value = "qwen3.8-max"');
+    expect(source).toContain('window.location.assign("/admin/qwen3.8-max")');
     expect(source).toContain('{section === "providers" && managedProviderSettingsSection}');
   });
 
@@ -46,6 +49,7 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("managedProviderKeyMetrics.find(item => item.modelId === \"claude-opus-5\")");
     expect(source).toContain("managedProviderKeyMetrics.find(item => item.modelId === \"glm-5.3\")");
     expect(source).toContain("managedProviderKeyMetrics.find(item => item.modelId === \"deepseek-v4-pro\")");
+    expect(qwenSource).toContain('item.modelId === "qwen3.8-max"');
   });
 
   it("gives DeepSeek V4 Pro equal-share provider-group controls without an 82-request retirement policy", () => {
@@ -64,6 +68,22 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("Caller-visible TokenForge message");
     expect(source).toContain("Credential-redacted upstream diagnostic");
     expect(source).toContain("Occurred:");
+  });
+
+  it("adds Qwen 3.8 Max as a protected equal-share provider editor with administrator-only history", () => {
+    expect(source).toContain("function Qwen38MaxProviderBalancerPanel");
+    expect(source).toContain('providerName="Qwen 3.8 Max"');
+    expect(source).toContain('model="qwen3.8-max" title="Qwen 3.8 Max"');
+    expect(qwenSource).toContain("Administrator access required");
+    expect(qwenSource).toContain("Back to provider settings");
+  });
+
+  it("uses named keyboard-accessible provider tabs instead of requiring long vertical group scrolling", () => {
+    expect(source).toContain('tabList.setAttribute("role", "tablist")');
+    expect(source).toContain('button.setAttribute("role", "tab")');
+    expect(source).toContain('cards[index]?.setAttribute("role", "tabpanel")');
+    expect(source).toContain('event.key !== "ArrowLeft" && event.key !== "ArrowRight"');
+    expect(source).toContain("provider groups");
   });
 
   it("keeps a locally deleted DeepSeek provider key removed after the successful save response", () => {

@@ -61,12 +61,15 @@ import {
   getRecentGlm53FailureLogs,
   getRecentClaudeOpus5FailureLogs,
   getRecentDeepseekV4ProFailureLogs,
+  getRecentQwen38MaxFailureLogs,
   getClaudeOpus5ProviderSettings,
   updateClaudeOpus5ProviderSettings,
   getGlm53ProviderSettings,
   updateGlm53ProviderSettings,
   getDeepseekV4ProProviderSettings,
   updateDeepseekV4ProProviderSettings,
+  getQwen38MaxProviderSettings,
+  updateQwen38MaxProviderSettings,
   getRenderNimProxySwarmSettings,
   updateRenderNimProxySwarmSettings,
   listAdminPreProvisionedAccounts,
@@ -532,6 +535,13 @@ export const appRouter = router({
     claudeOpus5ProviderSettings: adminProcedure.query(() => getClaudeOpus5ProviderSettings()),
     claudeOpus5FailureLogs: adminProcedure.query(async () => (await getRecentClaudeOpus5FailureLogs(200)).map(entry => ({ ...entry, publicMessage: PUBLIC_PROVIDER_ERROR_MESSAGE }))),
     deepseekV4ProFailureLogs: adminProcedure.query(async () => (await getRecentDeepseekV4ProFailureLogs(200)).map(entry => ({ ...entry, publicMessage: PUBLIC_PROVIDER_ERROR_MESSAGE }))),
+    qwen38MaxProviderSettings: adminProcedure.query(() => getQwen38MaxProviderSettings()),
+    updateQwen38MaxProviderSettings: adminProcedure.input(claudeOpus5ProviderSettingsInput).mutation(async ({ ctx, input }) => {
+      const settings = await updateQwen38MaxProviderSettings(input, ctx.user.id);
+      await writeAuditEvent({ actorUserId: ctx.user.id, action: "qwen38_max_provider_settings_updated", entityType: "provider", entityId: "qwen3.8-max", metadata: { providerCount: input.providers.length } });
+      return settings;
+    }),
+    qwen38MaxFailureLogs: adminProcedure.query(async () => (await getRecentQwen38MaxFailureLogs(200)).map(entry => ({ ...entry, publicMessage: PUBLIC_PROVIDER_ERROR_MESSAGE }))),
     updateClaudeOpus5ProviderSettings: adminProcedure.input(claudeOpus5ProviderSettingsInput).mutation(async ({ ctx, input }) => {
       try {
         const settings = await updateClaudeOpus5ProviderSettings(input, ctx.user.id);

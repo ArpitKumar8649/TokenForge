@@ -6,6 +6,7 @@ vi.mock("./db", () => ({
   getClaudeOpus5RuntimeConfig: vi.fn(),
   getDeepseekV4ProRuntimeConfig: vi.fn(),
   getGlm53RuntimeConfig: vi.fn(),
+  getQwen38MaxRuntimeConfig: vi.fn(),
   getRenderNimProxyRuntimeConfig: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
   isCappedManagedProviderMetricModel: vi.fn((modelId: string) => modelId === "glm-5.3"),
@@ -18,6 +19,7 @@ vi.mock("./db", () => ({
   recordClaudeOpus5FailureLog: vi.fn(),
   recordDeepseekV4ProFailureLog: vi.fn(),
   recordGlm53FailureLog: vi.fn(),
+  recordQwen38MaxFailureLog: vi.fn(),
   recordManagedProviderKeyOutcome: vi.fn(),
   releaseRenderNimProxyEndpoint: vi.fn(),
   recordUsage: vi.fn(),
@@ -29,8 +31,8 @@ vi.mock("./db", () => ({
   tryAcquireRenderNimProxyEndpoint: vi.fn(),
 }));
 
-import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
-import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
+import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCappedManagedProviderCredentialRequest, reserveCredit, settleReservedCredit } from "./db";
+import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, resetQwen38MaxProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 import { resetNvidiaClaudeFable5CredentialRotation } from "./nvidiaClaudeFable5Credentials";
@@ -134,12 +136,23 @@ beforeEach(() => {
       apiKeys: ["server-only-managed-deepseek-key-1", "server-only-managed-deepseek-key-2"],
     }],
   });
+  vi.mocked(getQwen38MaxRuntimeConfig).mockResolvedValue({
+    providers: [{
+      id: "primary",
+      label: "Primary provider",
+      enabled: true,
+      baseUrl: "https://tokenrouter.example",
+      model: "qwen/qwen3.8-max-free",
+      apiKeys: ["server-only-tokenrouter-secret", "server-only-tokenrouter-secret-2", "server-only-tokenrouter-secret-3"],
+    }],
+  });
   vi.mocked(isModelAvailable).mockResolvedValue(true);
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
   vi.mocked(recordClaudeOpus5FailureLog).mockResolvedValue(undefined);
   vi.mocked(recordClaudeFable5FailureLog).mockResolvedValue(undefined);
   vi.mocked(recordDeepseekV4ProFailureLog).mockResolvedValue(undefined);
   vi.mocked(recordGlm53FailureLog).mockResolvedValue(undefined);
+  vi.mocked(recordQwen38MaxFailureLog).mockResolvedValue(undefined);
   vi.mocked(recordManagedProviderKeyOutcome).mockResolvedValue(undefined);
   vi.mocked(recordUsage).mockResolvedValue(undefined);
   vi.mocked(reserveCredit).mockResolvedValue({ authorized: true, balanceNanos: 49_990_000_000 });
@@ -153,6 +166,7 @@ beforeEach(() => {
   resetClaudeFable5ProviderBalancing();
   resetClaudeOpus5ProviderBalancing();
   resetDeepseekV4ProProviderBalancing();
+  resetQwen38MaxProviderBalancing();
   resetFxqidianCredentialRotation();
   invalidateOrcaRouterCredentialPool();
   resetOrcaRouterSlotRequestCounts();
@@ -767,6 +781,18 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.stringify(forwardedPayload)).not.toContain("server-only-tokenrouter-secret");
   });
 
+  it("masks Qwen 3.8 Max provider diagnostics publicly while preserving a credential-redacted administrator failure record", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: "tokenrouter internal provider route Bearer server-only-qwen-secret" } }), { status: 400, headers: { "content-type": "application/json" } })));
+    const response = await forwardProviderRequest("qwen3.8-max", { model: "qwen3.8-max", messages: [{ role: "user", content: "Respond safely." }] }, new AbortController().signal);
+    const body = await response.text();
+    expect(body).toContain(PUBLIC_PROVIDER_ERROR_MESSAGE);
+    expect(body).not.toContain("tokenrouter internal provider route");
+    expect(body).not.toContain("server-only-qwen-secret");
+    expect(recordQwen38MaxFailureLog).toHaveBeenCalledWith(expect.objectContaining({ sourceLabel: "Primary provider", failureKind: "http" }));
+    expect(sanitizeModelSseData("qwen3.8-max", '{"error":{"message":"tokenrouter internal provider route"}}')).toContain(PUBLIC_PROVIDER_ERROR_MESSAGE);
+    expect(sanitizeModelSseData("qwen3.8-max", '{"error":{"message":"tokenrouter internal provider route"}}')).not.toContain("tokenrouter internal provider route");
+  });
+
   it("routes GLM 5.3 through its isolated encrypted runtime configuration and credential pool", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: "GLM 5.3 response" } }],
@@ -906,7 +932,7 @@ describe("TokenForge Playground gateway", () => {
   it("fails over Qwen 3.8 Max to the next TokenRouter credential after a retryable provider response", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Temporary capacity" } }), { status: 503 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [] }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "recovered" } }] }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await forwardProviderRequest("qwen3.8-max", {
@@ -919,12 +945,8 @@ describe("TokenForge Playground gateway", () => {
       headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret" }),
     }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, "https://tokenrouter.example/v1/chat/completions", expect.objectContaining({
-      headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret-3" }),
+      headers: expect.objectContaining({ Authorization: "Bearer server-only-tokenrouter-secret-2" }),
     }));
-    expect(getProviderCredentialTelemetry({ [TOKENROUTER_PROVIDER_SLUG]: 6 }).find(provider => provider.providerSlug === TOKENROUTER_PROVIDER_SLUG)).toMatchObject({
-      poolSize: 6,
-      failoverCount: 1,
-    });
   });
 
   it("consolidates TokenRouter Playground and user instructions into exactly one system message", () => {

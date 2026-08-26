@@ -9,6 +9,7 @@ import { registerDiscordOAuthRoutes } from "../discordOAuth";
 import { registerStorageProxy } from "./storageProxy";
 import { registerOpenAiGateway, registerPlaygroundGateway } from "../openaiGateway";
 import { registerAnthropicMessagesGateway } from "../anthropicGateway";
+import { registerManagedFailureLogRetention } from "../managedFailureLogRetention";
 import { isRequestPayloadTooLarge, requestPayloadTooLargeResponse, TOKENFORGE_JSON_BODY_LIMIT } from "../requestPayload";
 import { appRouter } from "../routers";
 import { clearLegacyAdministratorRoles, ensureCatalogue } from "../db";
@@ -53,6 +54,7 @@ async function startServer() {
   registerOpenAiGateway(app);
   registerAnthropicMessagesGateway(app);
   registerPlaygroundGateway(app);
+  registerManagedFailureLogRetention(app);
   // tRPC API
   app.use(
     "/api/trpc",

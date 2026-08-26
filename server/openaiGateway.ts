@@ -6,6 +6,7 @@ import {
   getClaudeOpus5RuntimeConfig,
   getDeepseekV4ProRuntimeConfig,
   getGlm53RuntimeConfig,
+  getQwen38MaxRuntimeConfig,
   getRenderNimProxyRuntimeConfig,
   getPlatformMaintenanceConfig,
   PLATFORM_MAINTENANCE_ERROR_MESSAGE,
@@ -18,6 +19,7 @@ import {
   recordClaudeOpus5FailureLog,
   recordDeepseekV4ProFailureLog,
   recordGlm53FailureLog,
+  recordQwen38MaxFailureLog,
   reserveCappedManagedProviderCredentialRequest,
   reserveCredit,
   recordManagedProviderKeyOutcome,
@@ -59,6 +61,7 @@ const CLAUDE_OPUS5_PUBLIC_IDENTITY = "I am Claude Opus 5, available through Toke
 const CLAUDE_FABLE5_PUBLIC_IDENTITY = "I am Claude Fable 5, available through TokenForge.";
 const GLM53_PUBLIC_IDENTITY = "I am GLM 5.3, available through TokenForge.";
 const DEEPSEEK_V4_PRO_PUBLIC_IDENTITY = "I am DeepSeek V4 Pro, available through TokenForge.";
+const QWEN38_MAX_PUBLIC_IDENTITY = "I am Qwen 3.8 Max, available through TokenForge.";
 const CLAUDE_OPUS5_UPSTREAM_IDENTITY_OR_PROMPT_LEAK = /\b(?:nemotron|lightning|nvidia|opencode(?:\s+zen)?|identity policy|system prompt|hidden instructions?|thinking process|analyze user input|core constraint)\b/i;
 const MANAGED_MODEL_UPSTREAM_IDENTITY_OR_PROMPT_LEAK = /\b(?:tokenrouter|tokenharbor|nvidia|opencode(?:\s+zen)?|orcarouter|underlying (?:model|provider|identity)|system prompt|hidden instructions?|internal implementation|provider credentials?)\b/i;
 
@@ -973,6 +976,83 @@ async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: Abo
   throw lastError instanceof Error ? lastError : new Error("TokenForge Claude Fable 5 inference is not configured or every provider is temporarily unavailable");
 }
 
+let qwen38MaxProviderCursor = 0;
+const qwen38MaxKeyCursors = new Map<string, number>();
+
+export function resetQwen38MaxProviderBalancing() {
+  qwen38MaxProviderCursor = 0;
+  qwen38MaxKeyCursors.clear();
+}
+
+function selectNextQwen38MaxCredential(provider: { id: string; apiKeys: string[] }) {
+  const telemetryProvider = `qwen3.8-max:${provider.id}` as CredentialTelemetryProvider;
+  const start = qwen38MaxKeyCursors.get(provider.id) ?? 0;
+  for (let offset = 0; offset < provider.apiKeys.length; offset += 1) {
+    const slot = (start + offset) % provider.apiKeys.length;
+    if (!isCredentialSlotEligible(telemetryProvider, slot)) continue;
+    qwen38MaxKeyCursors.set(provider.id, (slot + 1) % provider.apiKeys.length);
+    return { credential: provider.apiKeys[slot]!, slot, telemetryProvider };
+  }
+  return null;
+}
+
+async function forwardDedicatedQwen38MaxRequest(input: ChatInput, signal: AbortSignal) {
+  const runtime = await getQwen38MaxRuntimeConfig();
+  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(qwen38MaxProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
+  qwen38MaxProviderCursor = runtime.providers.length ? (qwen38MaxProviderCursor + 1) % runtime.providers.length : 0;
+  let lastError: unknown = null;
+  let lastStatus: number | null = null;
+  for (const provider of orderedProviders) {
+    const url = openAiChatCompletionsUrl(provider.baseUrl);
+    if (!url || !provider.model) continue;
+    for (let attempt = 0; attempt < provider.apiKeys.length; attempt += 1) {
+      const selectedCredential = selectNextQwen38MaxCredential(provider);
+      if (!selectedCredential) break;
+      const responseStart = createResponseStartDeadline(signal);
+      try {
+        const response = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" }, body: JSON.stringify({ ...input, model: provider.model }), signal: responseStart.signal });
+        responseStart.clear();
+        if (response.ok) {
+          if (!input.stream && isClaudeOpus5ZeroOutputFailure(await response.clone().json().catch(() => null))) {
+            const diagnostic = "Qwen 3.8 Max returned a successful response with zero output tokens or no assistant output.";
+            void recordQwen38MaxFailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, failureKind: "empty_output", retryable: true, callerMessage: diagnostic }).catch(() => undefined);
+            recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
+            void recordManagedProviderKeyOutcome("qwen3.8-max", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+            response.body?.cancel().catch(() => undefined);
+            lastError = new Error(diagnostic);
+            lastStatus = 503;
+            recordCredentialFailover(selectedCredential.telemetryProvider);
+            continue;
+          }
+          recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
+          void recordManagedProviderKeyOutcome("qwen3.8-max", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
+          return wrapManagedProviderResponseWithFailureLog(response, provider, signal, "Qwen 3.8 Max", recordQwen38MaxFailureLog);
+        }
+        const retryable = retryableProviderStatus(response.status);
+        const rawBody = await response.text().catch(() => "");
+        const diagnostic = renderedHttpFailureDiagnostic(response.status, rawBody);
+        void recordQwen38MaxFailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, httpStatus: response.status, failureKind: "http", retryable, callerMessage: rawBody || diagnostic }).catch(() => undefined);
+        recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
+        void recordManagedProviderKeyOutcome("qwen3.8-max", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+        if (!retryable) return publicManagedProviderFailureResponse(response.status);
+        lastError = new Error(diagnostic);
+        lastStatus = response.status;
+      } catch (error) {
+        responseStart.clear();
+        lastError = error;
+        const timeout = responseStart.timedOut() && !signal.aborted;
+        void recordQwen38MaxFailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, failureKind: timeout ? "timeout" : "network", retryable: true, callerMessage: timeout ? `Qwen 3.8 Max provider response did not start within ${Math.round(PROVIDER_RESPONSE_START_TIMEOUT_MS / 1_000)} seconds.` : error instanceof Error ? error.message : "Qwen 3.8 Max provider network request failed." }).catch(() => undefined);
+        recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
+        void recordManagedProviderKeyOutcome("qwen3.8-max", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+        if (signal.aborted) throw error;
+      }
+      recordCredentialFailover(selectedCredential.telemetryProvider);
+    }
+  }
+  if (lastStatus !== null) return publicManagedProviderFailureResponse(lastStatus);
+  throw lastError instanceof Error ? lastError : new Error("TokenForge Qwen 3.8 Max inference is not configured or every provider is temporarily unavailable");
+}
+
 /** OrcaRouter remains only for the separately configured Qwen3.8 27B route. */
 async function forwardOrcaRouterRequest(input: ChatInput, signal: AbortSignal) {
   const base = process.env.CLAUDE_OPUS5_BASE_URL?.replace(/\/$/, "");
@@ -993,11 +1073,10 @@ async function forwardTokenRouterRequest(input: ChatInput, signal: AbortSignal) 
   if (input.model === "claude-opus-5") return forwardDedicatedClaudeOpus5Request(input, signal);
   if (input.model === "claude-fable-5") return forwardDedicatedClaudeFable5Request(input, signal);
   if (input.model === "glm-5.3") return forwardDedicatedGlm53Request(input, signal);
+  if (input.model === "qwen3.8-max") return forwardDedicatedQwen38MaxRequest(input, signal);
   const base = process.env.TOKENROUTER_BASE_URL?.replace(/\/$/, "");
   const configuredModel = process.env.TOKENROUTER_MODEL?.trim();
-  const upstreamModel = input.model === "qwen3.8-max"
-    ? configuredModel
-    : getTokenForgeUpstreamModelId(String(input.model));
+  const upstreamModel = getTokenForgeUpstreamModelId(String(input.model));
   if (!base || !upstreamModel) throw new Error("TokenForge TokenRouter inference is not configured");
   const requestBody = { ...input, model: upstreamModel };
   return forwardWithCredentialFailover(TOKENROUTER_PROVIDER_SLUG, input, signal, selectNextTokenRouterCredentialWithSlot, credential =>
@@ -1240,11 +1319,12 @@ export function sanitizeModelResponsePayload(model: TokenForgeModelId, payload: 
   if (model === "claude-opus-5") return redactClaudeOpus5IdentityLeak(stripGlm53RawReasoning(payload));
   if (model === "glm-5.3") return redactManagedModelIdentityLeak(stripGlm53RawReasoning(payload), GLM53_PUBLIC_IDENTITY);
   if (model === "deepseek-v4-pro") return redactManagedModelIdentityLeak(stripGlm53RawReasoning(payload), DEEPSEEK_V4_PRO_PUBLIC_IDENTITY);
+  if (model === "qwen3.8-max") return redactManagedModelIdentityLeak(payload, QWEN38_MAX_PUBLIC_IDENTITY);
   return payload;
 }
 
 export function sanitizeModelSseData(model: TokenForgeModelId, data: string) {
-  if ((model !== "glm-5.3" && model !== "deepseek-v4-pro" && model !== "claude-opus-5") || data === "[DONE]") return data;
+  if ((model !== "glm-5.3" && model !== "deepseek-v4-pro" && model !== "claude-opus-5" && model !== "qwen3.8-max") || data === "[DONE]") return data;
   try {
     const payload = JSON.parse(data) as { error?: unknown };
     if (payload && typeof payload === "object" && "error" in payload) {
@@ -1424,7 +1504,7 @@ async function streamPlaygroundCompletion(input: {
           if (!payload || payload === "[DONE]") continue;
           try { finalUsage = { ...finalUsage, ...usageFrom(JSON.parse(payload)) }; } catch { /* preserve upstream stream event */ }
         }
-        if (input.model === "glm-5.3" || input.model === "claude-opus-5" || input.model === "deepseek-v4-pro") {
+        if (input.model === "glm-5.3" || input.model === "claude-opus-5" || input.model === "deepseek-v4-pro" || input.model === "qwen3.8-max") {
           input.res.write(`${lines.map(line => line.startsWith("data:") ? `data: ${sanitizeModelSseData(input.model, line.slice(5).trim())}` : line).join("\n")}\n`);
         } else {
           input.res.write(value);
@@ -1600,7 +1680,7 @@ export function registerOpenAiGateway(app: Express) {
           if (!payload || payload === "[DONE]") continue;
           try { finalUsage = { ...finalUsage, ...usageFrom(JSON.parse(payload)) }; } catch { /* passthrough malformed upstream event */ }
         }
-        if (input.model === "glm-5.3" || input.model === "claude-opus-5" || input.model === "deepseek-v4-pro") {
+        if (input.model === "glm-5.3" || input.model === "claude-opus-5" || input.model === "deepseek-v4-pro" || input.model === "qwen3.8-max") {
           res.write(`${lines.map(line => line.startsWith("data:") ? `data: ${sanitizeModelSseData(input.model as TokenForgeModelId, line.slice(5).trim())}` : line).join("\n")}\n`);
         } else {
           res.write(value);
