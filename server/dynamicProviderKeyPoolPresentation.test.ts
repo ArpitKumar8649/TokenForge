@@ -178,10 +178,15 @@ describe("dynamic managed provider API-key pool controls", () => {
 
   it("separates every managed model’s error history into configured provider-name tabs and exposes b.ai diagnostics only to administrators", () => {
     expect(source).toContain("function ProviderScopedFailureHistory");
-    expect(source).toContain("providerLabels = Array.from(new Set(entries.map(entry => entry.sourceLabel)))");
+    expect(source).toContain("const configuredProviders = ((settings as ClaudeOpus5SettingsData | undefined)?.providers ?? [])");
+    expect(source).toContain("const providerTabs = configuredProviders.length");
     expect(source).toContain('role="tablist"');
     expect(source).toContain("`${title} failure providers`");
-    expect(source).toContain("entries.filter(entry => entry.sourceLabel === activeProvider)");
+    expect(source).toContain('entry.sourceType === "provider" && entry.sourceId === activeProvider.id');
+    expect(source).toContain("Every saved provider has its own live tab");
+    expect(source).toContain("No credential-redacted failures have been recorded for this provider.");
+    expect(source).toContain('muted ? "shrink-0 text-[#6f7181]');
+    expect(source).toContain("Disabled</span>");
     expect(source).toContain("function ProviderFailureLogEntry");
     expect(source).toContain("function BaiDiagnosticViewer");
     expect(source).toContain("b.ai diagnostic viewer");

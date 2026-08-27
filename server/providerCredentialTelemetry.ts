@@ -92,3 +92,12 @@ export function resetProviderCredentialTelemetry() {
   slotHealth.clear();
   failoverCounts.clear();
 }
+
+/** Removes only one dynamic provider group's transient state after its encrypted configuration is deleted. */
+export function clearProviderCredentialTelemetryGroup(providerSlug: Extract<CredentialTelemetryProvider, `${string}:${string}`>) {
+  const prefix = `${providerSlug}:`;
+  for (const key of Array.from(slotHealth.keys())) {
+    if (key.startsWith(prefix)) slotHealth.delete(key);
+  }
+  failoverCounts.delete(providerSlug);
+}

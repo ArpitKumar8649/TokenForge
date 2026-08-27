@@ -43,7 +43,7 @@ import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PR
 import { getClusterProtocolCredentialPool } from "./clusterProtocolCredentials";
 import { getFxqidianCredentialPool } from "./fxqidianCredentials";
 import { getTokenRouterCredentialPool } from "./tokenRouterCredentials";
-import { getCredentialSlotTelemetry, getProviderCredentialTelemetry, type CredentialTelemetryProvider } from "./providerCredentialTelemetry";
+import { clearProviderCredentialTelemetryGroup, getCredentialSlotTelemetry, getProviderCredentialTelemetry, type CredentialTelemetryProvider } from "./providerCredentialTelemetry";
 import { encryptOrcaRouterCredential } from "./orcaRouterCredentialVault";
 import { decryptBaiReasoningContinuation, encryptBaiReasoningContinuation } from "./baiReasoningContinuationVault";
 import { decryptGlmToolContinuation, encryptGlmToolContinuation, type GlmPrivateToolContinuation } from "./glmToolContinuationVault";
@@ -1216,6 +1216,50 @@ export async function setAnnouncementText(text: string, updatedByUserId: number)
 
 const MAX_MANAGED_PROVIDER_API_KEYS = 50;
 
+type ManagedDynamicProviderModel = "claude-fable-5" | "claude-opus-5" | "claude-sonnet-4.6" | "deepseek-v4-pro" | "qwen3.8-max";
+type ManagedProviderCleanupDb = Pick<NonNullable<Awaited<ReturnType<typeof getDb>>>, "delete">;
+
+/**
+ * Remove all state that becomes orphaned when an administrator deletes a
+ * dynamic provider group. Runtime credentials are excluded by replacing the
+ * encrypted runtime payload in the same transaction; this helper clears the
+ * matching credential fingerprints, diagnostics, and group-specific state.
+ */
+async function purgeRemovedManagedProviderGroups(
+  tx: ManagedProviderCleanupDb,
+  modelId: ManagedDynamicProviderModel,
+  providers: ClaudeOpus5ProviderRuntime[],
+) {
+  if (!providers.length) return;
+  const providerIds = providers.map(provider => provider.id);
+  const fingerprints = providers.flatMap(provider => provider.apiKeys.map(credential => managedProviderCredentialFingerprint(modelId, credential, provider.id)));
+
+  await tx.delete(claudeOpus5FailureLogs).where(and(
+    eq(claudeOpus5FailureLogs.modelId, modelId),
+    eq(claudeOpus5FailureLogs.sourceType, "provider"),
+    inArray(claudeOpus5FailureLogs.sourceId, providerIds),
+  ));
+  if (fingerprints.length) {
+    await tx.delete(providerKeyMetrics).where(and(
+      eq(providerKeyMetrics.providerModelId, modelId),
+      inArray(providerKeyMetrics.credentialFingerprint, fingerprints),
+    ));
+  }
+  if (modelId === "claude-opus-5") {
+    await tx.delete(baiProviderCircuitStates).where(inArray(baiProviderCircuitStates.providerGroupId, providerIds));
+    await tx.delete(managedProviderModelUsage).where(and(
+      eq(managedProviderModelUsage.providerModelId, "claude-opus-5"),
+      inArray(managedProviderModelUsage.providerGroupId, providerIds),
+    ));
+  }
+}
+
+function clearRemovedManagedProviderTelemetry(modelId: ManagedDynamicProviderModel, providers: ClaudeOpus5ProviderRuntime[]) {
+  for (const provider of providers) {
+    clearProviderCredentialTelemetryGroup(`${modelId}:${provider.id}` as Extract<CredentialTelemetryProvider, `${string}:${string}`>);
+  }
+}
+
 type ClaudeFable5RuntimePayload = { providers: ClaudeOpus5ProviderRuntime[] };
 type Qwen38MaxRuntimePayload = { providers: ClaudeOpus5ProviderRuntime[] };
 
@@ -1320,11 +1364,16 @@ export async function updateClaudeFable5NvidiaProviderSettings(input: { provider
   if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length)) throw new Error("Each Claude Fable 5 provider needs a unique identifier, base URL, model ID, and at least one API key");
   const next: ClaudeFable5RuntimePayload = { providers: nextProviders };
   const encrypted = encryptProviderRuntimeConfig(next);
-  await db.insert(platformSettings).values({
-    settingKey: CLAUDE_FABLE5_NVIDIA_RUNTIME_SETTING_KEY,
-    value: JSON.stringify(encrypted),
-    updatedByUserId,
-  }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+  const removedProviders = current.providers.filter(provider => !ids.has(provider.id));
+  await db.transaction(async tx => {
+    await tx.insert(platformSettings).values({
+      settingKey: CLAUDE_FABLE5_NVIDIA_RUNTIME_SETTING_KEY,
+      value: JSON.stringify(encrypted),
+      updatedByUserId,
+    }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+    await purgeRemovedManagedProviderGroups(tx, "claude-fable-5", removedProviders);
+  });
+  clearRemovedManagedProviderTelemetry("claude-fable-5", removedProviders);
   return getClaudeFable5NvidiaProviderSettings();
 }
 
@@ -1390,7 +1439,12 @@ export async function updateQwen38MaxProviderSettings(input: { providers: Array<
   const ids = new Set(nextProviders.map(provider => provider.id));
   if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length)) throw new Error("Each Qwen 3.8 Max provider needs a unique identifier, base URL, model ID, and at least one API key");
   const encrypted = encryptProviderRuntimeConfig({ providers: nextProviders } satisfies Qwen38MaxRuntimePayload);
-  await db.insert(platformSettings).values({ settingKey: QWEN38_MAX_RUNTIME_SETTING_KEY, value: JSON.stringify(encrypted), updatedByUserId }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+  const removedProviders = current.providers.filter(provider => !ids.has(provider.id));
+  await db.transaction(async tx => {
+    await tx.insert(platformSettings).values({ settingKey: QWEN38_MAX_RUNTIME_SETTING_KEY, value: JSON.stringify(encrypted), updatedByUserId }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+    await purgeRemovedManagedProviderGroups(tx, "qwen3.8-max", removedProviders);
+  });
+  clearRemovedManagedProviderTelemetry("qwen3.8-max", removedProviders);
   return getQwen38MaxProviderSettings();
 }
 
@@ -2251,11 +2305,16 @@ export async function updateClaudeOpus5ProviderSettings(input: { providers: Arra
   }
   const next: ClaudeOpus5RuntimePayload = { providers: nextProviders };
   const encrypted = encryptProviderRuntimeConfig(next);
-  await db.insert(platformSettings).values({
-    settingKey: CLAUDE_OPUS5_TOKENREPLY_RUNTIME_SETTING_KEY,
-    value: JSON.stringify(encrypted),
-    updatedByUserId,
-  }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+  const removedProviders = current.providers.filter(provider => !ids.has(provider.id));
+  await db.transaction(async tx => {
+    await tx.insert(platformSettings).values({
+      settingKey: CLAUDE_OPUS5_TOKENREPLY_RUNTIME_SETTING_KEY,
+      value: JSON.stringify(encrypted),
+      updatedByUserId,
+    }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+    await purgeRemovedManagedProviderGroups(tx, "claude-opus-5", removedProviders);
+  });
+  clearRemovedManagedProviderTelemetry("claude-opus-5", removedProviders);
   return getClaudeOpus5ProviderSettings();
 }
 
@@ -2509,11 +2568,16 @@ export async function updateDeepseekV4ProProviderSettings(input: { providers: De
     throw new Error("Each DeepSeek V4 Pro provider needs a unique identifier, base URL, model ID, and at least one API key");
   }
   const encrypted = encryptProviderRuntimeConfig({ providers: nextProviders } satisfies DeepseekV4ProRuntimePayload);
-  await db.insert(platformSettings).values({
-    settingKey: DEEPSEEK_V4PRO_RUNTIME_SETTING_KEY,
-    value: JSON.stringify(encrypted),
-    updatedByUserId,
-  }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+  const removedProviders = current.providers.filter(provider => !ids.has(provider.id));
+  await db.transaction(async tx => {
+    await tx.insert(platformSettings).values({
+      settingKey: DEEPSEEK_V4PRO_RUNTIME_SETTING_KEY,
+      value: JSON.stringify(encrypted),
+      updatedByUserId,
+    }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+    await purgeRemovedManagedProviderGroups(tx, "deepseek-v4-pro", removedProviders);
+  });
+  clearRemovedManagedProviderTelemetry("deepseek-v4-pro", removedProviders);
   return getDeepseekV4ProProviderSettings();
 }
 
@@ -2594,11 +2658,16 @@ export async function updateSonnet46ProviderSettings(input: { providers: Sonnet4
     throw new Error("Each Claude Sonnet 4.6 provider needs a unique identifier, base URL, model ID, and at least one API key");
   }
   const encrypted = encryptProviderRuntimeConfig({ providers: nextProviders } satisfies Sonnet46RuntimePayload);
-  await db.insert(platformSettings).values({
-    settingKey: SONNET46_RUNTIME_SETTING_KEY,
-    value: JSON.stringify(encrypted),
-    updatedByUserId,
-  }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+  const removedProviders = current.providers.filter(provider => !ids.has(provider.id));
+  await db.transaction(async tx => {
+    await tx.insert(platformSettings).values({
+      settingKey: SONNET46_RUNTIME_SETTING_KEY,
+      value: JSON.stringify(encrypted),
+      updatedByUserId,
+    }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+    await purgeRemovedManagedProviderGroups(tx, "claude-sonnet-4.6", removedProviders);
+  });
+  clearRemovedManagedProviderTelemetry("claude-sonnet-4.6", removedProviders);
   return getSonnet46ProviderSettings();
 }
 
