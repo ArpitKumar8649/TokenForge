@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./db", () => ({
+  getBailuWebshareProxyPoolRuntimeConfig: vi.fn(),
   findActiveApiKey: vi.fn(),
   getClaudeFable5NvidiaRuntimeConfig: vi.fn(),
   getClaudeOpus5RuntimeConfig: vi.fn(),
@@ -32,9 +33,16 @@ vi.mock("./db", () => ({
   touchApiKey: vi.fn(),
   tryAcquireRenderNimProxyEndpoint: vi.fn(),
 }));
+vi.mock("undici", () => ({
+  fetch: vi.fn(),
+  ProxyAgent: vi.fn(function ProxyAgent() {
+    return { close: vi.fn().mockResolvedValue(undefined) };
+  }),
+}));
 
-import { getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, getSonnet46RuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordSonnet46FailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCredit, settleReservedCredit } from "./db";
-import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, resetQwen38MaxProviderBalancing, resetSonnet46ProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
+import { getBailuWebshareProxyPoolRuntimeConfig, getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, getSonnet46RuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordSonnet46FailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCredit, settleReservedCredit } from "./db";
+import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetBailuWebshareProxyPool, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, resetQwen38MaxProviderBalancing, resetSonnet46ProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
+import { fetch as undiciFetch } from "undici";
 import { resetClusterProtocolCredentialRotation } from "./clusterProtocolCredentials";
 import { resetFxqidianCredentialRotation } from "./fxqidianCredentials";
 import { resetNvidiaClaudeFable5CredentialRotation } from "./nvidiaClaudeFable5Credentials";
@@ -63,6 +71,7 @@ const availableQuota = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getRenderNimProxyRuntimeConfig).mockResolvedValue({ enabled: false, apiKey: "", model: "", endpoints: [] });
+  vi.mocked(getBailuWebshareProxyPoolRuntimeConfig).mockResolvedValue({ enabled: false, proxies: [] });
   process.env.FXQIDIAN_BASE_URL = "https://provider.example";
   process.env.FXQIDIAN_API_KEY = "server-only-provider-secret";
   process.env.FXQIDIAN_API_KEY_2 = "server-only-provider-secret-2";
@@ -171,6 +180,7 @@ beforeEach(() => {
   resetNvidiaClaudeFable5CredentialRotation();
   resetClaudeFable5ProviderBalancing();
   resetClaudeOpus5ProviderBalancing();
+  void resetBailuWebshareProxyPool();
   resetDeepseekV4ProProviderBalancing();
   resetSonnet46ProviderBalancing();
   resetQwen38MaxProviderBalancing();
@@ -667,6 +677,60 @@ describe("TokenForge Playground gateway", () => {
       retryable: false,
       callerMessage: "HTTP 400 — Bailu private-bailu-model rejected request: invalid upstream route",
     }));
+  });
+
+  it("routes only a Bailu Claude Opus provider through the configured Webshare direct-proxy pool without forwarding client identity headers", async () => {
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
+      providers: [{ id: "bailu", label: "Bailu", enabled: true, baseUrl: "https://bailu.example", model: "private-bailu-model", apiKeys: ["bailu-server-only-key"] }],
+    });
+    vi.mocked(getBailuWebshareProxyPoolRuntimeConfig).mockResolvedValue({
+      enabled: true,
+      proxies: [
+        { id: "webshare-1", label: "Webshare proxy 1", host: "198.51.100.1", port: 8080, username: "server-only-proxy-user", password: "server-only-proxy-pass", enabled: true },
+        { id: "webshare-2", label: "Webshare proxy 2", host: "198.51.100.2", port: 8080, username: "server-only-proxy-user-2", password: "server-only-proxy-pass-2", enabled: true },
+      ],
+    });
+    vi.mocked(undiciFetch).mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "Routed safely." } }] }), { status: 200, headers: { "content-type": "application/json" } }) as never);
+    const directFetch = vi.fn();
+    vi.stubGlobal("fetch", directFetch);
+
+    const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Use the authorized route." }] }, new AbortController().signal);
+
+    expect(response.status).toBe(200);
+    expect(directFetch).not.toHaveBeenCalled();
+    expect(undiciFetch).toHaveBeenCalledWith("https://bailu.example/v1/chat/completions", expect.objectContaining({
+      headers: {
+        Authorization: "Bearer bailu-server-only-key",
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: expect.stringContaining('"model":"private-bailu-model"'),
+    }));
+    const requestOptions = vi.mocked(undiciFetch).mock.calls[0]?.[1] as { headers?: Record<string, string> } | undefined;
+    expect(requestOptions?.headers).not.toHaveProperty("X-Forwarded-For");
+    expect(requestOptions?.headers).not.toHaveProperty("X-Real-IP");
+    expect(JSON.stringify(requestOptions)).not.toContain("hashed-source-ip");
+  });
+
+  it("fails over a retryable Bailu response to the next configured Webshare proxy before using another provider key", async () => {
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
+      providers: [{ id: "bailu", label: "Bailu", enabled: true, baseUrl: "https://bailu.example", model: "private-bailu-model", apiKeys: ["bailu-server-only-key"] }],
+    });
+    vi.mocked(getBailuWebshareProxyPoolRuntimeConfig).mockResolvedValue({
+      enabled: true,
+      proxies: [
+        { id: "webshare-1", label: "Webshare proxy 1", host: "198.51.100.1", port: 8080, username: "server-only-proxy-user", password: "server-only-proxy-pass", enabled: true },
+        { id: "webshare-2", label: "Webshare proxy 2", host: "198.51.100.2", port: 8080, username: "server-only-proxy-user-2", password: "server-only-proxy-pass-2", enabled: true },
+      ],
+    });
+    vi.mocked(undiciFetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "retry" } }), { status: 503, headers: { "content-type": "application/json" } }) as never)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "Recovered through the next proxy." } }] }), { status: 200, headers: { "content-type": "application/json" } }) as never);
+
+    const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Retry safely." }] }, new AbortController().signal);
+
+    expect(response.status).toBe(200);
+    expect(undiciFetch).toHaveBeenCalledTimes(2);
   });
 
   it("treats Bailu zero-output success payloads as a retryable provider failure without adding a failure-history record", async () => {

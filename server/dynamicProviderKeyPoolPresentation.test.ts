@@ -34,7 +34,7 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain('selectedProvider === "claude-opus-5"');
     expect(source).toContain('selectedProvider === "glm-5.3"');
     expect(source).toContain('selectedProvider === "deepseek-v4-pro"');
-    expect(source).toContain('qwenOption.value = "qwen3.8-max"');
+    expect(source).toContain('<option value="qwen3.8-max">Qwen 3.8 Max</option>');
     expect(source).toContain('window.location.assign("/admin/qwen3.8-max")');
     expect(source).toContain('{section === "providers" && managedProviderSettingsSection}');
   });
@@ -130,12 +130,22 @@ describe("dynamic managed provider API-key pool controls", () => {
   });
 
   it("adds Claude Sonnet 4.6 managed multi-provider controls, metrics, and timestamped administrator-only diagnostics", () => {
-    expect(source).toContain('sonnetOption.value = "claude-sonnet-4.6"');
     expect(source).toContain('window.location.assign("/admin/sonnet4.6")');
     expect(source).toContain('<option value="claude-sonnet-4.6">Claude Sonnet 4.6</option>');
     expect(source).toContain('<Sonnet46ProviderBalancerPanel metrics={managedProviderKeyMetrics.find(item => item.modelId === "claude-sonnet-4.6")} />');
     expect(source).toContain('model="claude-sonnet-4.6" title="Claude Sonnet 4.6"');
     expect(source).toContain("sonnet46FailureLogs.useQuery");
+  });
+
+  it("provides a Bailu-only administrator-managed Webshare direct-proxy pool without browser-visible credentials", () => {
+    expect(source).toContain("function BailuWebshareProxyPoolPanel");
+    expect(source).toContain("Bailu Webshare egress pool");
+    expect(source).toContain("trpc.admin.bailuWebshareProxyPoolSettings.useQuery");
+    expect(source).toContain("updateBailuWebshareProxyPoolSettings.useMutation");
+    expect(source).toContain("Only the Claude Opus provider group named Bailu can use this pool");
+    expect(source).toContain("no user IP header is sent upstream");
+    expect(source).toContain("Saved passwords remain masked");
+    expect(source).toContain("drafts.length >= 3");
   });
 
   it("lays overview metrics out as compact boxes on narrow screens rather than a single vertical list", () => {

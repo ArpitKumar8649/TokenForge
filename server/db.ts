@@ -65,6 +65,7 @@ const DEEPSEEK_V4PRO_RUNTIME_SETTING_KEY = "deepseek_v4pro_runtime_v1";
 const SONNET46_RUNTIME_SETTING_KEY = "sonnet46_runtime_v1";
 const QWEN38_MAX_RUNTIME_SETTING_KEY = "qwen38_max_runtime_v1";
 const RENDER_NIM_PROXY_SWARM_SETTING_KEY = "render_nim_proxy_swarm_v1";
+const BAILU_WEBSHARE_PROXY_POOL_SETTING_KEY = "bailu_webshare_proxy_pool_v1";
 const SPECIAL_REFERRAL_CAMPAIGN_KEY = "special-referral-150-v1";
 export const SPECIAL_REFERRAL_CAMPAIGN_CAP = 150;
 export const SPECIAL_REFERRAL_BONUS_NANOS = 150 * NANODOLLARS_PER_DOLLAR;
@@ -1309,6 +1310,114 @@ export type ClaudeOpus5RuntimePayload = { providers: ClaudeOpus5ProviderRuntime[
 const MAX_CLAUDE_OPUS5_PROVIDERS = 12;
 export const CLAUDE_OPUS5_QWEN_DEFAULT_MODEL_TOKEN_QUOTA = 1_000_000;
 const MAX_CLAUDE_OPUS5_QWEN_MODELS = 50;
+
+export type BailuWebshareProxyRuntime = {
+  id: string;
+  label: string;
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  enabled: boolean;
+};
+
+type BailuWebshareProxyPoolRuntime = { enabled: boolean; proxies: BailuWebshareProxyRuntime[] };
+const MAX_BAILU_WEBSHARE_PROXIES = 3;
+
+function normalizeBailuWebshareProxyHost(value: unknown) {
+  const host = typeof value === "string" ? value.trim() : "";
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return "";
+  return host.split(".").every(segment => Number(segment) >= 0 && Number(segment) <= 255) ? host : "";
+}
+
+function normalizeBailuWebshareProxyPool(value: unknown, fallback: BailuWebshareProxyRuntime[] = []) {
+  if (!Array.isArray(value)) return fallback;
+  const seen = new Set<string>();
+  const proxies = value.flatMap((candidate, index) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const raw = candidate as Partial<BailuWebshareProxyRuntime>;
+    const id = normalizeClaudeOpus5ProviderId(raw.id, `webshare-${index + 1}`);
+    const host = normalizeBailuWebshareProxyHost(raw.host);
+    const port = Number(raw.port);
+    const username = typeof raw.username === "string" ? raw.username.trim().slice(0, 512) : "";
+    const password = typeof raw.password === "string" ? raw.password.slice(0, 512) : "";
+    const label = typeof raw.label === "string" && raw.label.trim() ? raw.label.trim().slice(0, 80) : `Webshare proxy ${index + 1}`;
+    if (seen.has(id) || !host || !Number.isInteger(port) || port < 1 || port > 65_535 || !username || !password) return [];
+    seen.add(id);
+    return [{ id, label, host, port, username, password, enabled: raw.enabled !== false }];
+  }).slice(0, MAX_BAILU_WEBSHARE_PROXIES);
+  return proxies;
+}
+
+async function readBailuWebshareProxyPoolOverride() {
+  const db = await getDb();
+  if (!db) return null;
+  const record = (await db.select().from(platformSettings).where(eq(platformSettings.settingKey, BAILU_WEBSHARE_PROXY_POOL_SETTING_KEY)).limit(1))[0];
+  if (!record) return null;
+  try {
+    const encoded = JSON.parse(record.value) as { ciphertext?: string; iv?: string; authTag?: string };
+    const payload = decryptProviderRuntimeConfig({ ciphertext: String(encoded.ciphertext ?? ""), iv: String(encoded.iv ?? ""), authTag: String(encoded.authTag ?? "") }) as Partial<BailuWebshareProxyPoolRuntime> | null;
+    if (!payload || typeof payload !== "object") return null;
+    return {
+      payload: { enabled: payload.enabled === true, proxies: normalizeBailuWebshareProxyPool(payload.proxies) },
+      updatedAt: record.updatedAt,
+      updatedByUserId: record.updatedByUserId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function getBailuWebshareProxyPoolRuntimeConfig(): Promise<BailuWebshareProxyPoolRuntime> {
+  return (await readBailuWebshareProxyPoolOverride())?.payload ?? { enabled: false, proxies: [] };
+}
+
+export async function getBailuWebshareProxyPoolSettings() {
+  const override = await readBailuWebshareProxyPoolOverride();
+  const runtime = override?.payload ?? { enabled: false, proxies: [] };
+  return {
+    enabled: runtime.enabled,
+    proxies: runtime.proxies.map(proxy => ({
+      id: proxy.id,
+      label: proxy.label,
+      host: proxy.host,
+      port: proxy.port,
+      enabled: proxy.enabled,
+      usernameMask: maskProviderApiKey(proxy.username),
+      passwordConfigured: Boolean(proxy.password),
+    })),
+    source: override ? "database" as const : "not_configured" as const,
+    updatedAt: override?.updatedAt ?? null,
+  };
+}
+
+export async function updateBailuWebshareProxyPoolSettings(input: { enabled?: boolean; proxies: Array<{ id: string; label?: string; host: string; port: number; username?: string; password?: string; enabled?: boolean }> }, updatedByUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const current = await getBailuWebshareProxyPoolRuntimeConfig();
+  const existingById = new Map(current.proxies.map(proxy => [proxy.id, proxy]));
+  const proxies = normalizeBailuWebshareProxyPool(input.proxies.map((submitted, index) => {
+    const existing = existingById.get(submitted.id);
+    return {
+      id: submitted.id,
+      label: submitted.label ?? `Webshare proxy ${index + 1}`,
+      host: submitted.host,
+      port: submitted.port,
+      username: submitted.username?.trim() || existing?.username || "",
+      password: submitted.password || existing?.password || "",
+      enabled: submitted.enabled !== false,
+    };
+  }));
+  if (input.enabled === true && !proxies.some(proxy => proxy.enabled)) {
+    throw new Error("Enable at least one complete Webshare direct proxy before enabling Bailu proxy routing");
+  }
+  if (input.proxies.length !== proxies.length) {
+    throw new Error("Each Webshare proxy needs a unique ID, IPv4 host, port, username, and password");
+  }
+  const encrypted = encryptProviderRuntimeConfig({ enabled: input.enabled === true, proxies } satisfies BailuWebshareProxyPoolRuntime);
+  await db.insert(platformSettings).values({ settingKey: BAILU_WEBSHARE_PROXY_POOL_SETTING_KEY, value: JSON.stringify(encrypted), updatedByUserId }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+  return getBailuWebshareProxyPoolSettings();
+}
 
 export const RENDER_NIM_PROXY_MAX_CONCURRENT_REQUESTS = 7;
 const DEFAULT_RENDER_NIM_PROXY_ENDPOINTS = [

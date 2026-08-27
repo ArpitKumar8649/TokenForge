@@ -17,6 +17,6 @@ describe("managed provider key metrics", () => {
     expect(fableFingerprint).toBe(managedProviderCredentialFingerprint("claude-fable-5", credential));
     expect(fableFingerprint).not.toBe(managedProviderCredentialFingerprint("glm-5.3", credential));
     expect(fableFingerprint).not.toContain(credential);
-    expect(MANAGED_PROVIDER_METRIC_MODEL_IDS).toEqual(["claude-fable-5", "claude-opus-5", "glm-5.3", "deepseek-v4-pro"]);
+    expect(MANAGED_PROVIDER_METRIC_MODEL_IDS).toEqual(["claude-fable-5", "claude-opus-5", "glm-5.3", "claude-sonnet-4.6", "deepseek-v4-pro", "qwen3.8-max"]);
   });
 });

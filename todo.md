@@ -484,9 +484,16 @@
 - [x] Add a focused selector regression, validate TypeScript and the provider-panel suite, and publish the correction.
 - [x] Inspect the Bailu provider request path for forwarded client-IP metadata and identify the source of the provider’s multiple-IP restriction.
 - [x] Assess a provider-authorized fixed-egress or allowlist solution that preserves client privacy without bypassing provider access controls.
-- [ ] Implement, validate, and publish any approved compliant Bailu routing remedy with regression coverage.
-- [ ] Provision a locked-down fixed-egress relay for Bailu and allowlist its single public address with the provider.
-- [ ] Route only Bailu upstream requests through the relay, strip client-identity headers, and verify a stable provider-visible source address.
+- [x] Implement the approved Bailu-only Webshare routing remedy with encrypted configuration and focused regression coverage; keep it disabled until an administrator saves configured proxy slots.
+- [x] Superseded by the user-selected Webshare direct-proxy approach; no external relay or hosting migration is required.
+- [x] Add the Bailu-only Webshare routing path, strip client-identity headers, and restrict proxy transport to the configured Bailu provider group.
+- [x] Verify Webshare’s static-proxy requirements and record the Bailu-only proxy configuration inputs without exposing credentials.
+- [x] Add provider-authorized Webshare routing only for Bailu upstream requests, without forwarding client-IP headers or affecting other providers.
+- [ ] Verify the configured Webshare egress address is allowlisted by Bailu, validate failover behavior, and publish the integration.
+- [x] Create an encrypted Bailu-only Webshare proxy pool with up to three configurable direct proxy entries and no browser-visible credentials.
+- [x] Add managed proxy rotation and failure failover only for Bailu requests, retaining neutral public errors and stripping client-identifying headers.
+- [x] Add an administrator-only Bailu proxy editor with three masked proxy slots, enable controls, and safe configuration status.
+- [ ] Enter the three chosen direct-proxy slots through the administrator UI, add their host addresses to Bailu’s allowlist, then run the final authenticated proxy connectivity check.
 - [x] Pause the Bailu fixed-egress rollout pending the requested Claude Opus 5 and GLM 5.3 response-quality investigation.
 - [x] Run controlled Claude Opus 5 and GLM 5.3 gateway probes, compare normalized outputs with Playground rendering, and diagnose broken-response causes.
 - [x] Add opt-in quality regressions and validate that no reproducible Claude Opus 5 or GLM 5.3 gateway, SSE, or client text-corruption defect was present in the controlled probes.

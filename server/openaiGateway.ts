@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import {
+  getBailuWebshareProxyPoolRuntimeConfig,
   findActiveApiKey,
   getClaudeFable5NvidiaRuntimeConfig,
   getClaudeOpus5RuntimeConfig,
@@ -31,6 +32,7 @@ import {
   tryAcquireRenderNimProxyEndpoint,
   sanitizeRenderNimProxyFailureMessage,
 } from "./db";
+import { fetch as undiciFetch, ProxyAgent } from "undici";
 import { selectNextClusterProtocolCredentialWithSlot } from "./clusterProtocolCredentials";
 import { selectNextBluesMindsClaudeFable5CredentialWithSlot } from "./bluesMindsClaudeFable5Credentials";
 import { selectNextFxqidianCredentialWithSlot } from "./fxqidianCredentials";
@@ -611,11 +613,82 @@ async function forwardDedicatedSonnet46Request(input: ChatInput, signal: AbortSi
 let claudeOpus5ProviderCursor = 0;
 const claudeOpus5KeyCursors = new Map<string, number>();
 const claudeOpus5QwenModelCursors = new Map<string, number>();
+let bailuWebshareProxyCursor = 0;
+const bailuWebshareProxyAgents = new Map<string, { signature: string; agent: ProxyAgent }>();
 
 export function resetClaudeOpus5ProviderBalancing() {
   claudeOpus5ProviderCursor = 0;
   claudeOpus5KeyCursors.clear();
   claudeOpus5QwenModelCursors.clear();
+}
+
+export async function resetBailuWebshareProxyPool() {
+  bailuWebshareProxyCursor = 0;
+  const agents = Array.from(bailuWebshareProxyAgents.values());
+  bailuWebshareProxyAgents.clear();
+  await Promise.all(agents.map(({ agent }) => agent.close().catch(() => undefined)));
+}
+
+function orderedBailuWebshareProxies(proxies: Awaited<ReturnType<typeof getBailuWebshareProxyPoolRuntimeConfig>>["proxies"]) {
+  const enabled = proxies.filter(proxy => proxy.enabled);
+  if (!enabled.length) return [];
+  const ordered = enabled.map((_, offset) => enabled[(bailuWebshareProxyCursor + offset) % enabled.length]!);
+  bailuWebshareProxyCursor = (bailuWebshareProxyCursor + 1) % enabled.length;
+  return ordered;
+}
+
+function bailuWebshareProxyAgent(proxy: Awaited<ReturnType<typeof getBailuWebshareProxyPoolRuntimeConfig>>["proxies"][number]) {
+  const signature = createHash("sha256").update(`${proxy.host}:${proxy.port}\u0000${proxy.username}\u0000${proxy.password}`).digest("hex");
+  const existing = bailuWebshareProxyAgents.get(proxy.id);
+  if (existing?.signature === signature) return existing.agent;
+  if (existing) void existing.agent.close().catch(() => undefined);
+  const token = `Basic ${Buffer.from(`${proxy.username}:${proxy.password}`, "utf8").toString("base64")}`;
+  const agent = new ProxyAgent({ uri: `http://${proxy.host}:${proxy.port}`, token });
+  bailuWebshareProxyAgents.set(proxy.id, { signature, agent });
+  return agent;
+}
+
+async function forwardBailuRequestThroughWebshare(url: string, input: ChatInput, upstreamModel: string, credential: string, signal: AbortSignal, proxy: Awaited<ReturnType<typeof getBailuWebshareProxyPoolRuntimeConfig>>["proxies"][number]) {
+  const response = await undiciFetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${credential}`,
+      "Content-Type": "application/json",
+      Accept: input.stream ? "text/event-stream" : "application/json",
+    },
+    body: JSON.stringify({ ...input, model: upstreamModel }),
+    signal,
+    dispatcher: bailuWebshareProxyAgent(proxy),
+  });
+  return response as unknown as globalThis.Response;
+}
+
+async function forwardBailuRequestWithWebshareFailover(url: string, input: ChatInput, upstreamModel: string, credential: string, signal: AbortSignal) {
+  const proxyPool = await getBailuWebshareProxyPoolRuntimeConfig();
+  const proxies = proxyPool.enabled ? orderedBailuWebshareProxies(proxyPool.proxies) : [];
+  if (!proxies.length) {
+    return fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
+      body: JSON.stringify({ ...input, model: upstreamModel }),
+      signal,
+    });
+  }
+  let lastError: unknown = null;
+  for (let index = 0; index < proxies.length; index += 1) {
+    const proxy = proxies[index]!;
+    try {
+      const response = await forwardBailuRequestThroughWebshare(url, input, upstreamModel, credential, signal, proxy);
+      if (response.ok || !retryableProviderStatus(response.status)) return response;
+      if (index === proxies.length - 1) return response;
+      lastError = new Error(`Bailu request through configured Webshare proxy returned HTTP ${response.status}`);
+      await response.body?.cancel().catch(() => undefined);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Every configured Bailu Webshare proxy failed before a provider response was available.");
 }
 
 function selectNextClaudeOpus5Credential(provider: { id: string; apiKeys: string[] }) {
@@ -964,12 +1037,14 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
       if (!selectedCredential) break;
       const responseStart = createResponseStartDeadline(signal);
       try {
-        const response = await fetch(url, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
-          body: JSON.stringify({ ...input, model: upstreamModel }),
-          signal: responseStart.signal,
-        });
+        const response = isBailuClaudeOpus5Provider(provider)
+          ? await forwardBailuRequestWithWebshareFailover(url, input, upstreamModel, selectedCredential.credential, responseStart.signal)
+          : await fetch(url, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
+            body: JSON.stringify({ ...input, model: upstreamModel }),
+            signal: responseStart.signal,
+          });
         responseStart.clear();
         if (response.ok) {
           if (!input.stream && isBailuClaudeOpus5Provider(provider)) {

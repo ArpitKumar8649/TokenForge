@@ -75,6 +75,8 @@ import {
   updateDeepseekV4ProProviderSettings,
   getQwen38MaxProviderSettings,
   updateQwen38MaxProviderSettings,
+  getBailuWebshareProxyPoolSettings,
+  updateBailuWebshareProxyPoolSettings,
   listAdminPreProvisionedAccounts,
   preProvisionAccountEmail,
 } from "./db";
@@ -183,6 +185,18 @@ const claudeOpus5QwenModelDeleteInput = z.object({
 const claudeOpus5QwenApiKeyDeleteInput = z.object({
   providerId: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i),
   slot: z.number().int().positive(),
+});
+const bailuWebshareProxyPoolInput = z.object({
+  enabled: z.boolean(),
+  proxies: z.array(z.object({
+    id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, "Use letters, numbers, hyphens, or underscores for the proxy ID"),
+    label: z.string().trim().max(80).optional(),
+    host: z.string().trim().regex(/^\d{1,3}(?:\.\d{1,3}){3}$/, "Enter the Webshare direct proxy IPv4 address"),
+    port: z.number().int().min(1).max(65_535),
+    username: z.string().max(512).optional(),
+    password: z.string().max(512).optional(),
+    enabled: z.boolean().optional(),
+  })).max(3, "Bailu supports at most three Webshare direct proxies"),
 });
 const glm53ProviderSettingsInput = z.object({
   baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(),
@@ -553,6 +567,16 @@ export const appRouter = router({
     }),
     claudeOpus5ProviderSettings: adminProcedure.query(() => getClaudeOpus5ProviderSettings()),
     claudeOpus5FailureLogs: adminProcedure.query(async () => (await getRecentClaudeOpus5FailureLogs(200)).map(entry => ({ ...entry, publicMessage: PUBLIC_PROVIDER_ERROR_MESSAGE }))),
+    bailuWebshareProxyPoolSettings: adminProcedure.query(() => getBailuWebshareProxyPoolSettings()),
+    updateBailuWebshareProxyPoolSettings: adminProcedure.input(bailuWebshareProxyPoolInput).mutation(async ({ ctx, input }) => {
+      try {
+        const settings = await updateBailuWebshareProxyPoolSettings(input, ctx.user.id);
+        await writeAuditEvent({ actorUserId: ctx.user.id, action: "provider.claude_opus5.bailu_webshare_proxy_pool_updated", entityType: "provider", entityId: "bailu", metadata: { enabled: settings.enabled, proxyCount: settings.proxies.length } });
+        return settings;
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "TokenForge could not save the Bailu Webshare proxy pool" });
+      }
+    }),
     deepseekV4ProFailureLogs: adminProcedure.query(async () => (await getRecentDeepseekV4ProFailureLogs(200)).map(entry => ({ ...entry, publicMessage: PUBLIC_PROVIDER_ERROR_MESSAGE }))),
     qwen38MaxProviderSettings: adminProcedure.query(() => getQwen38MaxProviderSettings()),
     updateQwen38MaxProviderSettings: adminProcedure.input(claudeOpus5ProviderSettingsInput).mutation(async ({ ctx, input }) => {
