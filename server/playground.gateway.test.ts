@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./db", () => ({
   getBailuWebshareProxyPoolRuntimeConfig: vi.fn(),
+  isBaiProviderCircuitEligible: vi.fn(),
   loadBaiReasoningContinuation: vi.fn(),
   releaseBailuWebshareProxySlot: vi.fn(),
   findActiveApiKey: vi.fn(),
@@ -22,6 +23,8 @@ vi.mock("./db", () => ({
   recordClaudeFable5FailureLog: vi.fn(),
   recordClaudeOpus5FailureLog: vi.fn(),
   recordClaudeOpus5QwenModelUsage: vi.fn(),
+  recordBaiProviderRateLimit: vi.fn(),
+  recordBaiProviderSuccess: vi.fn(),
   recordDeepseekV4ProFailureLog: vi.fn(),
   recordGlm53FailureLog: vi.fn(),
   recordSonnet46FailureLog: vi.fn(),
@@ -40,7 +43,7 @@ vi.mock("./db", () => ({
 vi.mock("node:https", () => ({ default: { request: vi.fn() } }));
 vi.mock("socks-proxy-agent", () => ({ SocksProxyAgent: vi.fn().mockImplementation((proxyUrl: URL) => ({ destroy: vi.fn(), proxyUrl })) }));
 
-import { getBailuWebshareProxyPoolRuntimeConfig, getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, getSonnet46RuntimeConfig, isModelAvailable, loadBaiReasoningContinuation, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordSonnet46FailureLog, recordManagedProviderKeyOutcome, recordUsage, releaseBailuWebshareProxySlot, reserveCredit, settleReservedCredit, storeBaiReasoningContinuation, tryAcquireBailuWebshareProxySlot } from "./db";
+import { getBailuWebshareProxyPoolRuntimeConfig, getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, getSonnet46RuntimeConfig, isBaiProviderCircuitEligible, isModelAvailable, loadBaiReasoningContinuation, loadOrcaRouterCredentialSlotCiphertexts, recordBaiProviderRateLimit, recordBaiProviderSuccess, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordSonnet46FailureLog, recordManagedProviderKeyOutcome, recordUsage, releaseBailuWebshareProxySlot, reserveCredit, settleReservedCredit, storeBaiReasoningContinuation, tryAcquireBailuWebshareProxySlot } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetBailuWebshareProxyPool, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, resetQwen38MaxProviderBalancing, resetSonnet46ProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import https from "node:https";
 import { SocksProxyAgent } from "socks-proxy-agent";
@@ -97,6 +100,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getRenderNimProxyRuntimeConfig).mockResolvedValue({ enabled: false, apiKey: "", model: "", endpoints: [] });
   vi.mocked(getBailuWebshareProxyPoolRuntimeConfig).mockResolvedValue({ enabled: false, proxies: [] });
+  vi.mocked(isBaiProviderCircuitEligible).mockResolvedValue(true);
   vi.mocked(tryAcquireBailuWebshareProxySlot).mockResolvedValue(true);
   vi.mocked(loadBaiReasoningContinuation).mockResolvedValue(null);
   vi.mocked(storeBaiReasoningContinuation).mockResolvedValue(undefined);
@@ -191,6 +195,8 @@ beforeEach(() => {
   vi.mocked(getQuotaStatus).mockResolvedValue(availableQuota);
   vi.mocked(recordClaudeOpus5FailureLog).mockResolvedValue(undefined);
   vi.mocked(recordClaudeOpus5QwenModelUsage).mockResolvedValue(undefined);
+  vi.mocked(recordBaiProviderRateLimit).mockResolvedValue(undefined);
+  vi.mocked(recordBaiProviderSuccess).mockResolvedValue(undefined);
   vi.mocked(recordClaudeFable5FailureLog).mockResolvedValue(undefined);
   vi.mocked(recordDeepseekV4ProFailureLog).mockResolvedValue(undefined);
   vi.mocked(recordGlm53FailureLog).mockResolvedValue(undefined);
@@ -398,6 +404,23 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({ max_tokens: 2, model: "private-other-model" });
   });
 
+  it("caps only Claude Opus Qwen-pool outbound max_tokens at 32,768 and reserves against that capped maximum", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: "Provider response" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } })));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [{ id: "qwen", label: "Qwen", enabled: true, baseUrl: "https://qwen-provider.example", model: "private-qwen-default", apiKeys: ["server-only-qwen-key"] }] });
+    vi.mocked(getEligibleClaudeOpus5QwenModels).mockResolvedValue([{ id: "qwen-a", model: "private-qwen-model", quotaTokens: 1_000_000 }]);
+
+    await runPlaygroundCompletion({ userId: 42, model: "claude-opus-5", maxOutputTokens: 100_000, messages: [{ role: "user", content: "Use the Qwen pool." }], sourceIpHash: "qwen-cap" });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({ model: "private-qwen-model", max_tokens: 32_768 });
+    const qwenReservation = vi.mocked(reserveCredit).mock.calls[0]?.[1] ?? 0;
+    vi.mocked(reserveCredit).mockClear();
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [{ id: "other", label: "Other provider", enabled: true, baseUrl: "https://other-provider.example", model: "private-other-model", apiKeys: ["server-only-other-key"] }] });
+    await runPlaygroundCompletion({ userId: 42, model: "claude-opus-5", maxOutputTokens: 100_000, messages: [{ role: "user", content: "Use another provider." }], sourceIpHash: "other-cap" });
+    expect(qwenReservation).toBeLessThan(vi.mocked(reserveCredit).mock.calls[0]?.[1] ?? 0);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toMatchObject({ model: "private-other-model", max_tokens: 100_000 });
+  });
+
   it("prefers a healthy b.ai provider for a new Claude Opus conversation", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "b.ai response" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
@@ -409,6 +432,54 @@ describe("TokenForge Playground gateway", () => {
     await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Start a new chat." }] }, new AbortController().signal, { userId: 42 });
 
     expect(fetchMock.mock.calls[0][0]).toBe("https://bai-provider.example/v1/chat/completions");
+    expect(recordBaiProviderSuccess).toHaveBeenCalledWith("bai");
+  });
+
+  it("opens the b.ai provider-group circuit only on HTTP 429 and safely fails over to a compatible Claude Opus provider", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "Rate limited" } }), { status: 429 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "Compatible recovery" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [
+      { id: "bai", label: "B.ai", enabled: true, baseUrl: "https://bai-provider.example", model: "private-bai-model", apiKeys: ["server-only-bai-key", "server-only-bai-key-2"] },
+      { id: "other", label: "Other provider", enabled: true, baseUrl: "https://other-provider.example", model: "private-other-model", apiKeys: ["server-only-other-key"] },
+    ] });
+
+    const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Recover from capacity." }] }, new AbortController().signal, { userId: 42 });
+
+    expect(response.status).toBe(200);
+    expect(fetchMock.mock.calls.map(call => call[0])).toEqual(["https://bai-provider.example/v1/chat/completions", "https://other-provider.example/v1/chat/completions"]);
+    expect(recordBaiProviderRateLimit).toHaveBeenCalledWith("bai");
+    expect(fetchMock.mock.calls.filter(call => call[0] === "https://bai-provider.example/v1/chat/completions")).toHaveLength(1);
+  });
+
+  it("does not open the b.ai rate-limit circuit for an invalid upstream HTTP 400", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { message: "Invalid request" } }), { status: 400 })));
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [{ id: "bai", label: "B.ai", enabled: true, baseUrl: "https://bai-provider.example", model: "private-bai-model", apiKeys: ["server-only-bai-key"] }] });
+
+    const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Use valid provider settings." }] }, new AbortController().signal, { userId: 42 });
+
+    expect(response.status).toBe(400);
+    expect(recordBaiProviderRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("skips an open b.ai circuit, then reuses b.ai after its cooldown eligibility returns without treating HTTP 400 as a rate limit", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "Other response" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "b.ai recovered" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [
+      { id: "bai", label: "B.ai", enabled: true, baseUrl: "https://bai-provider.example", model: "private-bai-model", apiKeys: ["server-only-bai-key"] },
+      { id: "other", label: "Other provider", enabled: true, baseUrl: "https://other-provider.example", model: "private-other-model", apiKeys: ["server-only-other-key"] },
+    ] });
+    vi.mocked(isBaiProviderCircuitEligible).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+
+    await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Skip b.ai while cooling." }] }, new AbortController().signal, { userId: 42 });
+    await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Use b.ai after expiry." }] }, new AbortController().signal, { userId: 42 });
+
+    expect(fetchMock.mock.calls.map(call => call[0])).toEqual(["https://other-provider.example/v1/chat/completions", "https://bai-provider.example/v1/chat/completions"]);
+    expect(recordBaiProviderSuccess).toHaveBeenCalledWith("bai");
+    expect(recordBaiProviderRateLimit).not.toHaveBeenCalled();
   });
 
   it("skips b.ai for a Claude Opus continuation whose assistant turn has no matching private b.ai reasoning", async () => {

@@ -7,6 +7,7 @@ import {
   apiKeys,
   auditEvents,
   baiReasoningContinuations,
+  baiProviderCircuitStates,
   bailuWebshareProxySlotMetrics,
   claudeOpus5FailureLogs,
   creditAccounts,
@@ -70,6 +71,7 @@ const QWEN38_MAX_RUNTIME_SETTING_KEY = "qwen38_max_runtime_v1";
 const RENDER_NIM_PROXY_SWARM_SETTING_KEY = "render_nim_proxy_swarm_v1";
 const BAILU_WEBSHARE_PROXY_POOL_SETTING_KEY = "bailu_webshare_proxy_pool_v1";
 const BAI_REASONING_CONTINUATION_TTL_MS = 10 * 60 * 1_000;
+const BAI_PROVIDER_CIRCUIT_COOLDOWN_MS = 60_000;
 const SPECIAL_REFERRAL_CAMPAIGN_KEY = "special-referral-150-v1";
 export const SPECIAL_REFERRAL_CAMPAIGN_CAP = 150;
 export const SPECIAL_REFERRAL_BONUS_NANOS = 150 * NANODOLLARS_PER_DOLLAR;
@@ -875,6 +877,69 @@ export async function loadBaiReasoningContinuation(userId: number, modelId: "cla
     await db.delete(baiReasoningContinuations).where(eq(baiReasoningContinuations.id, row.id));
     return null;
   }
+}
+
+export type BaiProviderCircuitStatus = {
+  providerGroupId: string;
+  rateLimitCount: number;
+  consecutiveRateLimits: number;
+  cooldownUntil: Date | null;
+  lastRateLimitedAt: Date | null;
+  lastSuccessAt: Date | null;
+  coolingDown: boolean;
+};
+
+function toBaiProviderCircuitStatus(row: typeof baiProviderCircuitStates.$inferSelect | undefined): BaiProviderCircuitStatus | null {
+  if (!row) return null;
+  const now = new Date();
+  return {
+    providerGroupId: row.providerGroupId,
+    rateLimitCount: Number(row.rateLimitCount ?? 0),
+    consecutiveRateLimits: Number(row.consecutiveRateLimits ?? 0),
+    cooldownUntil: row.cooldownUntil ?? null,
+    lastRateLimitedAt: row.lastRateLimitedAt ?? null,
+    lastSuccessAt: row.lastSuccessAt ?? null,
+    coolingDown: Boolean(row.cooldownUntil && row.cooldownUntil > now),
+  };
+}
+
+export async function getBaiProviderCircuitStatus(providerGroupId: string): Promise<BaiProviderCircuitStatus | null> {
+  const db = await getDb();
+  if (!db || !providerGroupId.trim()) return null;
+  const row = (await db.select().from(baiProviderCircuitStates).where(eq(baiProviderCircuitStates.providerGroupId, providerGroupId)).limit(1))[0];
+  return toBaiProviderCircuitStatus(row);
+}
+
+export async function isBaiProviderCircuitEligible(providerGroupId: string) {
+  return !(await getBaiProviderCircuitStatus(providerGroupId))?.coolingDown;
+}
+
+export async function recordBaiProviderRateLimit(providerGroupId: string) {
+  const db = await getDb();
+  if (!db || !providerGroupId.trim()) return;
+  const now = new Date();
+  const cooldownUntil = new Date(now.getTime() + BAI_PROVIDER_CIRCUIT_COOLDOWN_MS);
+  await db.insert(baiProviderCircuitStates).values({ providerGroupId, rateLimitCount: 1, consecutiveRateLimits: 1, cooldownUntil, lastRateLimitedAt: now })
+    .onDuplicateKeyUpdate({ set: {
+      rateLimitCount: sql`${baiProviderCircuitStates.rateLimitCount} + 1`,
+      consecutiveRateLimits: sql`${baiProviderCircuitStates.consecutiveRateLimits} + 1`,
+      cooldownUntil,
+      lastRateLimitedAt: now,
+    } });
+}
+
+export async function recordBaiProviderSuccess(providerGroupId: string) {
+  const db = await getDb();
+  if (!db || !providerGroupId.trim()) return;
+  const now = new Date();
+  await db.insert(baiProviderCircuitStates).values({ providerGroupId, lastSuccessAt: now })
+    .onDuplicateKeyUpdate({ set: { consecutiveRateLimits: 0, cooldownUntil: null, lastSuccessAt: now } });
+}
+
+export async function getBaiProviderCircuitStatuses() {
+  const db = await getDb();
+  if (!db) return [] as BaiProviderCircuitStatus[];
+  return (await db.select().from(baiProviderCircuitStates)).map(row => toBaiProviderCircuitStatus(row)!);
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
@@ -2083,6 +2148,7 @@ export async function getClaudeOpus5ProviderSettings() {
   const runtime = await getClaudeOpus5RuntimeConfig();
   const override = await readClaudeOpus5RuntimeOverride();
   const usageByProvider = new Map(await Promise.all(runtime.providers.filter(provider => isClaudeOpus5QwenProvider(provider.label)).map(async provider => [provider.id, await getClaudeOpus5QwenModelUsage(provider.id)] as const)));
+  const baiCircuitByProvider = new Map((await getBaiProviderCircuitStatuses()).map(status => [status.providerGroupId, status] as const));
   return {
     providers: runtime.providers.map(provider => {
       const usage = usageByProvider.get(provider.id);
@@ -2111,6 +2177,17 @@ export async function getClaudeOpus5ProviderSettings() {
               lastUsedAt: totals?.lastUsedAt ?? null,
             };
           }),
+        } : {}),
+        ...(provider.label.trim().toLowerCase() === "b.ai" ? {
+          baiCircuit: baiCircuitByProvider.get(provider.id) ?? {
+            providerGroupId: provider.id,
+            rateLimitCount: 0,
+            consecutiveRateLimits: 0,
+            cooldownUntil: null,
+            lastRateLimitedAt: null,
+            lastSuccessAt: null,
+            coolingDown: false,
+          },
         } : {}),
       };
     }),

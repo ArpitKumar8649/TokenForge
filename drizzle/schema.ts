@@ -368,6 +368,17 @@ export const baiReasoningContinuations = mysqlTable(
   ],
 );
 
+/** Durable rate-limit circuit state for the Claude Opus provider group labelled b.ai. */
+export const baiProviderCircuitStates = mysqlTable("bai_provider_circuit_states", {
+  providerGroupId: varchar("providerGroupId", { length: 128 }).primaryKey(),
+  rateLimitCount: int("rateLimitCount").default(0).notNull(),
+  consecutiveRateLimits: int("consecutiveRateLimits").default(0).notNull(),
+  cooldownUntil: timestamp("cooldownUntil"),
+  lastRateLimitedAt: timestamp("lastRateLimitedAt"),
+  lastSuccessAt: timestamp("lastSuccessAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [index("bai_provider_circuit_cooldown_idx").on(table.cooldownUntil)]);
+
 export const providerConfigs = mysqlTable("provider_configs", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
   slug: varchar("slug", { length: 64 }).notNull().unique(),

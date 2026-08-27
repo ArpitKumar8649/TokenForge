@@ -530,3 +530,6 @@
 - [x] Prefer a healthy enabled b.ai provider for new Claude Opus 5 and GLM 5.3 conversations, while keeping b.ai-originated continuations affinity-routed through their matching encrypted reasoning state.
 - [x] Skip b.ai safely for mixed-provider or expired b.ai continuation histories instead of sending mismatched private reasoning, and translate b.ai-only forced tool_choice to automatic selection while retaining tools.
 - [x] Add affinity, fallback, mixed-history privacy, and b.ai tool-choice regressions; direct b.ai automatic-tool request returned HTTP 200; 78 focused gateway and Anthropic assertions pass; publish in the following release checkpoint.
+- [x] Clamp Qwen-pool effective max_tokens to 32,768 for upstream routing and credit reservation estimates, while settling from actual usage as before.
+- [x] Add a durable b.ai Claude Opus provider-group rate-limit circuit breaker that pauses 429-failing b.ai traffic, respects cooldown eligibility, safely fails over, and restores healthy b.ai priority automatically.
+- [x] Display b.ai provider cooldown state in protected administration; add Qwen-cap and b.ai breaker regressions; validate and publish.

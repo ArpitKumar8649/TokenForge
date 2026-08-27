@@ -185,4 +185,14 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain('<ProviderScopedFailureHistory model="claude-opus-5" title="Claude Opus 5" />');
     expect(source).toContain('<ProviderScopedFailureHistory model={model} title={title} />');
   });
+
+  it("shows durable b.ai provider-group 429 circuit telemetry only in the protected Claude Opus administrator view", () => {
+    expect(source).toContain("function BaiProviderCircuitHealth");
+    expect(source).toContain("function BaiProviderCircuitPanel");
+    expect(source).toContain("b.ai provider circuit");
+    expect(source).toContain("Only upstream HTTP 429 responses open this provider-group circuit for one minute");
+    expect(source).toContain('trpc.admin.claudeOpus5ProviderSettings.useQuery(undefined, { refetchInterval: 5_000');
+    expect(source).toContain("New b.ai attempts resume automatically");
+    expect(source).toContain("<BaiProviderCircuitPanel />");
+  });
 });

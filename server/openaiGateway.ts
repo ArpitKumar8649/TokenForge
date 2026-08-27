@@ -4,6 +4,7 @@ import https from "node:https";
 import { Readable } from "node:stream";
 import {
   getBailuWebshareProxyPoolRuntimeConfig,
+  isBaiProviderCircuitEligible,
   loadBaiReasoningContinuation,
   releaseBailuWebshareProxySlot,
   findActiveApiKey,
@@ -25,6 +26,8 @@ import {
   recordClaudeFable5FailureLog,
   recordClaudeOpus5FailureLog,
   recordClaudeOpus5QwenModelUsage,
+  recordBaiProviderRateLimit,
+  recordBaiProviderSuccess,
   recordDeepseekV4ProFailureLog,
   recordGlm53FailureLog,
   recordSonnet46FailureLog,
@@ -795,6 +798,46 @@ function isQwenClaudeOpus5Provider(provider: { label: string }) {
   return provider.label.trim().toLowerCase() === "qwen";
 }
 
+const QWEN_POOL_MAX_TOKENS = 32_768;
+
+function normalizeQwenPoolMaxTokens(input: ChatInput): ChatInput {
+  if (typeof input.max_tokens !== "number" || !Number.isFinite(input.max_tokens)) return input;
+  const next = Math.min(QWEN_POOL_MAX_TOKENS, Math.max(1, Math.floor(input.max_tokens)));
+  return next === input.max_tokens ? input : { ...input, max_tokens: next };
+}
+
+/**
+ * Reservation must match the first provider route that can accept this Claude
+ * Opus request. The Qwen pool has a provider-specific 32,768 output ceiling;
+ * other provider groups keep their caller-requested reservation maximum.
+ */
+async function effectiveReservationMaxOutputTokens(model: TokenForgeModelId, input: ChatInput, context?: ProviderRequestContext) {
+  const requestedMaxTokens = normalizedBillableMaxOutputTokens(input.max_tokens);
+  if (model !== "claude-opus-5") return requestedMaxTokens;
+
+  const runtime = await getClaudeOpus5RuntimeConfig();
+  const rotatedProviders = runtime.providers
+    .map((_, offset) => runtime.providers[(claudeOpus5ProviderCursor + offset) % runtime.providers.length]!)
+    .filter(provider => provider.enabled !== false && provider.apiKeys.length);
+  const baiPreparation = await prepareBaiContinuation("claude-opus-5", input, context);
+  const baiProviders = baiPreparation.canRouteToBai
+    ? (await Promise.all(rotatedProviders
+      .filter(provider => isBaiProviderLabel(provider.label))
+      .map(async provider => await isBaiProviderCircuitEligible(provider.id) ? provider : null)))
+      .filter((provider): provider is NonNullable<typeof provider> => provider !== null)
+    : [];
+  const otherProviders = rotatedProviders.filter(provider => !isBaiProviderLabel(provider.label));
+
+  for (const provider of [...baiProviders, ...otherProviders]) {
+    if (!provider.baseUrl.trim() || !provider.model.trim()) continue;
+    if (!isQwenClaudeOpus5Provider(provider)) return requestedMaxTokens;
+    if ((await getEligibleClaudeOpus5QwenModels(provider)).length) {
+      return Math.min(requestedMaxTokens, QWEN_POOL_MAX_TOKENS);
+    }
+  }
+  return requestedMaxTokens;
+}
+
 function selectNextClaudeOpus5QwenModel(providerId: string, models: Array<{ id: string; model: string; quotaTokens: number }>) {
   if (!models.length) return null;
   const index = claudeOpus5QwenModelCursors.get(providerId) ?? 0;
@@ -859,7 +902,7 @@ function wrapRenderResponseWithLease(response: globalThis.Response, endpointId: 
 
 /** Record a provider stream failure after headers without treating a client cancellation as an upstream outage. */
 function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal, onCompleteUsage?: (usage: Usage) => void, onQwenZeroOutput?: (usage: Usage) => void, failureSource?: { sourceId: string; sourceLabel: string }, onBaiReasoningComplete?: (payload: unknown) => void) {
-  if (!response.body || response.body.locked) return response;
+  if (!response.body || response.body.locked || !response.headers.get("content-type")?.includes("text/event-stream")) return response;
   const reader = response.body.getReader();
   let recorded = false;
   const isBailu = isBailuClaudeOpus5Provider(provider);
@@ -1122,7 +1165,10 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
   const rotatedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeOpus5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
   claudeOpus5ProviderCursor = runtime.providers.length ? (claudeOpus5ProviderCursor + 1) % runtime.providers.length : 0;
   const baiPreparation = await prepareBaiContinuation("claude-opus-5", input, context);
-  const baiProviders = rotatedProviders.filter(provider => isBaiProviderLabel(provider.label));
+  const baiProviders = (await Promise.all(rotatedProviders
+    .filter(provider => isBaiProviderLabel(provider.label))
+    .map(async provider => await isBaiProviderCircuitEligible(provider.id) ? provider : null)))
+    .filter((provider): provider is NonNullable<typeof provider> => provider !== null);
   const otherProviders = rotatedProviders.filter(provider => !isBaiProviderLabel(provider.label));
   const orderedProviders = baiPreparation.canRouteToBai ? [...baiProviders, ...otherProviders] : otherProviders;
   let lastError: unknown = null;
@@ -1172,7 +1218,9 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
       try {
         const isBai = isBaiProviderLabel(provider.label);
         const preparedInput = isBai ? normalizeBaiToolChoice(baiPreparation.input) : input;
-        const providerInput = normalizeBaiMaxTokens(preparedInput, isBai);
+        const providerInput = isQwenClaudeOpus5Provider(provider)
+          ? normalizeQwenPoolMaxTokens(preparedInput)
+          : normalizeBaiMaxTokens(preparedInput, isBai);
         const response = isBailuClaudeOpus5Provider(provider)
           ? await forwardBailuRequestWithWebshareFailover(url, providerInput, upstreamModel, selectedCredential.credential, responseStart.signal, responseStart.timedOut)
           : await fetch(url, {
@@ -1200,6 +1248,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
             const payload = await response.clone().json().catch(() => null);
             captureBaiReasoningContinuation("claude-opus-5", context, payload);
           }
+          if (isBai) await recordBaiProviderSuccess(provider.id).catch(() => undefined);
           recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
           void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
           if (!input.stream && qwenModel) {
@@ -1238,6 +1287,8 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
           retryable,
           callerMessage: diagnostic,
         }).catch(() => undefined);
+        const baiRateLimited = isBai && response.status === 429;
+        if (baiRateLimited) await recordBaiProviderRateLimit(provider.id).catch(() => undefined);
         if (!retryable) {
           recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
           void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
@@ -1247,6 +1298,10 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
         void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
         lastError = new Error(diagnostic);
         lastFailureStatus = response.status;
+        if (baiRateLimited) {
+          recordCredentialFailover(selectedCredential.telemetryProvider);
+          break;
+        }
       } catch (error) {
         responseStart.clear();
         lastError = error;
@@ -1857,22 +1912,23 @@ export async function runPlaygroundCompletion(input: {
   if (!quota) throw new TokenForgePlaygroundError("provider_unavailable", "Account status is temporarily unavailable. Retry shortly.");
   if (quota.suspended) throw new TokenForgePlaygroundError("account_suspended", "This account is currently suspended.");
 
+  const upstreamInput: ChatInput = {
+    model: input.model,
+    messages: playgroundMessagesForModel(input.model, input.messages),
+    stream: false,
+    ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
+    ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
+    ...(input.model === "qwen3.8-max" || input.model === "claude-fable-5" ? { reasoning_effort: "xhigh" } : {}),
+  };
   const estimatedInputTokens = estimateInputTokens(input.messages);
-  const reservedNanos = calculateCreditChargeNanos(input.model, estimatedInputTokens, normalizedBillableMaxOutputTokens(input.maxOutputTokens));
+  const reservedNanos = calculateCreditChargeNanos(input.model, estimatedInputTokens, await effectiveReservationMaxOutputTokens(input.model, upstreamInput, { userId: input.userId }));
   const reservation = await reserveCredit(input.userId, reservedNanos, requestId);
   if (!reservation.authorized) throw new TokenForgePlaygroundError("insufficient_credits", "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.");
 
   const aborter = new AbortController();
   const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
   try {
-    const upstream = await forwardProviderRequest(input.model, {
-      model: input.model,
-      messages: playgroundMessagesForModel(input.model, input.messages),
-      stream: false,
-      ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
-      ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
-      ...(input.model === "qwen3.8-max" || input.model === "claude-fable-5" ? { reasoning_effort: "xhigh" } : {}),
-    }, aborter.signal, { userId: input.userId });
+    const upstream = await forwardProviderRequest(input.model, upstreamInput, aborter.signal, { userId: input.userId });
     // Headers arrived; the remaining body may complete within the managed hosting request ceiling.
     clearTimeout(timeout);
     if (!upstream.ok) {
@@ -1943,22 +1999,23 @@ async function streamPlaygroundCompletion(input: {
   if (!quota) throw new TokenForgePlaygroundError("provider_unavailable", "Account status is temporarily unavailable. Retry shortly.");
   if (quota.suspended) throw new TokenForgePlaygroundError("account_suspended", "This account is currently suspended.");
 
+  const upstreamInput: ChatInput = {
+    model: input.model,
+    messages: playgroundMessagesForModel(input.model, input.messages),
+    stream: true,
+    ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
+    ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
+    ...(input.model === "qwen3.8-max" || input.model === "claude-fable-5" ? { reasoning_effort: "xhigh" } : {}),
+  };
   const estimatedInputTokens = estimateInputTokens(input.messages);
-  const reservedNanos = calculateCreditChargeNanos(input.model, estimatedInputTokens, normalizedBillableMaxOutputTokens(input.maxOutputTokens));
+  const reservedNanos = calculateCreditChargeNanos(input.model, estimatedInputTokens, await effectiveReservationMaxOutputTokens(input.model, upstreamInput, { userId: input.userId }));
   const reservation = await reserveCredit(input.userId, reservedNanos, requestId);
   if (!reservation.authorized) throw new TokenForgePlaygroundError("insufficient_credits", "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.");
 
   const aborter = new AbortController();
   const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
   try {
-    const upstream = await forwardProviderRequest(input.model, {
-      model: input.model,
-      messages: playgroundMessagesForModel(input.model, input.messages),
-      stream: true,
-      ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
-      ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
-      ...(input.model === "qwen3.8-max" || input.model === "claude-fable-5" ? { reasoning_effort: "xhigh" } : {}),
-    }, aborter.signal, { userId: input.userId });
+    const upstream = await forwardProviderRequest(input.model, upstreamInput, aborter.signal, { userId: input.userId });
     // Do not let the response-start timer interrupt an SSE body after upstream headers arrive.
     clearTimeout(timeout);
     if (!upstream.ok) {
@@ -2094,8 +2151,13 @@ export function registerOpenAiGateway(app: Express) {
     if (!quota) return errorResponse(res, requestId, 503, "Account status is temporarily unavailable. Retry shortly.", "account_unavailable");
     if (quota.suspended) return errorResponse(res, requestId, 403, "This account is currently suspended.", "account_suspended");
 
+    const model = input.model as TokenForgeModelId;
+    const upstreamInput: ChatInput = {
+      ...input,
+      messages: withModelScopedGuidance(model, input.messages),
+    };
     const estimatedInputTokens = estimateInputTokens(input.messages);
-    const reservedNanos = calculateCreditChargeNanos(input.model as TokenForgeModelId, estimatedInputTokens, normalizedBillableMaxOutputTokens(input.max_tokens));
+    const reservedNanos = calculateCreditChargeNanos(model, estimatedInputTokens, await effectiveReservationMaxOutputTokens(model, upstreamInput, { userId: key.userId }));
     const reservation = await reserveCredit(key.userId, reservedNanos, requestId);
     if (!reservation.authorized) return errorResponse(res, requestId, 402, "Your TokenForge promotional credit balance cannot cover this request’s maximum estimated cost.", "insufficient_credits");
 
@@ -2103,10 +2165,7 @@ export function registerOpenAiGateway(app: Express) {
     const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
     let upstream: globalThis.Response;
     try {
-      upstream = await forwardProviderRequest(input.model as TokenForgeModelId, {
-        ...input,
-        messages: withModelScopedGuidance(input.model as TokenForgeModelId, input.messages),
-      }, aborter.signal, { userId: key.userId });
+      upstream = await forwardProviderRequest(model, upstreamInput, aborter.signal, { userId: key.userId });
     } catch (error) {
       clearTimeout(timeout);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request did not complete" });
