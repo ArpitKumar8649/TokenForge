@@ -4,6 +4,7 @@ import https from "node:https";
 import { Readable } from "node:stream";
 import {
   getBailuWebshareProxyPoolRuntimeConfig,
+  releaseBailuWebshareProxySlot,
   findActiveApiKey,
   getClaudeFable5NvidiaRuntimeConfig,
   getClaudeOpus5RuntimeConfig,
@@ -33,6 +34,7 @@ import {
   touchApiKey,
   tryAcquireRenderNimProxyEndpoint,
   sanitizeRenderNimProxyFailureMessage,
+  tryAcquireBailuWebshareProxySlot,
 } from "./db";
 import { SocksProxyAgent } from "socks-proxy-agent";
 import { selectNextClusterProtocolCredentialWithSlot } from "./clusterProtocolCredentials";
@@ -653,8 +655,14 @@ function bailuWebshareProxyAgent(proxy: Awaited<ReturnType<typeof getBailuWebsha
   return agent;
 }
 
-async function forwardBailuRequestThroughWebshare(url: string, input: ChatInput, upstreamModel: string, credential: string, signal: AbortSignal, proxy: Awaited<ReturnType<typeof getBailuWebshareProxyPoolRuntimeConfig>>["proxies"][number]) {
+async function forwardBailuRequestThroughWebshare(url: string, input: ChatInput, upstreamModel: string, credential: string, signal: AbortSignal, proxy: Awaited<ReturnType<typeof getBailuWebshareProxyPoolRuntimeConfig>>["proxies"][number], responseStartTimedOut: () => boolean) {
   return new Promise<globalThis.Response>((resolve, reject) => {
+    let released = false;
+    const release = (outcome: Parameters<typeof releaseBailuWebshareProxySlot>[1]) => {
+      if (released) return;
+      released = true;
+      void Promise.resolve(releaseBailuWebshareProxySlot(proxy.id, outcome)).catch(() => undefined);
+    };
     const request = https.request(url, {
       method: "POST",
       agent: bailuWebshareProxyAgent(proxy),
@@ -674,22 +682,31 @@ async function forwardBailuRequestThroughWebshare(url: string, input: ChatInput,
       if (status < 200 || status >= 300) {
         const chunks: Buffer[] = [];
         response.on("data", chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
-        response.once("error", reject);
-        response.once("end", () => resolve(new Response(Buffer.concat(chunks), { status, headers })));
+        response.once("error", error => { release({ kind: "failure", failureKind: "stream", cooldown: true }); reject(error); });
+        response.once("end", () => { release({ kind: "success" }); resolve(new Response(Buffer.concat(chunks), { status, headers })); });
         return;
       }
+      response.once("end", () => release({ kind: "success" }));
+      response.once("error", () => release({ kind: "failure", failureKind: "stream", cooldown: true }));
+      response.once("aborted", () => release({ kind: "failure", failureKind: "stream", cooldown: true }));
       resolve(new Response(response.readableEnded ? null : Readable.toWeb(response) as ReadableStream, { status, headers }));
     });
-    request.once("error", reject);
+    request.once("error", error => {
+      release(signal.aborted && !responseStartTimedOut()
+        ? { kind: "cancelled" }
+        : { kind: "failure", failureKind: responseStartTimedOut() ? "timeout" : "network", cooldown: true });
+      reject(error);
+    });
     request.write(JSON.stringify({ ...input, model: upstreamModel }));
     request.end();
   });
 }
 
-async function forwardBailuRequestWithWebshareFailover(url: string, input: ChatInput, upstreamModel: string, credential: string, signal: AbortSignal) {
+async function forwardBailuRequestWithWebshareFailover(url: string, input: ChatInput, upstreamModel: string, credential: string, signal: AbortSignal, responseStartTimedOut: () => boolean) {
   const proxyPool = await getBailuWebshareProxyPoolRuntimeConfig();
   const proxies = proxyPool.enabled ? orderedBailuWebshareProxies(proxyPool.proxies) : [];
   if (!proxies.length) {
+    if (proxyPool.enabled) throw new Error("No eligible Bailu Webshare proxy slot is currently available.");
     return fetch(url, {
       method: "POST",
       headers: { Authorization: `Bearer ${credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
@@ -701,7 +718,11 @@ async function forwardBailuRequestWithWebshareFailover(url: string, input: ChatI
   for (let index = 0; index < proxies.length; index += 1) {
     const proxy = proxies[index]!;
     try {
-      const response = await forwardBailuRequestThroughWebshare(url, input, upstreamModel, credential, signal, proxy);
+      if (!(await tryAcquireBailuWebshareProxySlot(proxy))) {
+        lastError = new Error("Bailu Webshare proxy slot is cooling down.");
+        continue;
+      }
+      const response = await forwardBailuRequestThroughWebshare(url, input, upstreamModel, credential, signal, proxy, responseStartTimedOut);
       if (response.ok || !retryableProviderStatus(response.status)) return response;
       if (index === proxies.length - 1) return response;
       lastError = new Error(`Bailu request through configured Webshare proxy returned HTTP ${response.status}`);
@@ -1061,7 +1082,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
       const responseStart = createResponseStartDeadline(signal);
       try {
         const response = isBailuClaudeOpus5Provider(provider)
-          ? await forwardBailuRequestWithWebshareFailover(url, input, upstreamModel, selectedCredential.credential, responseStart.signal)
+          ? await forwardBailuRequestWithWebshareFailover(url, input, upstreamModel, selectedCredential.credential, responseStart.signal, responseStart.timedOut)
           : await fetch(url, {
             method: "POST",
             headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },

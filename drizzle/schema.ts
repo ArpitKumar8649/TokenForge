@@ -458,6 +458,27 @@ export const renderProxyEndpointMetrics = mysqlTable(
   table => [index("render_proxy_endpoint_metrics_updated_idx").on(table.updatedAt)],
 );
 
+/** Durable health and cooldown telemetry for Bailu-only Webshare Direct proxy slots. */
+export const bailuWebshareProxySlotMetrics = mysqlTable(
+  "bailu_webshare_proxy_slot_metrics",
+  {
+    proxyId: varchar("proxyId", { length: 96 }).primaryKey(),
+    proxyLabel: varchar("proxyLabel", { length: 80 }).notNull(),
+    activeRequests: int("activeRequests").default(0).notNull(),
+    requestCount: bigint("requestCount", { mode: "number" }).default(0).notNull(),
+    successCount: bigint("successCount", { mode: "number" }).default(0).notNull(),
+    failureCount: bigint("failureCount", { mode: "number" }).default(0).notNull(),
+    timeoutCount: bigint("timeoutCount", { mode: "number" }).default(0).notNull(),
+    cooldownUntil: timestamp("cooldownUntil"),
+    lastRequestAt: timestamp("lastRequestAt"),
+    lastSuccessAt: timestamp("lastSuccessAt"),
+    lastFailureAt: timestamp("lastFailureAt"),
+    lastFailureKind: varchar("lastFailureKind", { length: 32 }),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [index("bailu_webshare_proxy_slot_metrics_updated_idx").on(table.updatedAt)],
+);
+
 /**
  * Credential-redacted raw upstream failure attempts for supported managed models.
  * These records identify the selected provider group or authorized Render endpoint

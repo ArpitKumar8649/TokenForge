@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./db", () => ({
   getBailuWebshareProxyPoolRuntimeConfig: vi.fn(),
+  releaseBailuWebshareProxySlot: vi.fn(),
   findActiveApiKey: vi.fn(),
   getClaudeFable5NvidiaRuntimeConfig: vi.fn(),
   getClaudeOpus5RuntimeConfig: vi.fn(),
@@ -32,11 +33,12 @@ vi.mock("./db", () => ({
   settleReservedCredit: vi.fn(),
   touchApiKey: vi.fn(),
   tryAcquireRenderNimProxyEndpoint: vi.fn(),
+  tryAcquireBailuWebshareProxySlot: vi.fn(),
 }));
 vi.mock("node:https", () => ({ default: { request: vi.fn() } }));
 vi.mock("socks-proxy-agent", () => ({ SocksProxyAgent: vi.fn().mockImplementation((proxyUrl: URL) => ({ destroy: vi.fn(), proxyUrl })) }));
 
-import { getBailuWebshareProxyPoolRuntimeConfig, getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, getSonnet46RuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordSonnet46FailureLog, recordManagedProviderKeyOutcome, recordUsage, reserveCredit, settleReservedCredit } from "./db";
+import { getBailuWebshareProxyPoolRuntimeConfig, getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, getSonnet46RuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordSonnet46FailureLog, recordManagedProviderKeyOutcome, recordUsage, releaseBailuWebshareProxySlot, reserveCredit, settleReservedCredit, tryAcquireBailuWebshareProxySlot } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetBailuWebshareProxyPool, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, resetQwen38MaxProviderBalancing, resetSonnet46ProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import https from "node:https";
 import { SocksProxyAgent } from "socks-proxy-agent";
@@ -74,10 +76,26 @@ function mockBailuHttpsResponse(statusCode: number, payload: unknown) {
   }) as never);
 }
 
+function mockBailuHttpsNetworkError() {
+  vi.mocked(https.request).mockImplementationOnce(((_url: string, _options: unknown, _onResponse: (response: Readable & { statusCode?: number; headers: Record<string, string> }) => void) => {
+    let onError: ((error: Error) => void) | undefined;
+    const request = {
+      once: vi.fn((event: string, listener: (error: Error) => void) => {
+        if (event === "error") onError = listener;
+        return request;
+      }),
+      write: vi.fn(),
+      end: vi.fn(() => queueMicrotask(() => onError?.(new Error("Socks5 proxy rejected connection")))),
+    };
+    return request as never;
+  }) as never);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getRenderNimProxyRuntimeConfig).mockResolvedValue({ enabled: false, apiKey: "", model: "", endpoints: [] });
   vi.mocked(getBailuWebshareProxyPoolRuntimeConfig).mockResolvedValue({ enabled: false, proxies: [] });
+  vi.mocked(tryAcquireBailuWebshareProxySlot).mockResolvedValue(true);
   process.env.FXQIDIAN_BASE_URL = "https://provider.example";
   process.env.FXQIDIAN_API_KEY = "server-only-provider-secret";
   process.env.FXQIDIAN_API_KEY_2 = "server-only-provider-secret-2";
@@ -717,6 +735,7 @@ describe("TokenForge Playground gateway", () => {
     expect(requestOptions?.headers).not.toHaveProperty("X-Real-IP");
     expect(JSON.stringify(requestOptions)).not.toContain("hashed-source-ip");
     expect(vi.mocked(SocksProxyAgent)).toHaveBeenCalledWith(expect.objectContaining({ protocol: "socks5h:" }));
+    expect(tryAcquireBailuWebshareProxySlot).toHaveBeenCalledWith(expect.objectContaining({ id: "webshare-1" }));
   });
 
   it("fails over a retryable Bailu response to the next configured Webshare proxy before using another provider key", async () => {
@@ -736,6 +755,39 @@ describe("TokenForge Playground gateway", () => {
     const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Retry safely." }] }, new AbortController().signal);
 
     expect(response.status).toBe(200);
+    expect(https.request).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips a Bailu proxy slot that is in its persisted cooldown window", async () => {
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [{ id: "bailu", label: "Bailu", enabled: true, baseUrl: "https://bailu.example", model: "private-bailu-model", apiKeys: ["bailu-server-only-key"] }] });
+    vi.mocked(getBailuWebshareProxyPoolRuntimeConfig).mockResolvedValue({ enabled: true, proxies: [
+      { id: "webshare-1", label: "Webshare proxy 1", host: "198.51.100.1", port: 8080, username: "server-only-proxy-user", password: "server-only-proxy-pass", enabled: true },
+      { id: "webshare-2", label: "Webshare proxy 2", host: "198.51.100.2", port: 8080, username: "server-only-proxy-user-2", password: "server-only-proxy-pass-2", enabled: true },
+    ] });
+    vi.mocked(tryAcquireBailuWebshareProxySlot).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    mockBailuHttpsResponse(200, { choices: [{ message: { content: "Recovered through eligible proxy." } }] });
+
+    const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Use an eligible slot." }] }, new AbortController().signal);
+
+    expect(response.status).toBe(200);
+    expect(tryAcquireBailuWebshareProxySlot).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "webshare-1" }));
+    expect(tryAcquireBailuWebshareProxySlot).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "webshare-2" }));
+    expect(https.request).toHaveBeenCalledTimes(1);
+  });
+
+  it("pauses only the transport-failing Bailu proxy slot before retrying the next one", async () => {
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [{ id: "bailu", label: "Bailu", enabled: true, baseUrl: "https://bailu.example", model: "private-bailu-model", apiKeys: ["bailu-server-only-key"] }] });
+    vi.mocked(getBailuWebshareProxyPoolRuntimeConfig).mockResolvedValue({ enabled: true, proxies: [
+      { id: "webshare-1", label: "Webshare proxy 1", host: "198.51.100.1", port: 8080, username: "server-only-proxy-user", password: "server-only-proxy-pass", enabled: true },
+      { id: "webshare-2", label: "Webshare proxy 2", host: "198.51.100.2", port: 8080, username: "server-only-proxy-user-2", password: "server-only-proxy-pass-2", enabled: true },
+    ] });
+    mockBailuHttpsNetworkError();
+    mockBailuHttpsResponse(200, { choices: [{ message: { content: "Recovered after transport failover." } }] });
+
+    const response = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Recover safely." }] }, new AbortController().signal);
+
+    expect(response.status).toBe(200);
+    expect(releaseBailuWebshareProxySlot).toHaveBeenCalledWith("webshare-1", { kind: "failure", failureKind: "network", cooldown: true });
     expect(https.request).toHaveBeenCalledTimes(2);
   });
 

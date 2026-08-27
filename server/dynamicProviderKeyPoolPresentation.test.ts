@@ -151,6 +151,8 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("no user IP header is sent upstream");
     expect(source).toContain("Saved passwords remain masked");
     expect(source).toContain("drafts.length >= 3");
+    expect(source).toContain("Paused automatically until");
+    expect(source).toContain("Metrics refresh every five seconds");
   });
 
   it("lays overview metrics out as compact boxes on narrow screens rather than a single vertical list", () => {

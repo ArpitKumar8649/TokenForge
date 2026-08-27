@@ -6,6 +6,7 @@ import {
   accountFlags,
   apiKeys,
   auditEvents,
+  bailuWebshareProxySlotMetrics,
   claudeOpus5FailureLogs,
   creditAccounts,
   creditGiveaways,
@@ -1323,6 +1324,12 @@ export type BailuWebshareProxyRuntime = {
 
 type BailuWebshareProxyPoolRuntime = { enabled: boolean; proxies: BailuWebshareProxyRuntime[] };
 const MAX_BAILU_WEBSHARE_PROXIES = 3;
+export const BAILU_WEBSHARE_PROXY_COOLDOWN_MS = 60_000;
+export type BailuWebshareProxySlotFailureKind = "network" | "timeout" | "stream";
+export type BailuWebshareProxySlotOutcome =
+  | { kind: "success" }
+  | { kind: "cancelled" }
+  | { kind: "failure"; failureKind: BailuWebshareProxySlotFailureKind; cooldown?: boolean };
 
 function normalizeBailuWebshareProxyHost(value: unknown) {
   const host = typeof value === "string" ? value.trim() : "";
@@ -1389,23 +1396,93 @@ export async function getBailuWebshareProxyPoolRuntimeConfig(): Promise<BailuWeb
   return (await readBailuWebshareProxyPoolOverride())?.payload ?? { enabled: false, proxies: [] };
 }
 
+async function ensureBailuWebshareProxySlotMetricRows(proxies: BailuWebshareProxyRuntime[]) {
+  const db = await getDb();
+  if (!db || !proxies.length) return;
+  await Promise.all(proxies.map(proxy => db.insert(bailuWebshareProxySlotMetrics).values({ proxyId: proxy.id, proxyLabel: proxy.label }).onDuplicateKeyUpdate({ set: { proxyLabel: proxy.label } })));
+}
+
 export async function getBailuWebshareProxyPoolSettings() {
   const override = await readBailuWebshareProxyPoolOverride();
   const runtime = override?.payload ?? { enabled: false, proxies: [] };
+  await ensureBailuWebshareProxySlotMetricRows(runtime.proxies);
+  const db = await getDb();
+  const metrics = db && runtime.proxies.length
+    ? await db.select().from(bailuWebshareProxySlotMetrics).where(inArray(bailuWebshareProxySlotMetrics.proxyId, runtime.proxies.map(proxy => proxy.id)))
+    : [];
+  const metricsById = new Map(metrics.map(metric => [metric.proxyId, metric]));
+  const now = new Date();
   return {
     enabled: runtime.enabled,
-    proxies: runtime.proxies.map(proxy => ({
-      id: proxy.id,
-      label: proxy.label,
-      host: proxy.host,
-      port: proxy.port,
-      enabled: proxy.enabled,
-      usernameMask: maskProviderApiKey(proxy.username),
-      passwordConfigured: Boolean(proxy.password),
-    })),
+    proxies: runtime.proxies.map(proxy => {
+      const metric = metricsById.get(proxy.id);
+      const coolingDown = Boolean(metric?.cooldownUntil && metric.cooldownUntil > now);
+      const degraded = Boolean(metric?.lastFailureAt && (!metric.lastSuccessAt || metric.lastFailureAt >= metric.lastSuccessAt));
+      return {
+        id: proxy.id,
+        label: proxy.label,
+        host: proxy.host,
+        port: proxy.port,
+        enabled: proxy.enabled,
+        usernameMask: maskProviderApiKey(proxy.username),
+        passwordConfigured: Boolean(proxy.password),
+        metrics: {
+          activeRequests: Number(metric?.activeRequests ?? 0),
+          requestCount: Number(metric?.requestCount ?? 0),
+          successCount: Number(metric?.successCount ?? 0),
+          failureCount: Number(metric?.failureCount ?? 0),
+          timeoutCount: Number(metric?.timeoutCount ?? 0),
+          cooldownUntil: metric?.cooldownUntil ?? null,
+          lastRequestAt: metric?.lastRequestAt ?? null,
+          lastSuccessAt: metric?.lastSuccessAt ?? null,
+          lastFailureAt: metric?.lastFailureAt ?? null,
+          lastFailureKind: metric?.lastFailureKind ?? null,
+          health: !proxy.enabled ? "disabled" as const : coolingDown ? "cooling-down" as const : degraded ? "degraded" as const : "healthy" as const,
+        },
+      };
+    }),
     source: override ? "database" as const : "not_configured" as const,
     updatedAt: override?.updatedAt ?? null,
   };
+}
+
+/** Atomically reserves an eligible Bailu proxy slot; slots in their cooldown window are skipped. */
+export async function tryAcquireBailuWebshareProxySlot(proxy: BailuWebshareProxyRuntime) {
+  const db = await getDb();
+  if (!db) return true;
+  await ensureBailuWebshareProxySlotMetricRows([proxy]);
+  const now = new Date();
+  const result = await db.update(bailuWebshareProxySlotMetrics).set({
+    activeRequests: sql`${bailuWebshareProxySlotMetrics.activeRequests} + 1`,
+    requestCount: sql`${bailuWebshareProxySlotMetrics.requestCount} + 1`,
+    lastRequestAt: now,
+  }).where(and(
+    eq(bailuWebshareProxySlotMetrics.proxyId, proxy.id),
+    or(isNull(bailuWebshareProxySlotMetrics.cooldownUntil), lte(bailuWebshareProxySlotMetrics.cooldownUntil, now)),
+  ));
+  return Number(result[0]?.affectedRows ?? 0) === 1;
+}
+
+/** Releases a Bailu proxy reservation after the full response or stream ends, pausing only transport-failing slots. */
+export async function releaseBailuWebshareProxySlot(proxyId: string, outcome: BailuWebshareProxySlotOutcome) {
+  const db = await getDb();
+  if (!db) return;
+  const now = new Date();
+  const isFailure = outcome.kind === "failure";
+  const timeout = isFailure && outcome.failureKind === "timeout";
+  const cooldownUntil = isFailure && outcome.cooldown ? new Date(now.getTime() + BAILU_WEBSHARE_PROXY_COOLDOWN_MS) : null;
+  await db.update(bailuWebshareProxySlotMetrics).set({
+    activeRequests: sql`GREATEST(${bailuWebshareProxySlotMetrics.activeRequests} - 1, 0)`,
+    ...(outcome.kind === "success"
+      ? { successCount: sql`${bailuWebshareProxySlotMetrics.successCount} + 1`, lastSuccessAt: now, cooldownUntil: null }
+      : outcome.kind === "failure" ? {
+        failureCount: sql`${bailuWebshareProxySlotMetrics.failureCount} + 1`,
+        lastFailureAt: now,
+        lastFailureKind: outcome.failureKind,
+      } : {}),
+    ...(timeout ? { timeoutCount: sql`${bailuWebshareProxySlotMetrics.timeoutCount} + 1` } : {}),
+    ...(cooldownUntil ? { cooldownUntil } : {}),
+  }).where(eq(bailuWebshareProxySlotMetrics.proxyId, proxyId));
 }
 
 export async function updateBailuWebshareProxyPoolSettings(input: { enabled?: boolean; proxies: Array<{ id: string; label?: string; host?: string; port?: number; username?: string; password?: string; proxyUrl?: string; enabled?: boolean }> }, updatedByUserId: number) {
@@ -1436,6 +1513,7 @@ export async function updateBailuWebshareProxyPoolSettings(input: { enabled?: bo
   }
   const encrypted = encryptProviderRuntimeConfig({ enabled: input.enabled === true, proxies } satisfies BailuWebshareProxyPoolRuntime);
   await db.insert(platformSettings).values({ settingKey: BAILU_WEBSHARE_PROXY_POOL_SETTING_KEY, value: JSON.stringify(encrypted), updatedByUserId }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+  await ensureBailuWebshareProxySlotMetricRows(proxies);
   return getBailuWebshareProxyPoolSettings();
 }
 
