@@ -1260,12 +1260,11 @@ function clearRemovedManagedProviderTelemetry(modelId: ManagedDynamicProviderMod
   }
 }
 
-type ClaudeFable5RuntimePayload = { providers: ClaudeOpus5ProviderRuntime[]; priorityRoutingEnabled: boolean };
-type Qwen38MaxRuntimePayload = { providers: ClaudeOpus5ProviderRuntime[]; priorityRoutingEnabled: boolean };
+type ClaudeFable5RuntimePayload = { providers: ClaudeOpus5ProviderRuntime[] };
+type Qwen38MaxRuntimePayload = { providers: ClaudeOpus5ProviderRuntime[] };
 
 function claudeFable5RuntimeFromEnvironment(): ClaudeFable5RuntimePayload {
   return {
-    priorityRoutingEnabled: false,
     providers: normalizeClaudeOpus5Providers([{
       id: "environment-default",
       label: "NVIDIA NIM default",
@@ -1308,10 +1307,7 @@ async function readClaudeFable5RuntimeOverride() {
       apiKeys: Array.isArray(candidate.apiKeys) ? candidate.apiKeys : [],
     };
     return {
-      payload: {
-        providers: normalizeClaudeOpus5Providers(candidate.providers, normalizeClaudeOpus5Providers([legacyProvider], [])),
-        priorityRoutingEnabled: candidate.priorityRoutingEnabled === true,
-      },
+      payload: { providers: normalizeClaudeOpus5Providers(candidate.providers, normalizeClaudeOpus5Providers([legacyProvider], [])) },
       updatedAt: record.updatedAt,
       updatedByUserId: record.updatedByUserId,
     };
@@ -1324,7 +1320,7 @@ export async function getClaudeFable5NvidiaRuntimeConfig(): Promise<ClaudeFable5
   const fallback = claudeFable5RuntimeFromEnvironment();
   const override = await readClaudeFable5RuntimeOverride();
   if (!override) return fallback;
-  return { providers: override.payload.providers.length ? override.payload.providers : fallback.providers, priorityRoutingEnabled: override.payload.priorityRoutingEnabled };
+  return { providers: override.payload.providers.length ? override.payload.providers : fallback.providers };
 }
 
 export async function getClaudeFable5NvidiaProviderSettings() {
@@ -1335,12 +1331,10 @@ export async function getClaudeFable5NvidiaProviderSettings() {
     baseUrl: primary?.baseUrl ?? "",
     model: primary?.model ?? "",
     apiKeyMasks: (primary?.apiKeys ?? []).map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
-    priorityRoutingEnabled: runtime.priorityRoutingEnabled,
     providers: runtime.providers.map(provider => ({
       id: provider.id,
       label: provider.label,
       enabled: provider.enabled,
-      priority: provider.priority,
       baseUrl: provider.baseUrl,
       model: provider.model,
       apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
@@ -1351,24 +1345,24 @@ export async function getClaudeFable5NvidiaProviderSettings() {
   };
 }
 
-export async function updateClaudeFable5NvidiaProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; priority?: number; priorityRoutingEnabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] }>; priorityRoutingEnabled?: boolean } | { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[]; priorityRoutingEnabled?: boolean }, updatedByUserId: number) {
+export async function updateClaudeFable5NvidiaProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] }> } | { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getClaudeFable5NvidiaRuntimeConfig();
   const currentById = new Map(current.providers.map(provider => [provider.id, provider]));
   const legacyPrimary = current.providers[0] ?? { id: "primary", label: "Primary provider", enabled: true, baseUrl: "", model: "", apiKeys: [] };
-  const submittedProviders = "providers" in input ? input.providers : [{ id: legacyPrimary.id, label: legacyPrimary.label, enabled: legacyPrimary.enabled, priority: legacyPrimary.priority, baseUrl: input.baseUrl ?? legacyPrimary.baseUrl, model: input.model ?? legacyPrimary.model, apiKeys: input.apiKeys ?? [], removeSlots: input.removeSlots }];
+  const submittedProviders = "providers" in input ? input.providers : [{ id: legacyPrimary.id, label: legacyPrimary.label, enabled: legacyPrimary.enabled, baseUrl: input.baseUrl ?? legacyPrimary.baseUrl, model: input.model ?? legacyPrimary.model, apiKeys: input.apiKeys ?? [], removeSlots: input.removeSlots }];
   const nextProviders = submittedProviders.map((submitted, index) => {
     const existing = currentById.get(submitted.id);
     const removedSlots = new Set(submitted.removeSlots ?? []);
     const retainedKeys = (existing?.apiKeys ?? []).filter((_, keyIndex) => !removedSlots.has(keyIndex + 1));
     const patchedExistingKeys = retainedKeys.map((key, keyIndex) => submitted.apiKeys[keyIndex]?.trim() || key);
     const appendedKeys = submitted.apiKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
-    return { id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`), label: submitted.label.trim() || `Provider ${index + 1}`, enabled: submitted.enabled !== false, priority: normalizeManagedProviderPriority(submitted.priority, existing?.priority ?? index + 1), baseUrl: submitted.baseUrl.trim(), model: submitted.model.trim(), apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS) };
+    return { id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`), label: submitted.label.trim() || `Provider ${index + 1}`, enabled: submitted.enabled !== false, baseUrl: submitted.baseUrl.trim(), model: submitted.model.trim(), apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS) };
   });
   const ids = new Set(nextProviders.map(provider => provider.id));
   if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length)) throw new Error("Each Claude Fable 5 provider needs a unique identifier, base URL, model ID, and at least one API key");
-  const next: ClaudeFable5RuntimePayload = { providers: nextProviders, priorityRoutingEnabled: input.priorityRoutingEnabled ?? ("providers" in input ? input.providers[0]?.priorityRoutingEnabled : undefined) ?? current.priorityRoutingEnabled };
+  const next: ClaudeFable5RuntimePayload = { providers: nextProviders };
   const encrypted = encryptProviderRuntimeConfig(next);
   const removedProviders = current.providers.filter(provider => !ids.has(provider.id));
   await db.transaction(async tx => {
@@ -1385,7 +1379,6 @@ export async function updateClaudeFable5NvidiaProviderSettings(input: { provider
 
 function qwen38MaxRuntimeFromEnvironment(): Qwen38MaxRuntimePayload {
   return {
-    priorityRoutingEnabled: false,
     providers: normalizeClaudeOpus5Providers([{
       id: "environment-default",
       label: "TokenRouter default",
@@ -1407,7 +1400,7 @@ async function readQwen38MaxRuntimeOverride() {
     const decrypted = decryptProviderRuntimeConfig({ ciphertext: String(encoded.ciphertext ?? ""), iv: String(encoded.iv ?? ""), authTag: String(encoded.authTag ?? "") });
     if (!decrypted || typeof decrypted !== "object") return null;
     const candidate = decrypted as Partial<Qwen38MaxRuntimePayload>;
-    return { payload: { providers: normalizeClaudeOpus5Providers(candidate.providers, []), priorityRoutingEnabled: candidate.priorityRoutingEnabled === true }, updatedAt: record.updatedAt, updatedByUserId: record.updatedByUserId };
+    return { payload: { providers: normalizeClaudeOpus5Providers(candidate.providers, []) }, updatedAt: record.updatedAt, updatedByUserId: record.updatedByUserId };
   } catch {
     return null;
   }
@@ -1416,22 +1409,21 @@ async function readQwen38MaxRuntimeOverride() {
 export async function getQwen38MaxRuntimeConfig(): Promise<Qwen38MaxRuntimePayload> {
   const fallback = qwen38MaxRuntimeFromEnvironment();
   const override = await readQwen38MaxRuntimeOverride();
-  return { providers: override?.payload.providers.length ? override.payload.providers : fallback.providers, priorityRoutingEnabled: override?.payload.priorityRoutingEnabled ?? false };
+  return { providers: override?.payload.providers.length ? override.payload.providers : fallback.providers };
 }
 
 export async function getQwen38MaxProviderSettings() {
   const runtime = await getQwen38MaxRuntimeConfig();
   const override = await readQwen38MaxRuntimeOverride();
   return {
-    priorityRoutingEnabled: runtime.priorityRoutingEnabled,
-    providers: runtime.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, priority: provider.priority, baseUrl: provider.baseUrl, model: provider.model, apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })) })),
+    providers: runtime.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })) })),
     source: override ? "database" as const : "environment" as const,
     updatedAt: override?.updatedAt ?? null,
     updatedByUserId: override?.updatedByUserId ?? null,
   };
 }
 
-export async function updateQwen38MaxProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; priority?: number; priorityRoutingEnabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] }>; priorityRoutingEnabled?: boolean }, updatedByUserId: number) {
+export async function updateQwen38MaxProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] }> }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getQwen38MaxRuntimeConfig();
@@ -1442,11 +1434,11 @@ export async function updateQwen38MaxProviderSettings(input: { providers: Array<
     const retainedKeys = (existing?.apiKeys ?? []).filter((_, keyIndex) => !removedSlots.has(keyIndex + 1));
     const patchedExistingKeys = retainedKeys.map((key, keyIndex) => submitted.apiKeys[keyIndex]?.trim() || key);
     const appendedKeys = submitted.apiKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
-    return { id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`), label: submitted.label.trim() || `Provider ${index + 1}`, enabled: submitted.enabled !== false, priority: normalizeManagedProviderPriority(submitted.priority, existing?.priority ?? index + 1), baseUrl: submitted.baseUrl.trim(), model: submitted.model.trim(), apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS) };
+    return { id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`), label: submitted.label.trim() || `Provider ${index + 1}`, enabled: submitted.enabled !== false, baseUrl: submitted.baseUrl.trim(), model: submitted.model.trim(), apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS) };
   });
   const ids = new Set(nextProviders.map(provider => provider.id));
   if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length)) throw new Error("Each Qwen 3.8 Max provider needs a unique identifier, base URL, model ID, and at least one API key");
-  const encrypted = encryptProviderRuntimeConfig({ providers: nextProviders, priorityRoutingEnabled: input.priorityRoutingEnabled ?? input.providers[0]?.priorityRoutingEnabled ?? current.priorityRoutingEnabled } satisfies Qwen38MaxRuntimePayload);
+  const encrypted = encryptProviderRuntimeConfig({ providers: nextProviders } satisfies Qwen38MaxRuntimePayload);
   const removedProviders = current.providers.filter(provider => !ids.has(provider.id));
   await db.transaction(async tx => {
     await tx.insert(platformSettings).values({ settingKey: QWEN38_MAX_RUNTIME_SETTING_KEY, value: JSON.stringify(encrypted), updatedByUserId }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
@@ -1460,8 +1452,6 @@ export type ClaudeOpus5ProviderRuntime = {
   id: string;
   label: string;
   enabled: boolean;
-  /** Lower positive values run first when optional priority routing is enabled. */
-  priority: number;
   baseUrl: string;
   model: string;
   apiKeys: string[];
@@ -1477,17 +1467,8 @@ export type ClaudeOpus5QwenModelRuntime = {
   quotaTokens: number;
 };
 
-export type ClaudeOpus5RuntimePayload = { providers: ClaudeOpus5ProviderRuntime[]; priorityRoutingEnabled: boolean };
+export type ClaudeOpus5RuntimePayload = { providers: ClaudeOpus5ProviderRuntime[] };
 const MAX_CLAUDE_OPUS5_PROVIDERS = 12;
-export const MANAGED_PROVIDER_PRIORITY_MIN = 1;
-export const MANAGED_PROVIDER_PRIORITY_MAX = 99;
-
-function normalizeManagedProviderPriority(value: unknown, fallback: number) {
-  const candidate = typeof value === "number" ? value : Number(value);
-  const normalizedFallback = Math.min(MANAGED_PROVIDER_PRIORITY_MAX, Math.max(MANAGED_PROVIDER_PRIORITY_MIN, Math.trunc(fallback)));
-  if (!Number.isFinite(candidate)) return normalizedFallback;
-  return Math.min(MANAGED_PROVIDER_PRIORITY_MAX, Math.max(MANAGED_PROVIDER_PRIORITY_MIN, Math.trunc(candidate)));
-}
 export const CLAUDE_OPUS5_QWEN_DEFAULT_MODEL_TOKEN_QUOTA = 1_000_000;
 const MAX_CLAUDE_OPUS5_QWEN_MODELS = 50;
 export const CLAUDE_OPUS5_QWEN_MAX_OUTPUT_TOKENS = 32_768;
@@ -2064,7 +2045,6 @@ function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5Prov
       id,
       label,
       enabled: raw.enabled !== false,
-      priority: normalizeManagedProviderPriority(raw.priority, index + 1),
       baseUrl,
       model,
       apiKeys,
@@ -2082,7 +2062,7 @@ export function removeClaudeOpus5QwenModelFromRuntime(runtime: ClaudeOpus5Runtim
   if (!pool.some(entry => entry.id === modelEntryId)) throw new Error("Qwen model entry was not found");
   if (pool.length <= 1) throw new Error("Keep at least one Qwen model ID in the pool");
   const nextPool = pool.filter(entry => entry.id !== modelEntryId);
-  return { priorityRoutingEnabled: runtime.priorityRoutingEnabled, providers: runtime.providers.map(candidate => candidate.id === provider.id ? {
+  return { providers: runtime.providers.map(candidate => candidate.id === provider.id ? {
     ...candidate,
     model: nextPool[0]!.model,
     modelPool: nextPool,
@@ -2098,7 +2078,7 @@ export function removeClaudeOpus5QwenApiKeyFromRuntime(runtime: ClaudeOpus5Runti
   if (provider.apiKeys.length <= 2) throw new Error("Keep at least two active Qwen API keys");
   return {
     removedApiKey,
-    runtime: { priorityRoutingEnabled: runtime.priorityRoutingEnabled, providers: runtime.providers.map(candidate => candidate.id === provider.id ? {
+    runtime: { providers: runtime.providers.map(candidate => candidate.id === provider.id ? {
       ...candidate,
       apiKeys: candidate.apiKeys.filter((_, index) => index !== keyIndex),
     } : candidate) },
@@ -2176,7 +2156,6 @@ export async function recordClaudeOpus5QwenModelUsage(input: { providerGroupId: 
 
 function claudeOpus5RuntimeFromEnvironment(): ClaudeOpus5RuntimePayload {
   return {
-    priorityRoutingEnabled: false,
     providers: normalizeClaudeOpus5Providers([{
       id: "environment-default",
       label: "Environment default",
@@ -2215,10 +2194,7 @@ async function readClaudeOpus5RuntimeOverride() {
       apiKeys: Array.isArray(candidate.apiKeys) ? candidate.apiKeys : [],
     };
     return {
-      payload: {
-        providers: normalizeClaudeOpus5Providers(candidate.providers, normalizeClaudeOpus5Providers([legacyProvider], [])),
-        priorityRoutingEnabled: candidate.priorityRoutingEnabled === true,
-      },
+      payload: { providers: normalizeClaudeOpus5Providers(candidate.providers, normalizeClaudeOpus5Providers([legacyProvider], [])) },
       updatedAt: record.updatedAt,
       updatedByUserId: record.updatedByUserId,
     };
@@ -2231,7 +2207,7 @@ export async function getClaudeOpus5RuntimeConfig(): Promise<ClaudeOpus5RuntimeP
   const fallback = claudeOpus5RuntimeFromEnvironment();
   const override = await readClaudeOpus5RuntimeOverride();
   if (!override) return fallback;
-  return { providers: override.payload.providers.length ? override.payload.providers : fallback.providers, priorityRoutingEnabled: override.payload.priorityRoutingEnabled };
+  return { providers: override.payload.providers.length ? override.payload.providers : fallback.providers };
 }
 
 export async function getClaudeOpus5ProviderSettings() {
@@ -2240,14 +2216,12 @@ export async function getClaudeOpus5ProviderSettings() {
   const usageByProvider = new Map(await Promise.all(runtime.providers.filter(provider => isClaudeOpus5QwenProvider(provider.label)).map(async provider => [provider.id, await getClaudeOpus5QwenModelUsage(provider.id)] as const)));
   const baiCircuitByProvider = new Map((await getBaiProviderCircuitStatuses()).map(status => [status.providerGroupId, status] as const));
   return {
-    priorityRoutingEnabled: runtime.priorityRoutingEnabled,
     providers: runtime.providers.map(provider => {
       const usage = usageByProvider.get(provider.id);
       return {
         id: provider.id,
         label: provider.label,
         enabled: provider.enabled,
-        priority: provider.priority,
         baseUrl: provider.baseUrl,
         model: provider.model,
         apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
@@ -2290,7 +2264,7 @@ export async function getClaudeOpus5ProviderSettings() {
   };
 }
 
-export async function updateClaudeOpus5ProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; priority?: number; priorityRoutingEnabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[]; modelPool?: Array<{ id: string; model: string; enabled?: boolean; quotaTokens?: number }>; maxOutputTokens?: number }>; priorityRoutingEnabled?: boolean }, updatedByUserId: number) {
+export async function updateClaudeOpus5ProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[]; modelPool?: Array<{ id: string; model: string; enabled?: boolean; quotaTokens?: number }>; maxOutputTokens?: number }> }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getClaudeOpus5RuntimeConfig();
@@ -2314,7 +2288,6 @@ export async function updateClaudeOpus5ProviderSettings(input: { providers: Arra
       id,
       label,
       enabled: submitted.enabled !== false,
-      priority: normalizeManagedProviderPriority(submitted.priority, existing?.priority ?? index + 1),
       baseUrl: submitted.baseUrl.trim(),
       model: submitted.model.trim() || qwenPool[0]?.model || "",
       apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
@@ -2330,7 +2303,7 @@ export async function updateClaudeOpus5ProviderSettings(input: { providers: Arra
   if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length || (isClaudeOpus5QwenProvider(provider.label) && provider.apiKeys.length < 2))) {
     throw new Error("Each Claude Opus 5 provider needs a unique identifier, base URL, model ID, and at least one API key");
   }
-  const next: ClaudeOpus5RuntimePayload = { providers: nextProviders, priorityRoutingEnabled: input.priorityRoutingEnabled ?? input.providers[0]?.priorityRoutingEnabled ?? current.priorityRoutingEnabled };
+  const next: ClaudeOpus5RuntimePayload = { providers: nextProviders };
   const encrypted = encryptProviderRuntimeConfig(next);
   const removedProviders = current.providers.filter(provider => !ids.has(provider.id));
   await db.transaction(async tx => {
@@ -2477,7 +2450,7 @@ export async function updateGlm53ProviderSettings(input: { baseUrl?: string; mod
 }
 
 export type DeepseekV4ProProviderRuntime = ClaudeOpus5ProviderRuntime;
-type DeepseekV4ProRuntimePayload = { providers: DeepseekV4ProProviderRuntime[]; priorityRoutingEnabled: boolean };
+type DeepseekV4ProRuntimePayload = { providers: DeepseekV4ProProviderRuntime[] };
 const MAX_DEEPSEEK_V4PRO_PROVIDERS = 12;
 
 function normalizeDeepseekV4ProProviders(value: unknown, fallback: DeepseekV4ProProviderRuntime[]) {
@@ -2486,7 +2459,6 @@ function normalizeDeepseekV4ProProviders(value: unknown, fallback: DeepseekV4Pro
 
 function deepseekV4ProRuntimeFromEnvironment(): DeepseekV4ProRuntimePayload {
   return {
-    priorityRoutingEnabled: false,
     providers: normalizeDeepseekV4ProProviders([{
       id: "environment-default",
       label: "Environment default",
@@ -2517,10 +2489,7 @@ async function readDeepseekV4ProRuntimeOverride() {
       apiKeys: Array.isArray(candidate.apiKeys) ? candidate.apiKeys : [],
     };
     return {
-      payload: {
-        providers: normalizeDeepseekV4ProProviders(candidate.providers, normalizeDeepseekV4ProProviders([legacyProvider], [])),
-        priorityRoutingEnabled: candidate.priorityRoutingEnabled === true,
-      },
+      payload: { providers: normalizeDeepseekV4ProProviders(candidate.providers, normalizeDeepseekV4ProProviders([legacyProvider], [])) },
       updatedAt: record.updatedAt,
       updatedByUserId: record.updatedByUserId,
     };
@@ -2533,7 +2502,7 @@ export async function getDeepseekV4ProRuntimeConfig(): Promise<DeepseekV4ProRunt
   const fallback = deepseekV4ProRuntimeFromEnvironment();
   const override = await readDeepseekV4ProRuntimeOverride();
   if (!override) return fallback;
-  return { providers: override.payload.providers.length ? override.payload.providers : fallback.providers, priorityRoutingEnabled: override.payload.priorityRoutingEnabled };
+  return { providers: override.payload.providers.length ? override.payload.providers : fallback.providers };
 }
 
 export async function getDeepseekV4ProProviderSettings() {
@@ -2541,12 +2510,10 @@ export async function getDeepseekV4ProProviderSettings() {
   const override = await readDeepseekV4ProRuntimeOverride();
   const primary = runtime.providers[0];
   return {
-    priorityRoutingEnabled: runtime.priorityRoutingEnabled,
     providers: runtime.providers.map(provider => ({
       id: provider.id,
       label: provider.label,
       enabled: provider.enabled,
-      priority: provider.priority,
       baseUrl: provider.baseUrl,
       model: provider.model,
       apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
@@ -2561,11 +2528,10 @@ export async function getDeepseekV4ProProviderSettings() {
   };
 }
 
-type DeepseekV4ProProviderUpdate = { id: string; label: string; enabled?: boolean; priority?: number; priorityRoutingEnabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] };
-type DeepseekV4ProMultiProviderUpdate = { providers: DeepseekV4ProProviderUpdate[]; priorityRoutingEnabled?: boolean };
-type DeepseekV4ProLegacyUpdate = { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[]; priorityRoutingEnabled?: boolean };
+type DeepseekV4ProProviderUpdate = { id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] };
+type DeepseekV4ProLegacyUpdate = { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] };
 
-export async function updateDeepseekV4ProProviderSettings(input: DeepseekV4ProMultiProviderUpdate | DeepseekV4ProLegacyUpdate, updatedByUserId: number) {
+export async function updateDeepseekV4ProProviderSettings(input: { providers: DeepseekV4ProProviderUpdate[] } | DeepseekV4ProLegacyUpdate, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getDeepseekV4ProRuntimeConfig();
@@ -2577,7 +2543,6 @@ export async function updateDeepseekV4ProProviderSettings(input: DeepseekV4ProMu
       id: legacyPrimary.id,
       label: legacyPrimary.label,
       enabled: legacyPrimary.enabled,
-      priority: legacyPrimary.priority,
       baseUrl: input.baseUrl?.trim() || legacyPrimary.baseUrl,
       model: input.model?.trim() || legacyPrimary.model,
       apiKeys: input.apiKeys ?? legacyPrimary.apiKeys.map(() => ""),
@@ -2593,7 +2558,6 @@ export async function updateDeepseekV4ProProviderSettings(input: DeepseekV4ProMu
       id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`),
       label: submitted.label.trim() || `Provider ${index + 1}`,
       enabled: submitted.enabled !== false,
-      priority: normalizeManagedProviderPriority(submitted.priority, existing?.priority ?? index + 1),
       baseUrl: submitted.baseUrl.trim(),
       model: submitted.model.trim(),
       apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
@@ -2603,7 +2567,7 @@ export async function updateDeepseekV4ProProviderSettings(input: DeepseekV4ProMu
   if (!nextProviders.length || nextProviders.length > MAX_DEEPSEEK_V4PRO_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length)) {
     throw new Error("Each DeepSeek V4 Pro provider needs a unique identifier, base URL, model ID, and at least one API key");
   }
-  const encrypted = encryptProviderRuntimeConfig({ providers: nextProviders, priorityRoutingEnabled: input.priorityRoutingEnabled ?? ("providers" in input ? input.providers[0]?.priorityRoutingEnabled : undefined) ?? current.priorityRoutingEnabled } satisfies DeepseekV4ProRuntimePayload);
+  const encrypted = encryptProviderRuntimeConfig({ providers: nextProviders } satisfies DeepseekV4ProRuntimePayload);
   const removedProviders = current.providers.filter(provider => !ids.has(provider.id));
   await db.transaction(async tx => {
     await tx.insert(platformSettings).values({
@@ -2618,9 +2582,9 @@ export async function updateDeepseekV4ProProviderSettings(input: DeepseekV4ProMu
 }
 
 export type Sonnet46ProviderRuntime = ClaudeOpus5ProviderRuntime;
-type Sonnet46RuntimePayload = { providers: Sonnet46ProviderRuntime[]; priorityRoutingEnabled: boolean };
+type Sonnet46RuntimePayload = { providers: Sonnet46ProviderRuntime[] };
 const MAX_SONNET46_PROVIDERS = 12;
-type Sonnet46ProviderUpdate = { id: string; label: string; enabled?: boolean; priority?: number; priorityRoutingEnabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] };
+type Sonnet46ProviderUpdate = { id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] };
 
 function normalizeSonnet46Providers(value: unknown, fallback: Sonnet46ProviderRuntime[]) {
   return normalizeClaudeOpus5Providers(value, fallback).slice(0, MAX_SONNET46_PROVIDERS);
@@ -2636,7 +2600,7 @@ async function readSonnet46RuntimeOverride() {
     const decrypted = decryptProviderRuntimeConfig({ ciphertext: String(encoded.ciphertext ?? ""), iv: String(encoded.iv ?? ""), authTag: String(encoded.authTag ?? "") });
     if (!decrypted || typeof decrypted !== "object") return null;
     const candidate = decrypted as Partial<Sonnet46RuntimePayload>;
-    return { payload: { providers: normalizeSonnet46Providers(candidate.providers, []), priorityRoutingEnabled: candidate.priorityRoutingEnabled === true }, updatedAt: record.updatedAt, updatedByUserId: record.updatedByUserId };
+    return { payload: { providers: normalizeSonnet46Providers(candidate.providers, []) }, updatedAt: record.updatedAt, updatedByUserId: record.updatedByUserId };
   } catch {
     return null;
   }
@@ -2644,7 +2608,7 @@ async function readSonnet46RuntimeOverride() {
 
 export async function getSonnet46RuntimeConfig(): Promise<Sonnet46RuntimePayload> {
   const override = await readSonnet46RuntimeOverride();
-  return { providers: override?.payload.providers ?? [], priorityRoutingEnabled: override?.payload.priorityRoutingEnabled ?? false };
+  return { providers: override?.payload.providers ?? [] };
 }
 
 export async function getSonnet46ProviderSettings() {
@@ -2652,12 +2616,10 @@ export async function getSonnet46ProviderSettings() {
   const override = await readSonnet46RuntimeOverride();
   const primary = runtime.providers[0];
   return {
-    priorityRoutingEnabled: runtime.priorityRoutingEnabled,
     providers: runtime.providers.map(provider => ({
       id: provider.id,
       label: provider.label,
       enabled: provider.enabled,
-      priority: provider.priority,
       baseUrl: provider.baseUrl,
       model: provider.model,
       apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
@@ -2671,7 +2633,7 @@ export async function getSonnet46ProviderSettings() {
   };
 }
 
-export async function updateSonnet46ProviderSettings(input: { providers: Sonnet46ProviderUpdate[]; priorityRoutingEnabled?: boolean }, updatedByUserId: number) {
+export async function updateSonnet46ProviderSettings(input: { providers: Sonnet46ProviderUpdate[] }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getSonnet46RuntimeConfig();
@@ -2686,7 +2648,6 @@ export async function updateSonnet46ProviderSettings(input: { providers: Sonnet4
       id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`),
       label: submitted.label.trim() || `Provider ${index + 1}`,
       enabled: submitted.enabled !== false,
-      priority: normalizeManagedProviderPriority(submitted.priority, existing?.priority ?? index + 1),
       baseUrl: submitted.baseUrl.trim(),
       model: submitted.model.trim(),
       apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
@@ -2696,7 +2657,7 @@ export async function updateSonnet46ProviderSettings(input: { providers: Sonnet4
   if (!nextProviders.length || nextProviders.length > MAX_SONNET46_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length)) {
     throw new Error("Each Claude Sonnet 4.6 provider needs a unique identifier, base URL, model ID, and at least one API key");
   }
-  const encrypted = encryptProviderRuntimeConfig({ providers: nextProviders, priorityRoutingEnabled: input.priorityRoutingEnabled ?? input.providers[0]?.priorityRoutingEnabled ?? current.priorityRoutingEnabled } satisfies Sonnet46RuntimePayload);
+  const encrypted = encryptProviderRuntimeConfig({ providers: nextProviders } satisfies Sonnet46RuntimePayload);
   const removedProviders = current.providers.filter(provider => !ids.has(provider.id));
   await db.transaction(async tx => {
     await tx.insert(platformSettings).values({
@@ -2708,26 +2669,6 @@ export async function updateSonnet46ProviderSettings(input: { providers: Sonnet4
   });
   clearRemovedManagedProviderTelemetry("claude-sonnet-4.6", removedProviders);
   return getSonnet46ProviderSettings();
-}
-
-export type PriorityRoutingManagedModel = "claude-opus-5" | "claude-fable-5" | "deepseek-v4-pro" | "claude-sonnet-4.6" | "qwen3.8-max";
-
-/** Disables priority routing without changing encrypted provider URLs, models, keys, or current provider priorities. */
-export async function restoreManagedProviderEqualShareRouting(modelId: PriorityRoutingManagedModel, updatedByUserId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("TokenForge database is unavailable");
-  const targets: Record<PriorityRoutingManagedModel, { settingKey: string; runtime: () => Promise<{ providers: ClaudeOpus5ProviderRuntime[]; priorityRoutingEnabled: boolean }> }> = {
-    "claude-fable-5": { settingKey: CLAUDE_FABLE5_NVIDIA_RUNTIME_SETTING_KEY, runtime: getClaudeFable5NvidiaRuntimeConfig },
-    "claude-opus-5": { settingKey: CLAUDE_OPUS5_TOKENREPLY_RUNTIME_SETTING_KEY, runtime: getClaudeOpus5RuntimeConfig },
-    "deepseek-v4-pro": { settingKey: DEEPSEEK_V4PRO_RUNTIME_SETTING_KEY, runtime: getDeepseekV4ProRuntimeConfig },
-    "claude-sonnet-4.6": { settingKey: SONNET46_RUNTIME_SETTING_KEY, runtime: getSonnet46RuntimeConfig },
-    "qwen3.8-max": { settingKey: QWEN38_MAX_RUNTIME_SETTING_KEY, runtime: getQwen38MaxRuntimeConfig },
-  };
-  const target = targets[modelId];
-  const current = await target.runtime();
-  const encrypted = encryptProviderRuntimeConfig({ ...current, priorityRoutingEnabled: false });
-  await db.insert(platformSettings).values({ settingKey: target.settingKey, value: JSON.stringify(encrypted), updatedByUserId }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
-  return { modelId, priorityRoutingEnabled: false } as const;
 }
 
 export const MANAGED_PROVIDER_METRIC_MODEL_IDS = ["claude-fable-5", "claude-opus-5", "glm-5.3", "claude-sonnet-4.6", "deepseek-v4-pro", "qwen3.8-max"] as const;

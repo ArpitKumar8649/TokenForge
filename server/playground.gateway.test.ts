@@ -44,7 +44,7 @@ vi.mock("node:https", () => ({ default: { request: vi.fn() } }));
 vi.mock("socks-proxy-agent", () => ({ SocksProxyAgent: vi.fn().mockImplementation((proxyUrl: URL) => ({ destroy: vi.fn(), proxyUrl })) }));
 
 import { getBailuWebshareProxyPoolRuntimeConfig, getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, getSonnet46RuntimeConfig, isBaiProviderCircuitEligible, isModelAvailable, loadBaiReasoningContinuation, loadOrcaRouterCredentialSlotCiphertexts, recordBaiProviderRateLimit, recordBaiProviderSuccess, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordSonnet46FailureLog, recordManagedProviderKeyOutcome, recordUsage, releaseBailuWebshareProxySlot, reserveCredit, settleReservedCredit, storeBaiReasoningContinuation, tryAcquireBailuWebshareProxySlot } from "./db";
-import { forwardProviderRequest, modelScopedGuidance, orderManagedProviders, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetBailuWebshareProxyPool, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, resetQwen38MaxProviderBalancing, resetSonnet46ProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
+import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetBailuWebshareProxyPool, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, resetQwen38MaxProviderBalancing, resetSonnet46ProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import https from "node:https";
 import { SocksProxyAgent } from "socks-proxy-agent";
 import { PassThrough, Readable } from "node:stream";
@@ -1531,29 +1531,6 @@ describe("TokenForge Playground gateway", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(reserveCredit).not.toHaveBeenCalled();
     expect(recordUsage).not.toHaveBeenCalled();
-  });
-
-  it("uses the lowest provider priority first and preserves per-priority equal-share order when priority routing is enabled", () => {
-    const providers = [
-      { id: "priority-three", enabled: true, priority: 3, apiKeys: ["key-3"] },
-      { id: "priority-one-a", enabled: true, priority: 1, apiKeys: ["key-1a"] },
-      { id: "priority-two", enabled: true, priority: 2, apiKeys: ["key-2"] },
-      { id: "priority-one-b", enabled: true, priority: 1, apiKeys: ["key-1b"] },
-      { id: "disabled", enabled: false, priority: 1, apiKeys: ["key-off"] },
-    ];
-
-    expect(orderManagedProviders(providers, 0, true).map(provider => provider.id)).toEqual(["priority-one-a", "priority-one-b", "priority-two", "priority-three"]);
-    expect(orderManagedProviders(providers, 1, true).map(provider => provider.id)).toEqual(["priority-one-b", "priority-one-a", "priority-two", "priority-three"]);
-  });
-
-  it("retains the existing equal-share cursor order when priority routing is disabled", () => {
-    const providers = [
-      { id: "first", enabled: true, priority: 3, apiKeys: ["key-1"] },
-      { id: "second", enabled: true, priority: 1, apiKeys: ["key-2"] },
-      { id: "third", enabled: true, priority: 2, apiKeys: ["key-3"] },
-    ];
-
-    expect(orderManagedProviders(providers, 1, false).map(provider => provider.id)).toEqual(["second", "third", "first"]);
   });
 });
   resetClaudeFable5ProviderBalancing();

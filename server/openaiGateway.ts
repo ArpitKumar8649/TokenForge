@@ -471,18 +471,6 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
 let deepseekV4ProProviderCursor = 0;
 const deepseekV4ProKeyCursors = new Map<string, number>();
 
-type PriorityRoutableProvider = { enabled: boolean; apiKeys: string[]; priority?: number };
-
-/** Uses equal-share cursor rotation by default; priority mode exhausts each lower-numbered group before compatible failover. */
-export function orderManagedProviders<T extends PriorityRoutableProvider>(providers: T[], cursor: number, priorityRoutingEnabled: boolean) {
-  const eligible = providers.filter(provider => provider.enabled !== false && provider.apiKeys.length);
-  if (!eligible.length) return [];
-  const rotate = (values: T[]) => values.map((_, offset) => values[(cursor + offset) % values.length]!);
-  if (!priorityRoutingEnabled) return rotate(eligible);
-  const priorities = Array.from(new Set(eligible.map(provider => Number.isInteger(provider.priority) && provider.priority! > 0 ? provider.priority! : 1))).sort((left, right) => left - right);
-  return priorities.flatMap(priority => rotate(eligible.filter(provider => (Number.isInteger(provider.priority) && provider.priority! > 0 ? provider.priority! : 1) === priority)));
-}
-
 export function resetDeepseekV4ProProviderBalancing() {
   deepseekV4ProProviderCursor = 0;
   deepseekV4ProKeyCursors.clear();
@@ -503,7 +491,7 @@ function selectNextDeepseekV4ProCredential(provider: { id: string; apiKeys: stri
 /** DeepSeek V4 Pro uses equal-share encrypted provider groups, each with an independent key pool and retry failover. */
 async function forwardDedicatedDeepseekV4ProRequest(input: ChatInput, signal: AbortSignal) {
   const runtime = await getDeepseekV4ProRuntimeConfig();
-  const orderedProviders = orderManagedProviders(runtime.providers, deepseekV4ProProviderCursor, runtime.priorityRoutingEnabled);
+  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(deepseekV4ProProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
   deepseekV4ProProviderCursor = runtime.providers.length ? (deepseekV4ProProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
   let lastResponse: globalThis.Response | null = null;
@@ -606,7 +594,7 @@ function selectNextSonnet46Credential(provider: { id: string; apiKeys: string[] 
 /** Claude Sonnet 4.6 uses equal-share encrypted provider groups with isolated key pools and retry failover. */
 async function forwardDedicatedSonnet46Request(input: ChatInput, signal: AbortSignal) {
   const runtime = await getSonnet46RuntimeConfig();
-  const orderedProviders = orderManagedProviders(runtime.providers, sonnet46ProviderCursor, runtime.priorityRoutingEnabled);
+  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(sonnet46ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
   sonnet46ProviderCursor = runtime.providers.length ? (sonnet46ProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
   let lastResponse: globalThis.Response | null = null;
@@ -836,7 +824,9 @@ async function effectiveReservationMaxOutputTokens(model: TokenForgeModelId, inp
   if (model !== "claude-opus-5") return requestedMaxTokens;
 
   const runtime = await getClaudeOpus5RuntimeConfig();
-  const rotatedProviders = orderManagedProviders(runtime.providers, claudeOpus5ProviderCursor, runtime.priorityRoutingEnabled);
+  const rotatedProviders = runtime.providers
+    .map((_, offset) => runtime.providers[(claudeOpus5ProviderCursor + offset) % runtime.providers.length]!)
+    .filter(provider => provider.enabled !== false && provider.apiKeys.length);
   const baiPreparation = await prepareBaiContinuation("claude-opus-5", input, context);
   const baiProviders = baiPreparation.canRouteToBai
     ? (await Promise.all(rotatedProviders
@@ -845,12 +835,8 @@ async function effectiveReservationMaxOutputTokens(model: TokenForgeModelId, inp
       .filter((provider): provider is NonNullable<typeof provider> => provider !== null)
     : [];
   const otherProviders = rotatedProviders.filter(provider => !isBaiProviderLabel(provider.label));
-  const priorityCandidates = rotatedProviders.filter(provider => !isBaiProviderLabel(provider.label) || (baiPreparation.canRouteToBai && baiProviders.includes(provider)));
-  const orderedProviders = baiPreparation.canRouteToBai && (!runtime.priorityRoutingEnabled || baiPreparation.hasAssistantHistory)
-    ? [...baiProviders, ...otherProviders]
-    : priorityCandidates;
 
-  for (const provider of orderedProviders) {
+  for (const provider of [...baiProviders, ...otherProviders]) {
     if (!provider.baseUrl.trim() || !provider.model.trim()) continue;
     if (!isQwenClaudeOpus5Provider(provider)) return requestedMaxTokens;
     if ((await getEligibleClaudeOpus5QwenModels(provider)).length) {
@@ -1187,7 +1173,7 @@ async function tryForwardClaudeOpus5ThroughRenderSwarm(input: ChatInput, signal:
 /** Claude Opus 5 balances each new call evenly across configured provider groups, then across eligible keys in that group. */
 async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: AbortSignal, context?: ProviderRequestContext) {
   const runtime = await getClaudeOpus5RuntimeConfig();
-  const rotatedProviders = orderManagedProviders(runtime.providers, claudeOpus5ProviderCursor, runtime.priorityRoutingEnabled);
+  const rotatedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeOpus5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
   claudeOpus5ProviderCursor = runtime.providers.length ? (claudeOpus5ProviderCursor + 1) % runtime.providers.length : 0;
   const baiPreparation = await prepareBaiContinuation("claude-opus-5", input, context);
   const baiProviders = (await Promise.all(rotatedProviders
@@ -1195,10 +1181,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
     .map(async provider => await isBaiProviderCircuitEligible(provider.id) ? provider : null)))
     .filter((provider): provider is NonNullable<typeof provider> => provider !== null);
   const otherProviders = rotatedProviders.filter(provider => !isBaiProviderLabel(provider.label));
-  const priorityCandidates = rotatedProviders.filter(provider => !isBaiProviderLabel(provider.label) || (baiPreparation.canRouteToBai && baiProviders.includes(provider)));
-  const orderedProviders = baiPreparation.canRouteToBai && (!runtime.priorityRoutingEnabled || baiPreparation.hasAssistantHistory)
-    ? [...baiProviders, ...otherProviders]
-    : priorityCandidates;
+  const orderedProviders = baiPreparation.canRouteToBai ? [...baiProviders, ...otherProviders] : otherProviders;
   let lastError: unknown = null;
   let lastFailureStatus: number | null = null;
   for (const provider of orderedProviders) {
@@ -1377,7 +1360,7 @@ function selectNextClaudeFable5Credential(provider: { id: string; apiKeys: strin
 /** Claude Fable 5 balances calls evenly across enabled provider groups and then keys, never the shared TokenRouter pool. */
 async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: AbortSignal) {
   const runtime = await getClaudeFable5NvidiaRuntimeConfig();
-  const orderedProviders = orderManagedProviders(runtime.providers, claudeFable5ProviderCursor, runtime.priorityRoutingEnabled);
+  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeFable5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
   claudeFable5ProviderCursor = runtime.providers.length ? (claudeFable5ProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
   let lastStatus: number | null = null;
@@ -1456,7 +1439,7 @@ function selectNextQwen38MaxCredential(provider: { id: string; apiKeys: string[]
 
 async function forwardDedicatedQwen38MaxRequest(input: ChatInput, signal: AbortSignal) {
   const runtime = await getQwen38MaxRuntimeConfig();
-  const orderedProviders = orderManagedProviders(runtime.providers, qwen38MaxProviderCursor, runtime.priorityRoutingEnabled);
+  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(qwen38MaxProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
   qwen38MaxProviderCursor = runtime.providers.length ? (qwen38MaxProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
   let lastStatus: number | null = null;

@@ -83,101 +83,10 @@ function DynamicProviderKeyPool({ providerName, values, masks, onChange, onRemov
 type ManagedProviderSettingsData = { baseUrl: string; model: string; apiKeyMasks: { slot: number; value: string }[]; source: "database" | "environment" };
 type ClaudeOpus5QwenModelSetting = { id: string; model: string; enabled: boolean; quotaTokens: number; inputTokens: number; outputTokens: number; totalTokens: number; requestCount: number; retired: boolean; retiredAt: Date | null; lastUsedAt: Date | null };
 type BaiProviderCircuitStatus = { providerGroupId: string; rateLimitCount: number; consecutiveRateLimits: number; cooldownUntil: Date | null; lastRateLimitedAt: Date | null; lastSuccessAt: Date | null; coolingDown: boolean };
-type ClaudeOpus5ProviderSettingsData = { id: string; label: string; enabled: boolean; priority: number; baseUrl: string; model: string; apiKeyMasks: { slot: number; value: string }[]; maxOutputTokens?: number; modelPool?: ClaudeOpus5QwenModelSetting[]; baiCircuit?: BaiProviderCircuitStatus };
-type ClaudeOpus5SettingsData = { providers: ClaudeOpus5ProviderSettingsData[]; priorityRoutingEnabled: boolean; source: "database" | "environment" };
-type ClaudeOpus5ProviderDraft = { id: string; label: string; enabled: boolean; priority?: number; priorityRoutingEnabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removedSlots: number[] };
+type ClaudeOpus5ProviderSettingsData = { id: string; label: string; enabled: boolean; baseUrl: string; model: string; apiKeyMasks: { slot: number; value: string }[]; maxOutputTokens?: number; modelPool?: ClaudeOpus5QwenModelSetting[]; baiCircuit?: BaiProviderCircuitStatus };
+type ClaudeOpus5SettingsData = { providers: ClaudeOpus5ProviderSettingsData[]; source: "database" | "environment" };
+type ClaudeOpus5ProviderDraft = { id: string; label: string; enabled: boolean; baseUrl: string; model: string; apiKeys: string[]; removedSlots: number[] };
 type DeepseekV4ProSettingsData = ClaudeOpus5SettingsData;
-
-function useProviderPriorityControls({ providerName, drafts, priorityRoutingEnabled, disabled, onPriorityRoutingEnabledChange, onDraftChange, onRestoreEqualShare }: { providerName: string; drafts: ClaudeOpus5ProviderDraft[]; priorityRoutingEnabled: boolean; disabled: boolean; onPriorityRoutingEnabledChange: (enabled: boolean) => void; onDraftChange: (id: string, update: (draft: ClaudeOpus5ProviderDraft) => ClaudeOpus5ProviderDraft) => void; onRestoreEqualShare: () => void }) {
-  useEffect(() => {
-    const heading = Array.from(document.querySelectorAll("section.dashboard-card h2, section.dashboard-card p")).find(node => node.textContent === `${providerName} multi-provider load balancer`);
-    const section = heading?.closest("section");
-    const forms = section?.querySelector<HTMLDivElement>(".mt-5.space-y-4");
-    if (!section || !forms) return;
-    const modeControl = document.createElement("div");
-    modeControl.dataset.priorityRoutingControl = providerName;
-    modeControl.className = "mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/8 bg-black/15 px-3 py-3";
-    const copy = document.createElement("div");
-    copy.innerHTML = `<p class="text-[10px] font-bold uppercase tracking-[.13em] text-[#858697]">Provider routing mode</p><p class="mt-1 text-[10px] leading-5 text-[#858697]">${priorityRoutingEnabled ? "Priority mode uses lower numbers first and fails over only after a group’s eligible keys fail. Drag a provider or enter its number, then select Save load balancer below." : "Equal-share mode rotates evenly across enabled provider groups, as before. Priority inputs stay disabled until priority routing is enabled."}</p>`;
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.disabled = disabled;
-    toggle.setAttribute("aria-pressed", String(priorityRoutingEnabled));
-    toggle.className = priorityRoutingEnabled ? "rounded-lg border border-[#c9ff73]/25 bg-[#c9ff73]/10 px-3 py-2 text-[10px] font-bold text-[#c9ff73]" : "rounded-lg border border-white/12 bg-white/5 px-3 py-2 text-[10px] font-bold text-[#a8a9b8]";
-    toggle.textContent = priorityRoutingEnabled ? "Priority routing on" : "Equal-share routing";
-    const toggleMode = () => onPriorityRoutingEnabledChange(!priorityRoutingEnabled);
-    toggle.addEventListener("click", toggleMode);
-    const restore = document.createElement("button");
-    restore.type = "button";
-    restore.disabled = disabled || !priorityRoutingEnabled;
-    restore.className = "rounded-lg border border-white/12 bg-white/5 px-3 py-2 text-[10px] font-bold text-[#d5d6df] hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50";
-    restore.textContent = "Restore equal-share";
-    const restoreMode = () => onRestoreEqualShare();
-    restore.addEventListener("click", restoreMode);
-    modeControl.append(copy, toggle, restore);
-    forms.before(modeControl);
-    let draggingProviderId: string | null = null;
-    const controls = Array.from(forms.children).map((cardElement, index) => {
-      const card = cardElement as HTMLElement;
-      const draft = drafts[index];
-      if (!draft) return null;
-      const priorityControl = document.createElement("label");
-      priorityControl.dataset.providerPriorityControl = draft.id;
-      priorityControl.className = "mt-3 flex items-center justify-between gap-3 rounded-lg border border-white/8 bg-black/10 px-3 py-2";
-      const label = document.createElement("span");
-      label.className = "text-[10px] font-semibold text-[#a8a9b8]";
-      label.textContent = "Provider priority";
-      const input = document.createElement("input");
-      input.type = "number";
-      input.min = "1";
-      input.max = "99";
-      input.step = "1";
-      input.value = String(draft.priority ?? index + 1);
-      input.disabled = disabled || !priorityRoutingEnabled;
-      input.className = "h-8 w-20 rounded-md border border-white/10 bg-black/20 px-2 font-mono text-xs text-[#e6e6ee] outline-none focus:border-[#c9ff73]/60 disabled:cursor-not-allowed disabled:opacity-45";
-      input.setAttribute("aria-label", `${draft.label || `Provider ${index + 1}`} priority`);
-      const changePriority = () => onDraftChange(draft.id, current => ({ ...current, priority: Math.min(99, Math.max(1, Math.trunc(Number(input.value) || 1))) }));
-      input.addEventListener("change", changePriority);
-      card.draggable = priorityRoutingEnabled && !disabled;
-      card.classList.toggle("cursor-grab", priorityRoutingEnabled && !disabled);
-      const dragStart = (event: Event) => {
-        const dragEvent = event as DragEvent;
-        draggingProviderId = draft.id;
-        dragEvent.dataTransfer?.setData("text/plain", draft.id);
-        if (dragEvent.dataTransfer) dragEvent.dataTransfer.effectAllowed = "move";
-        card.classList.add("opacity-60");
-      };
-      const dragOver = (event: Event) => { const dragEvent = event as DragEvent; if (draggingProviderId && draggingProviderId !== draft.id) { dragEvent.preventDefault(); if (dragEvent.dataTransfer) dragEvent.dataTransfer.dropEffect = "move"; } };
-      const drop = (event: Event) => {
-        const dragEvent = event as DragEvent;
-        dragEvent.preventDefault();
-        const sourceId = draggingProviderId ?? dragEvent.dataTransfer?.getData("text/plain");
-        const sourceIndex = drafts.findIndex(item => item.id === sourceId);
-        const targetIndex = drafts.findIndex(item => item.id === draft.id);
-        if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
-        const reordered = [...drafts];
-        const [moved] = reordered.splice(sourceIndex, 1);
-        if (!moved) return;
-        reordered.splice(targetIndex, 0, moved);
-        reordered.forEach((item, priority) => onDraftChange(item.id, current => ({ ...current, priority: priority + 1 })));
-      };
-      const dragEnd = () => { draggingProviderId = null; card.classList.remove("opacity-60"); };
-      card.addEventListener("dragstart", dragStart);
-      card.addEventListener("dragover", dragOver);
-      card.addEventListener("drop", drop);
-      card.addEventListener("dragend", dragEnd);
-      priorityControl.append(label, input);
-      card.prepend(priorityControl);
-      return { priorityControl, input, changePriority, card, dragStart, dragOver, drop, dragEnd };
-    });
-    return () => {
-      toggle.removeEventListener("click", toggleMode);
-      restore.removeEventListener("click", restoreMode);
-      modeControl.remove();
-      controls.forEach(control => { if (control) { control.input.removeEventListener("change", control.changePriority); control.card.removeEventListener("dragstart", control.dragStart); control.card.removeEventListener("dragover", control.dragOver); control.card.removeEventListener("drop", control.drop); control.card.removeEventListener("dragend", control.dragEnd); control.priorityControl.remove(); } });
-    };
-  }, [disabled, drafts, onDraftChange, onPriorityRoutingEnabledChange, priorityRoutingEnabled, providerName]);
-}
 
 type ManagedProviderKeyMetric = { slot: number; keyMask: string; requestCount: number; successCount: number; failureCount: number; health: "healthy" | "cooling-down" | "unverified" | "unknown"; cooldownUntil: Date | null; lastRequestAt: Date | null; lastSuccessAt: Date | null; lastFailureAt: Date | null };
 type ManagedProviderKeyMetricGroup = { modelId: string; slots: ManagedProviderKeyMetric[]; providers?: { id: string; label: string; slots: ManagedProviderKeyMetric[] }[] };
@@ -221,31 +130,9 @@ function ClaudeOpus5FailureHistoryLegacy({ logs, loading }: { logs?: ClaudeOpus5
   return <section className="dashboard-card"><SectionHeader icon={<AlertTriangle size={17} />} title="Claude Opus 5 failure history" detail="Recent credential-redacted upstream failures. Administrators can compare the private diagnostic with the exact neutral message exposed to callers." /><div className="mt-4 rounded-xl border border-amber-300/15 bg-amber-300/5 px-3 py-2 text-[10px] leading-5 text-amber-100">A recovered attempt remains visible even if failover later delivered a response. Private diagnostics stay in this administrator-only panel; callers receive only the neutral TokenForge envelope below.</div><div className="mt-4 h-[32rem] space-y-2 overflow-y-auto overscroll-contain pr-2" aria-label="Recent Claude Opus 5 upstream failure history">{loading ? <div className="grid min-h-32 place-items-center"><Loader2 className="animate-spin text-[#c9ff73]" size={18} /></div> : entries.length ? entries.map(entry => <div key={entry.id} className="rounded-xl border border-white/8 bg-black/15 p-3"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Badge className={`border text-[9px] ${entry.sourceType === "render" ? "border-sky-300/20 bg-sky-300/10 text-sky-100" : "border-violet-300/20 bg-violet-300/10 text-violet-100"}`}>{entry.sourceType === "render" ? "Render endpoint" : "Provider group"}</Badge><p className="font-mono text-[10px] font-semibold text-[#e6e6ee]">{entry.sourceLabel}</p><span className="font-mono text-[9px] text-[#858697]">{entry.sourceId}</span></div><div className="mt-2 grid gap-2 lg:grid-cols-2"><div><p className="text-[9px] font-bold uppercase tracking-[.11em] text-amber-200">Credential-redacted upstream diagnostic</p><pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-words font-mono text-[9px] leading-4 text-amber-100">{entry.callerMessage}</pre></div><div className="rounded-lg border border-[#c9ff73]/20 bg-[#c9ff73]/[.055] p-2"><p className="text-[9px] font-bold uppercase tracking-[.11em] text-[#c9ff73]">Caller-visible TokenForge message</p><p className="mt-1 font-mono text-[10px] leading-4 text-[#e6f7c5]">{entry.publicMessage ?? "The selected model is temporarily unavailable. Please retry shortly."}</p></div></div></div><div className="shrink-0 text-right"><p className="font-mono text-[10px] font-semibold text-amber-200">{entry.httpStatus ? `HTTP ${entry.httpStatus}` : entry.failureKind}</p><p className="mt-1 text-[9px] text-[#858697]">{entry.retryable ? "Failover eligible" : "No retry"}</p><time className="mt-1 block text-[9px] text-[#858697]" dateTime={new Date(entry.occurredAt).toISOString()}>{new Date(entry.occurredAt).toLocaleString()}</time></div></div></div>) : <div className="grid min-h-32 place-items-center rounded-xl border border-dashed border-white/10 px-5 text-center text-[10px] leading-5 text-[#858697]">No Claude Opus 5 upstream failures have been recorded since this history was added.</div>}</div><p className="mt-4 border-t border-white/8 pt-4 text-[10px] leading-5 text-[#858697]">The latest 200 records refresh every five seconds. Diagnostics remain credential-redacted before storage and display.</p></section>;
 }
 
-function ClaudeOpus5ProviderBalancerPanel({ providerName = "Claude Opus 5", drafts, settings, metrics, loading, saving, priorityRoutingEnabled, onPriorityRoutingEnabledChange, onChange, onAddProvider, onRemoveProvider, onSave }: { providerName?: string; drafts: ClaudeOpus5ProviderDraft[]; settings?: ClaudeOpus5SettingsData; metrics?: ManagedProviderKeyMetricGroup; loading: boolean; saving: boolean; priorityRoutingEnabled?: boolean; onPriorityRoutingEnabledChange?: (enabled: boolean) => void; onChange: (id: string, update: (draft: ClaudeOpus5ProviderDraft) => ClaudeOpus5ProviderDraft) => void; onAddProvider: (id: string) => void; onRemoveProvider: (id: string) => void; onSave: () => void }) {
+function ClaudeOpus5ProviderBalancerPanel({ providerName = "Claude Opus 5", drafts, settings, metrics, loading, saving, onChange, onAddProvider, onRemoveProvider, onSave }: { providerName?: string; drafts: ClaudeOpus5ProviderDraft[]; settings?: ClaudeOpus5SettingsData; metrics?: ManagedProviderKeyMetricGroup; loading: boolean; saving: boolean; onChange: (id: string, update: (draft: ClaudeOpus5ProviderDraft) => ClaudeOpus5ProviderDraft) => void; onAddProvider: (id: string) => void; onRemoveProvider: (id: string) => void; onSave: () => void }) {
   const configured = new Map((settings?.providers ?? []).map(provider => [provider.id, provider]));
-  const utils = trpc.useUtils();
-  const priorityModelId = providerName === "Claude Fable 5" ? "claude-fable-5" : providerName === "Claude Sonnet 4.6" ? "claude-sonnet-4.6" : providerName === "DeepSeek V4 Pro" ? "deepseek-v4-pro" : providerName === "Qwen 3.8 Max" ? "qwen3.8-max" : "claude-opus-5" as const;
-  const restoreEqualShareMutation = trpc.admin.restoreProviderEqualShareRouting.useMutation({
-    onSuccess: async () => {
-      onPriorityRoutingEnabledChange?.(false);
-      await Promise.all([utils.admin.claudeOpus5ProviderSettings.invalidate(), utils.admin.claudeFable5ProviderSettings.invalidate(), utils.admin.deepseekV4ProProviderSettings.invalidate(), utils.admin.sonnet46ProviderSettings.invalidate(), utils.admin.qwen38MaxProviderSettings.invalidate()]);
-      toast.success("Equal-share routing restored");
-    },
-    onError: error => toast.error(error.message),
-  });
   const disabled = loading || saving;
-  const effectivePriorityRoutingEnabled = priorityRoutingEnabled ?? drafts[0]?.priorityRoutingEnabled ?? settings?.priorityRoutingEnabled ?? false;
-  const setPriorityRoutingEnabled = (enabled: boolean) => {
-    onPriorityRoutingEnabledChange?.(enabled);
-    const firstDraft = drafts[0];
-    if (firstDraft) onChange(firstDraft.id, current => ({ ...current, priorityRoutingEnabled: enabled }));
-  };
-  const restoreEqualShare = () => {
-    setPriorityRoutingEnabled(false);
-    drafts.forEach((draft, index) => onChange(draft.id, current => ({ ...current, priority: index + 1, priorityRoutingEnabled: index === 0 ? false : current.priorityRoutingEnabled })));
-    restoreEqualShareMutation.mutate({ modelId: priorityModelId });
-  };
-  useProviderPriorityControls({ providerName, drafts, priorityRoutingEnabled: effectivePriorityRoutingEnabled, disabled, onPriorityRoutingEnabledChange: setPriorityRoutingEnabled, onDraftChange: onChange, onRestoreEqualShare: restoreEqualShare });
   const [activeProviderId, setActiveProviderId] = useState("");
   useEffect(() => {
     if (!drafts.length) return;
@@ -253,7 +140,6 @@ function ClaudeOpus5ProviderBalancerPanel({ providerName = "Claude Opus 5", draf
   }, [activeProviderId, drafts]);
   const canSave = drafts.length > 0 && drafts.every(draft => Boolean(draft.label.trim() && draft.baseUrl.trim() && draft.model.trim() && (configured.get(draft.id)?.apiKeyMasks.length || draft.apiKeys.some(key => key.trim()))));
   useEffect(() => {
-    if (effectivePriorityRoutingEnabled) return;
     const heading = Array.from(document.querySelectorAll("section.dashboard-card p")).find(node => node.textContent === `${providerName} multi-provider load balancer`);
     const section = heading?.closest("section");
     const forms = section?.querySelector(".mt-5.space-y-4");
@@ -297,7 +183,7 @@ function ClaudeOpus5ProviderBalancerPanel({ providerName = "Claude Opus 5", draf
     forms.before(tabList);
     activate(selectedId);
     return () => { tabList.remove(); cards.forEach(card => { card.hidden = false; card.removeAttribute("role"); card.removeAttribute("aria-label"); }); };
-  }, [activeProviderId, drafts, effectivePriorityRoutingEnabled, providerName]);
+  }, [activeProviderId, drafts, providerName]);
   const addProvider = () => {
     const id = `provider-${Date.now()}-${drafts.length + 1}`;
     setActiveProviderId(id);
@@ -314,8 +200,6 @@ function ClaudeOpus5QwenModelPoolPanel() {
   const [initialized, setInitialized] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [maxOutputTokens, setMaxOutputTokens] = useState(32_768);
-  const [priority, setPriority] = useState(1);
-  const [priorityRoutingEnabled, setPriorityRoutingEnabled] = useState(false);
   const [apiKeys, setApiKeys] = useState<string[]>(["", ""]);
   const [removedSlots, setRemovedSlots] = useState<number[]>([]);
   const [models, setModels] = useState<ClaudeOpus5QwenModelDraft[]>([]);
@@ -327,8 +211,6 @@ function ClaudeOpus5QwenModelPoolPanel() {
     const current = (settings.data.providers as ClaudeOpus5ProviderSettingsData[]).find(item => item.label.trim().toLowerCase() === "qwen");
     setBaseUrl(current?.baseUrl ?? "");
     setMaxOutputTokens(current?.maxOutputTokens ?? 32_768);
-    setPriority(current?.priority ?? 1);
-    setPriorityRoutingEnabled(Boolean(settings.data.priorityRoutingEnabled));
     setApiKeys(current?.apiKeyMasks.length ? current.apiKeyMasks.map(() => "") : ["", ""]);
     const pool = current?.modelPool?.length ? current.modelPool : current?.model ? [{ id: "qwen-model-1", model: current.model, enabled: true, quotaTokens: 1_000_000, inputTokens: 0, outputTokens: 0, totalTokens: 0, requestCount: 0, retired: false, retiredAt: null, lastUsedAt: null }] : [];
     setModels(pool.map(item => ({ id: item.id, model: item.model, enabled: item.enabled, quotaTokens: item.quotaTokens, totalTokens: item.totalTokens, requestCount: item.requestCount, retired: item.retired, retiredAt: item.retiredAt, lastUsedAt: item.lastUsedAt })));
@@ -391,12 +273,11 @@ function ClaudeOpus5QwenModelPoolPanel() {
   const updateModel = (id: string, update: (current: ClaudeOpus5QwenModelDraft) => ClaudeOpus5QwenModelDraft) => setModels(current => current.map(item => item.id === id ? update(item) : item));
   const configuredQwenKeyCount = Math.max(0, (provider?.apiKeyMasks.length ?? 0) - removedSlots.length);
   const valid = Boolean(baseUrl.trim() && models.length && models.every(item => item.model.trim() && item.quotaTokens >= 1_000) && configuredQwenKeyCount + apiKeys.filter(Boolean).length >= 2);
-  const otherProviders = ((settings.data?.providers ?? []) as ClaudeOpus5ProviderSettingsData[]).filter(item => item.label.trim().toLowerCase() !== "qwen").map(item => ({ id: item.id, label: item.label, enabled: item.enabled, priority: item.priority, baseUrl: item.baseUrl, model: item.model, apiKeys: item.apiKeyMasks.map(() => ""), removeSlots: [] }));
-  const savePool = () => save.mutate({ priorityRoutingEnabled, providers: [...otherProviders, {
+  const otherProviders = ((settings.data?.providers ?? []) as ClaudeOpus5ProviderSettingsData[]).filter(item => item.label.trim().toLowerCase() !== "qwen").map(item => ({ id: item.id, label: item.label, enabled: item.enabled, baseUrl: item.baseUrl, model: item.model, apiKeys: item.apiKeyMasks.map(() => ""), removeSlots: [] }));
+  const savePool = () => save.mutate({ providers: [...otherProviders, {
     id: provider?.id ?? "qwen",
     label: "Qwen",
     enabled: provider?.enabled ?? true,
-    priority,
     baseUrl,
     model: models[0]?.model ?? "",
     apiKeys,
@@ -413,42 +294,6 @@ function ClaudeOpus5QwenModelPoolPanel() {
     setRemovedModelIds(current => current.includes(id) ? current : [...current, id]);
     setModels(current => current.filter(entry => entry.id !== id));
   };
-  useEffect(() => {
-    const heading = Array.from(document.querySelectorAll("section.dashboard-card h2, section.dashboard-card p")).find(node => node.textContent === "Claude Opus 5 · Qwen model-pool provider");
-    const section = heading?.closest("section");
-    const grid = section?.querySelector<HTMLDivElement>(".mt-5.grid");
-    if (!grid) return;
-    const control = document.createElement("div");
-    control.className = "mt-4 flex flex-wrap items-end justify-between gap-3 rounded-xl border border-white/8 bg-black/15 p-3";
-    control.dataset.qwenPriorityRoutingControl = "true";
-    const copy = document.createElement("div");
-    copy.innerHTML = `<p class="text-[10px] font-bold uppercase tracking-[.13em] text-[#858697]">Claude Opus provider routing</p><p class="mt-1 text-[10px] leading-5 text-[#858697]">${priorityRoutingEnabled ? "Priority mode is on: set Qwen’s number, then select Save Qwen model pool below." : "Equal-share mode is on: Qwen priority is inactive and cannot be edited."}</p>`;
-    const mode = document.createElement("button");
-    mode.type = "button";
-    mode.disabled = disabled;
-    mode.className = priorityRoutingEnabled ? "rounded-lg border border-[#c9ff73]/25 bg-[#c9ff73]/10 px-3 py-2 text-[10px] font-bold text-[#c9ff73]" : "rounded-lg border border-white/12 bg-white/5 px-3 py-2 text-[10px] font-bold text-[#a8a9b8]";
-    mode.textContent = priorityRoutingEnabled ? "Priority routing on" : "Equal-share routing";
-    const input = document.createElement("input");
-    input.type = "number";
-    input.min = "1";
-    input.max = "99";
-    input.step = "1";
-    input.value = String(priority);
-    input.disabled = disabled || !priorityRoutingEnabled;
-    input.className = "h-9 w-20 rounded-md border border-white/10 bg-black/20 px-2 font-mono text-xs text-[#e6e6ee] outline-none focus:border-[#c9ff73]/60 disabled:cursor-not-allowed disabled:opacity-45";
-    input.setAttribute("aria-label", "Qwen provider priority");
-    const label = document.createElement("label");
-    label.className = "flex items-center gap-2 text-[10px] font-semibold text-[#a8a9b8]";
-    label.textContent = "Qwen priority";
-    label.append(input);
-    const toggleMode = () => setPriorityRoutingEnabled(value => !value);
-    const changePriority = () => setPriority(Math.min(99, Math.max(1, Math.trunc(Number(input.value) || 1))));
-    mode.addEventListener("click", toggleMode);
-    input.addEventListener("change", changePriority);
-    control.append(copy, label, mode);
-    grid.before(control);
-    return () => { mode.removeEventListener("click", toggleMode); input.removeEventListener("change", changePriority); control.remove(); };
-  }, [disabled, priority, priorityRoutingEnabled]);
   return <section className="dashboard-card"><SectionHeader icon={<Gauge size={17} />} title="Claude Opus 5 · Qwen model-pool provider" detail="Administrator-only internal model rotation. Each enabled model receives traffic in turn and retires automatically when its billable-token quota is reached." /><div className="mt-4 rounded-xl border border-[#c9ff73]/15 bg-[#c9ff73]/[.045] p-3 text-[10px] leading-5 text-[#dce9c6]">This panel is visible only to administrators. Qwen model IDs, provider URL, token quotas, and keys remain server-side and are never returned by Playground, OpenAI-compatible, or Anthropic-compatible responses.</div><div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(19rem,.7fr)]"><div className="space-y-4"><div><label className="text-xs font-semibold text-[#dedfe7]" htmlFor="opus-qwen-base-url">Provider base URL</label><Input id="opus-qwen-base-url" value={baseUrl} onChange={event => setBaseUrl(event.target.value)} placeholder="https://provider.example/v1" className="mt-2 border-white/10 bg-black/15 font-mono text-xs" disabled={disabled} /></div><div className="rounded-xl border border-white/8 bg-black/10 p-3"><div className="flex flex-wrap items-end justify-between gap-2"><div><label className="text-xs font-semibold text-[#dedfe7]" htmlFor="opus-qwen-max-output-tokens">Maximum output tokens</label><p className="mt-1 text-[10px] leading-5 text-[#858697]">Applies only to the Qwen pool, for both upstream forwarding and Qwen-selected credit reservation. Maximum permitted value: 32,768.</p></div><p className="font-mono text-[10px] text-[#858697]">Current saved limit: {(provider?.maxOutputTokens ?? 32_768).toLocaleString()}</p></div><Input id="opus-qwen-max-output-tokens" type="number" inputMode="numeric" min={1} max={32_768} step={1} value={maxOutputTokens} onChange={event => setMaxOutputTokens(Math.min(32_768, Math.max(1, Math.trunc(Number(event.target.value) || 1))))} className="mt-3 border-white/10 bg-black/15 font-mono text-xs" disabled={disabled} /></div><DynamicProviderKeyPool providerName="Claude Opus Qwen" values={apiKeys} masks={provider?.apiKeyMasks ?? []} disabled={disabled} onChange={(index, value) => setApiKeys(current => current.map((key, slot) => slot === index ? value : key))} onRemove={index => { const removed = provider?.apiKeyMasks[index]?.slot; if (removed) setRemovedSlots(current => current.includes(removed) ? current : [...current, removed]); setApiKeys(current => current.filter((_, slot) => slot !== index)); }} onAdd={() => setApiKeys(current => [...current, ""])} /><p className={(provider?.apiKeyMasks.length ?? 0) + apiKeys.filter(Boolean).length >= 2 ? "text-[10px] text-[#c9ff73]" : "text-[10px] text-amber-200"}>Two active server-side API keys are required for this Qwen provider.</p></div><div className="rounded-xl border border-white/8 bg-black/15 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[.13em] text-[#858697]">Rotating model IDs</p><p className="mt-1 text-[10px] leading-5 text-[#858697]">Usage refreshes every five seconds. Retired entries stay visible so you can add a replacement model ID.</p></div><Badge className="border-0 bg-white/6 text-[9px] text-[#d5d6df]">{models.filter(item => item.enabled && !item.retired).length}/{models.length} eligible</Badge></div><div className="mt-4 space-y-3">{models.map((item, index) => { const percent = Math.min(100, Math.round(item.totalTokens / Math.max(1, item.quotaTokens) * 100)); return <div key={item.id} className={`rounded-xl border p-3 ${item.retired ? "border-rose-300/20 bg-rose-300/[.045]" : "border-white/8 bg-black/10"}`}><div className="flex flex-wrap items-start justify-between gap-2"><p className="text-xs font-semibold text-[#e6e6ee]">Model {index + 1}</p><div className="flex items-center gap-2"><Badge className={`border text-[9px] ${item.retired ? "border-rose-300/20 bg-rose-300/10 text-rose-200" : item.enabled ? "border-[#c9ff73]/20 bg-[#c9ff73]/10 text-[#c9ff73]" : "border-white/10 bg-white/5 text-[#a9aab8]"}`}>{item.retired ? "Retired at quota" : item.enabled ? "Eligible" : "Disabled"}</Badge><Button type="button" size="icon" variant="outline" className="h-8 border-red-300/20 text-red-200 hover:bg-red-400/10 hover:text-red-100" disabled={disabled || models.length <= 1} onClick={() => removeModel(item.id)} aria-label={`Remove Qwen model ${index + 1}`}><Trash2 size={13} /></Button></div></div><div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_8rem]"><Input value={item.model} onChange={event => updateModel(item.id, current => ({ ...current, model: event.target.value }))} placeholder="Internal model ID" className="border-white/10 bg-black/15 font-mono text-xs" disabled={disabled} /><Input type="number" min={1000} step={1000} value={item.quotaTokens} onChange={event => updateModel(item.id, current => ({ ...current, quotaTokens: Math.max(1_000, Number(event.target.value) || 1_000_000) }))} aria-label={`Model ${index + 1} token quota`} className="border-white/10 bg-black/15 font-mono text-xs" disabled={disabled} /></div><div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/8"><div className={item.retired ? "h-full bg-gradient-to-r from-rose-700 to-rose-300" : "h-full bg-gradient-to-r from-[#4c7e22] to-[#c9ff73]"} style={{ width: `${Math.max(1, percent)}%` }} /></div><div className="mt-2 flex flex-wrap items-center justify-between gap-2 font-mono text-[9px] tabular-nums"><span className={item.retired ? "text-rose-200" : "text-[#d8e8bf]"}>{formatTokens(item.totalTokens)} / {formatTokens(item.quotaTokens)} tokens · {percent}%</span><span className="text-[#858697]">{item.requestCount.toLocaleString()} completed requests</span></div><div className="mt-2"><Toggle label={`Qwen model ${index + 1}`} enabled={item.enabled} pending={disabled || item.retired} onChange={enabled => updateModel(item.id, current => ({ ...current, enabled }))} /></div></div>; })}</div><Button type="button" size="sm" variant="outline" className="mt-4 border-[#c9ff73]/25 text-[#c9ff73] hover:bg-[#c9ff73]/10 hover:text-[#d8ff91]" onClick={() => setModels(current => [...current, { id: `qwen-model-${Date.now()}-${current.length + 1}`, model: "", enabled: true, quotaTokens: 1_000_000, totalTokens: 0, requestCount: 0, retired: false, retiredAt: null, lastUsedAt: null }])} disabled={disabled || models.length >= 50}><Plus size={14} /> Add model ID</Button></div></div><div className="mt-5 flex flex-wrap items-center gap-3"><Button onClick={savePool} disabled={disabled || !valid} className="bg-[#c9ff73] text-[#17210d] hover:bg-[#d8ff91]">{save.isPending ? <><Loader2 className="animate-spin" size={14} />Saving…</> : "Save Qwen model pool"}</Button>{!valid && !settings.isLoading ? <p className="text-[10px] text-amber-200">Add a base URL, two active API keys, and at least one valid model ID to save.</p> : null}</div></section>;
 }
 
@@ -462,70 +307,62 @@ function ClaudeFable5ProviderBalancerPanel({ metrics }: { metrics?: ManagedProvi
   const utils = trpc.useUtils();
   const settings = trpc.admin.claudeFable5ProviderSettings.useQuery();
   const [drafts, setDrafts] = useState<ClaudeOpus5ProviderDraft[]>([]);
-  const [priorityRoutingEnabled, setPriorityRoutingEnabled] = useState(false);
   const [initialized, setInitialized] = useState(false);
   useEffect(() => {
     if (!settings.data || initialized) return;
-    setDrafts(settings.data.providers.map((provider, index) => ({ id: provider.id, label: provider.label, enabled: provider.enabled, priority: provider.priority ?? index + 1, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] })));
-    setPriorityRoutingEnabled(Boolean(settings.data.priorityRoutingEnabled));
+    setDrafts(settings.data.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] })));
     setInitialized(true);
   }, [initialized, settings.data]);
   const save = trpc.admin.updateClaudeFable5ProviderSettings.useMutation({
     onSuccess: async () => { await Promise.all([utils.admin.claudeFable5ProviderSettings.invalidate(), utils.admin.overview.invalidate(), utils.admin.activity.invalidate()]); toast.success("Claude Fable 5 load balancer updated"); },
     onError: error => toast.error(error.message),
   });
-  return <ClaudeOpus5ProviderBalancerPanel providerName="Claude Fable 5" drafts={drafts} settings={settings.data as ClaudeOpus5SettingsData | undefined} metrics={metrics} loading={settings.isLoading} saving={save.isPending} priorityRoutingEnabled={priorityRoutingEnabled} onPriorityRoutingEnabledChange={setPriorityRoutingEnabled} onChange={(id, update) => setDrafts(current => current.map(draft => draft.id === id ? update(draft) : draft))} onAddProvider={id => setDrafts(current => [...current, { id, label: `Provider ${current.length + 1}`, enabled: true, priority: current.length + 1, baseUrl: "", model: "", apiKeys: [""], removedSlots: [] }])} onRemoveProvider={id => setDrafts(current => current.filter(draft => draft.id !== id))} onSave={() => save.mutate({ providers: drafts, priorityRoutingEnabled })} />;
+  return <ClaudeOpus5ProviderBalancerPanel providerName="Claude Fable 5" drafts={drafts} settings={settings.data as ClaudeOpus5SettingsData | undefined} metrics={metrics} loading={settings.isLoading} saving={save.isPending} onChange={(id, update) => setDrafts(current => current.map(draft => draft.id === id ? update(draft) : draft))} onAddProvider={id => setDrafts(current => [...current, { id, label: `Provider ${current.length + 1}`, enabled: true, baseUrl: "", model: "", apiKeys: [""], removedSlots: [] }])} onRemoveProvider={id => setDrafts(current => current.filter(draft => draft.id !== id))} onSave={() => save.mutate({ providers: drafts })} />;
 }
 
 function Sonnet46ProviderBalancerPanel({ metrics }: { metrics?: ManagedProviderKeyMetricGroup }) {
   const utils = trpc.useUtils();
   const settings = trpc.admin.sonnet46ProviderSettings.useQuery();
   const [drafts, setDrafts] = useState<ClaudeOpus5ProviderDraft[]>([]);
-  const [priorityRoutingEnabled, setPriorityRoutingEnabled] = useState(false);
   const [initialized, setInitialized] = useState(false);
   useEffect(() => {
     if (!settings.data || initialized) return;
-    setDrafts(settings.data.providers.map((provider, index) => ({ id: provider.id, label: provider.label, enabled: provider.enabled, priority: provider.priority ?? index + 1, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] })));
-    setPriorityRoutingEnabled(Boolean(settings.data.priorityRoutingEnabled));
+    setDrafts(settings.data.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] })));
     setInitialized(true);
   }, [initialized, settings.data]);
   const save = trpc.admin.updateSonnet46ProviderSettings.useMutation({
     onSuccess: async () => { await Promise.all([utils.admin.sonnet46ProviderSettings.invalidate(), utils.admin.overview.invalidate(), utils.admin.activity.invalidate()]); toast.success("Claude Sonnet 4.6 load balancer updated"); },
     onError: error => toast.error(error.message),
   });
-  return <><ClaudeOpus5ProviderBalancerPanel providerName="Claude Sonnet 4.6" drafts={drafts} settings={settings.data as ClaudeOpus5SettingsData | undefined} metrics={metrics} loading={settings.isLoading} saving={save.isPending} priorityRoutingEnabled={priorityRoutingEnabled} onPriorityRoutingEnabledChange={setPriorityRoutingEnabled} onChange={(id, update) => setDrafts(current => current.map(draft => draft.id === id ? update(draft) : draft))} onAddProvider={id => setDrafts(current => [...current, { id, label: `Provider ${current.length + 1}`, enabled: true, priority: current.length + 1, baseUrl: "", model: "", apiKeys: [""], removedSlots: [] }])} onRemoveProvider={id => setDrafts(current => current.filter(draft => draft.id !== id))} onSave={() => save.mutate({ providers: drafts, priorityRoutingEnabled })} /><ManagedModelFailureHistory model="claude-sonnet-4.6" title="Claude Sonnet 4.6" /></>;
+  return <><ClaudeOpus5ProviderBalancerPanel providerName="Claude Sonnet 4.6" drafts={drafts} settings={settings.data as ClaudeOpus5SettingsData | undefined} metrics={metrics} loading={settings.isLoading} saving={save.isPending} onChange={(id, update) => setDrafts(current => current.map(draft => draft.id === id ? update(draft) : draft))} onAddProvider={id => setDrafts(current => [...current, { id, label: `Provider ${current.length + 1}`, enabled: true, baseUrl: "", model: "", apiKeys: [""], removedSlots: [] }])} onRemoveProvider={id => setDrafts(current => current.filter(draft => draft.id !== id))} onSave={() => save.mutate({ providers: drafts })} /><ManagedModelFailureHistory model="claude-sonnet-4.6" title="Claude Sonnet 4.6" /></>;
 }
 
 export function Qwen38MaxProviderBalancerPanel({ metrics }: { metrics?: ManagedProviderKeyMetricGroup }) {
   const utils = trpc.useUtils();
   const settings = trpc.admin.qwen38MaxProviderSettings.useQuery();
   const [drafts, setDrafts] = useState<ClaudeOpus5ProviderDraft[]>([]);
-  const [priorityRoutingEnabled, setPriorityRoutingEnabled] = useState(false);
   const [initialized, setInitialized] = useState(false);
   useEffect(() => {
     if (!settings.data || initialized) return;
-    setDrafts(settings.data.providers.map((provider, index) => ({ id: provider.id, label: provider.label, enabled: provider.enabled, priority: provider.priority ?? index + 1, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] })));
-    setPriorityRoutingEnabled(Boolean(settings.data.priorityRoutingEnabled));
+    setDrafts(settings.data.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] })));
     setInitialized(true);
   }, [initialized, settings.data]);
   const save = trpc.admin.updateQwen38MaxProviderSettings.useMutation({
     onSuccess: async () => { await Promise.all([utils.admin.qwen38MaxProviderSettings.invalidate(), utils.admin.overview.invalidate(), utils.admin.activity.invalidate()]); toast.success("Qwen 3.8 Max load balancer updated"); },
     onError: error => toast.error(error.message),
   });
-  return <><ClaudeOpus5ProviderBalancerPanel providerName="Qwen 3.8 Max" drafts={drafts} settings={settings.data as ClaudeOpus5SettingsData | undefined} metrics={metrics} loading={settings.isLoading} saving={save.isPending} priorityRoutingEnabled={priorityRoutingEnabled} onPriorityRoutingEnabledChange={setPriorityRoutingEnabled} onChange={(id, update) => setDrafts(current => current.map(draft => draft.id === id ? update(draft) : draft))} onAddProvider={id => setDrafts(current => [...current, { id, label: `Provider ${current.length + 1}`, enabled: true, priority: current.length + 1, baseUrl: "", model: "", apiKeys: [""], removedSlots: [] }])} onRemoveProvider={id => setDrafts(current => current.filter(draft => draft.id !== id))} onSave={() => save.mutate({ providers: drafts, priorityRoutingEnabled })} /><ManagedModelFailureHistory model="qwen3.8-max" title="Qwen 3.8 Max" /></>;
+  return <><ClaudeOpus5ProviderBalancerPanel providerName="Qwen 3.8 Max" drafts={drafts} settings={settings.data as ClaudeOpus5SettingsData | undefined} metrics={metrics} loading={settings.isLoading} saving={save.isPending} onChange={(id, update) => setDrafts(current => current.map(draft => draft.id === id ? update(draft) : draft))} onAddProvider={id => setDrafts(current => [...current, { id, label: `Provider ${current.length + 1}`, enabled: true, baseUrl: "", model: "", apiKeys: [""], removedSlots: [] }])} onRemoveProvider={id => setDrafts(current => current.filter(draft => draft.id !== id))} onSave={() => save.mutate({ providers: drafts })} /><ManagedModelFailureHistory model="qwen3.8-max" title="Qwen 3.8 Max" /></>;
 }
 
 function DeepseekV4ProProviderBalancerPanel({ metrics }: { metrics?: ManagedProviderKeyMetricGroup }) {
   const utils = trpc.useUtils();
   const settings = trpc.admin.deepseekV4ProProviderSettings.useQuery();
   const [drafts, setDrafts] = useState<ClaudeOpus5ProviderDraft[]>([]);
-  const [priorityRoutingEnabled, setPriorityRoutingEnabled] = useState(false);
   const [initialized, setInitialized] = useState(false);
   useEffect(() => {
     if (!settings.data || initialized) return;
     const providerSettings = settings.data as DeepseekV4ProSettingsData;
     setDrafts(providerSettings.providers.map(provider => ({ ...provider, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] })));
-    setPriorityRoutingEnabled(Boolean(providerSettings.priorityRoutingEnabled));
     setInitialized(true);
   }, [initialized, settings.data]);
   const save = trpc.admin.updateDeepseekV4ProProviderSettings.useMutation({
@@ -539,12 +376,6 @@ function DeepseekV4ProProviderBalancerPanel({ metrics }: { metrics?: ManagedProv
   const configured = new Map(((settings.data as DeepseekV4ProSettingsData | undefined)?.providers ?? []).map(provider => [provider.id, provider]));
   const disabled = settings.isLoading || save.isPending;
   const update = (id: string, transform: (draft: ClaudeOpus5ProviderDraft) => ClaudeOpus5ProviderDraft) => setDrafts(current => current.map(draft => draft.id === id ? transform(draft) : draft));
-  useProviderPriorityControls({ providerName: "DeepSeek V4 Pro", drafts, priorityRoutingEnabled, disabled, onPriorityRoutingEnabledChange: setPriorityRoutingEnabled, onDraftChange: update, onRestoreEqualShare: () => {
-    const restored = drafts.map((draft, index) => ({ ...draft, priority: index + 1, priorityRoutingEnabled: index === 0 ? false : draft.priorityRoutingEnabled }));
-    setDrafts(restored);
-    setPriorityRoutingEnabled(false);
-    save.mutate({ providers: restored, priorityRoutingEnabled: false });
-  } });
   const valid = drafts.length > 0 && drafts.every(draft => Boolean(draft.label.trim() && draft.baseUrl.trim() && draft.model.trim() && (configured.get(draft.id)?.apiKeyMasks.length || draft.apiKeys.some(key => key.trim()))));
   const [activeProviderId, setActiveProviderId] = useState("");
   useEffect(() => {
@@ -996,7 +827,6 @@ export default function AdminDashboard() {
   const [fableRemovedSlots, setFableRemovedSlots] = useState<number[]>([]);
   const fableSettings = trpc.admin.claudeFable5ProviderSettings.useQuery(undefined, { enabled: isAdminSession });
   const [opusProviderDrafts, setOpusProviderDrafts] = useState<ClaudeOpus5ProviderDraft[]>([]);
-  const [opusPriorityRoutingEnabled, setOpusPriorityRoutingEnabled] = useState(false);
   const [opusProviderDraftsInitialized, setOpusProviderDraftsInitialized] = useState(false);
   const [removedOpusProviderIds, setRemovedOpusProviderIds] = useState<string[]>([]);
   const opusSettings = trpc.admin.claudeOpus5ProviderSettings.useQuery(undefined, { enabled: isAdminSession });
@@ -1090,16 +920,15 @@ export default function AdminDashboard() {
   useEffect(() => { if (fableSettings.data) { const legacy = fableSettings.data as any; setFableProviderDrafts(fableSettings.data.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] }))); setFableBaseUrl(legacy.baseUrl ?? fableSettings.data.providers[0]?.baseUrl ?? ""); setFableModel(legacy.model ?? fableSettings.data.providers[0]?.model ?? ""); setFableApiKeys((legacy.apiKeyMasks ?? fableSettings.data.providers[0]?.apiKeyMasks ?? []).length ? (legacy.apiKeyMasks ?? fableSettings.data.providers[0]?.apiKeyMasks ?? []).map(() => "") : [""]); setFableRemovedSlots([]); } }, [fableSettings.data]);
   useEffect(() => {
     if (!opusSettings.data) return;
-    const liveProviders = opusSettings.data.providers;
-    const fromLive = (provider: ClaudeOpus5ProviderSettingsData, index: number): ClaudeOpus5ProviderDraft => ({ id: provider.id, label: provider.label, enabled: provider.enabled, priority: provider.priority ?? index + 1, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] });
+    const liveProviders = opusSettings.data.providers.filter(provider => provider.label.trim().toLowerCase() !== "qwen");
+    const fromLive = (provider: ClaudeOpus5ProviderSettingsData): ClaudeOpus5ProviderDraft => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] });
     setOpusProviderDrafts(previous => {
       if (!opusProviderDraftsInitialized) return liveProviders.map(fromLive);
       const removedIds = new Set(removedOpusProviderIds);
-      const mergedSaved = liveProviders.filter(provider => !removedIds.has(provider.id)).map((provider, index) => previous.find(draft => draft.id === provider.id) ?? fromLive(provider, index));
+      const mergedSaved = liveProviders.filter(provider => !removedIds.has(provider.id)).map(provider => previous.find(draft => draft.id === provider.id) ?? fromLive(provider));
       const unsavedDrafts = previous.filter(draft => !removedIds.has(draft.id) && !liveProviders.some(provider => provider.id === draft.id));
       return [...mergedSaved, ...unsavedDrafts];
     });
-    setOpusPriorityRoutingEnabled(Boolean(opusSettings.data.priorityRoutingEnabled));
     setOpusProviderDraftsInitialized(true);
   }, [opusProviderDraftsInitialized, opusSettings.data, removedOpusProviderIds]);
   useEffect(() => { if (glm53Settings.data) { setGlm53BaseUrl(glm53Settings.data.baseUrl); setGlm53Model(glm53Settings.data.model); setGlm53ApiKeys(glm53Settings.data.apiKeyMasks.length ? glm53Settings.data.apiKeyMasks.map(() => "") : [""]); setGlm53RemovedSlots([]); } }, [glm53Settings.data]);

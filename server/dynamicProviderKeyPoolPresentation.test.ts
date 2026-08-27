@@ -95,8 +95,7 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("Two active server-side API keys are required");
     expect(source).toContain("never returned by Playground, OpenAI-compatible, or Anthropic-compatible responses");
     expect(source).toContain("return [...mergedSaved, ...unsavedDrafts]");
-    expect(source).toContain("const liveProviders = opusSettings.data.providers;");
-    expect(source).toContain("priorityRoutingEnabled");
+    expect(source).toContain('filter(provider => provider.label.trim().toLowerCase() !== "qwen")');
     expect(source).toContain('className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/8"');
     expect(source).toContain("Add model ID");
     expect(source).toContain("function ClaudeOpus5QwenFailureHistory");
@@ -204,21 +203,5 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain('trpc.admin.claudeOpus5ProviderSettings.useQuery(undefined, { refetchInterval: 5_000');
     expect(source).toContain("New b.ai attempts resume automatically");
     expect(source).toContain("<BaiProviderCircuitPanel />");
-  });
-
-  it("adds optional lower-number-first provider priority controls while retaining equal-share routing when disabled", () => {
-    expect(source).toContain("function useProviderPriorityControls");
-    expect(source).toContain("Provider routing mode");
-    expect(source).toContain("Priority routing on");
-    expect(source).toContain("Equal-share routing");
-    expect(source).toContain("Provider priority");
-    expect(source).toContain("priorityRoutingEnabled");
-    expect(source).toContain("Priority mode uses lower numbers first");
-    expect(source).toContain("Qwen provider priority");
-    expect(source).toContain("input.disabled = disabled || !priorityRoutingEnabled");
-    expect(source).toContain("Restore equal-share");
-    expect(source).toContain("restoreProviderEqualShareRouting.useMutation");
-    expect(source).toContain("Drag a provider or enter its number, then select Save load balancer below.");
-    expect(source).toContain("card.draggable = priorityRoutingEnabled && !disabled");
   });
 });
