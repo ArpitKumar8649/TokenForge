@@ -88,9 +88,9 @@ type ClaudeOpus5SettingsData = { providers: ClaudeOpus5ProviderSettingsData[]; p
 type ClaudeOpus5ProviderDraft = { id: string; label: string; enabled: boolean; priority?: number; priorityRoutingEnabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removedSlots: number[] };
 type DeepseekV4ProSettingsData = ClaudeOpus5SettingsData;
 
-function useProviderPriorityControls({ providerName, drafts, priorityRoutingEnabled, disabled, onPriorityRoutingEnabledChange, onDraftChange }: { providerName: string; drafts: ClaudeOpus5ProviderDraft[]; priorityRoutingEnabled: boolean; disabled: boolean; onPriorityRoutingEnabledChange: (enabled: boolean) => void; onDraftChange: (id: string, update: (draft: ClaudeOpus5ProviderDraft) => ClaudeOpus5ProviderDraft) => void }) {
+function useProviderPriorityControls({ providerName, drafts, priorityRoutingEnabled, disabled, onPriorityRoutingEnabledChange, onDraftChange, onRestoreEqualShare }: { providerName: string; drafts: ClaudeOpus5ProviderDraft[]; priorityRoutingEnabled: boolean; disabled: boolean; onPriorityRoutingEnabledChange: (enabled: boolean) => void; onDraftChange: (id: string, update: (draft: ClaudeOpus5ProviderDraft) => ClaudeOpus5ProviderDraft) => void; onRestoreEqualShare: () => void }) {
   useEffect(() => {
-    const heading = Array.from(document.querySelectorAll("section.dashboard-card p")).find(node => node.textContent === `${providerName} multi-provider load balancer`);
+    const heading = Array.from(document.querySelectorAll("section.dashboard-card h2, section.dashboard-card p")).find(node => node.textContent === `${providerName} multi-provider load balancer`);
     const section = heading?.closest("section");
     const forms = section?.querySelector<HTMLDivElement>(".mt-5.space-y-4");
     if (!section || !forms) return;
@@ -107,9 +107,18 @@ function useProviderPriorityControls({ providerName, drafts, priorityRoutingEnab
     toggle.textContent = priorityRoutingEnabled ? "Priority routing on" : "Equal-share routing";
     const toggleMode = () => onPriorityRoutingEnabledChange(!priorityRoutingEnabled);
     toggle.addEventListener("click", toggleMode);
-    modeControl.append(copy, toggle);
+    const restore = document.createElement("button");
+    restore.type = "button";
+    restore.disabled = disabled || !priorityRoutingEnabled;
+    restore.className = "rounded-lg border border-white/12 bg-white/5 px-3 py-2 text-[10px] font-bold text-[#d5d6df] hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50";
+    restore.textContent = "Restore equal-share";
+    const restoreMode = () => onRestoreEqualShare();
+    restore.addEventListener("click", restoreMode);
+    modeControl.append(copy, toggle, restore);
     forms.before(modeControl);
-    const controls = Array.from(forms.children).map((card, index) => {
+    let draggingProviderId: string | null = null;
+    const controls = Array.from(forms.children).map((cardElement, index) => {
+      const card = cardElement as HTMLElement;
       const draft = drafts[index];
       if (!draft) return null;
       const priorityControl = document.createElement("label");
@@ -129,14 +138,43 @@ function useProviderPriorityControls({ providerName, drafts, priorityRoutingEnab
       input.setAttribute("aria-label", `${draft.label || `Provider ${index + 1}`} priority`);
       const changePriority = () => onDraftChange(draft.id, current => ({ ...current, priority: Math.min(99, Math.max(1, Math.trunc(Number(input.value) || 1))) }));
       input.addEventListener("change", changePriority);
+      card.draggable = priorityRoutingEnabled && !disabled;
+      card.classList.toggle("cursor-grab", priorityRoutingEnabled && !disabled);
+      const dragStart = (event: Event) => {
+        const dragEvent = event as DragEvent;
+        draggingProviderId = draft.id;
+        dragEvent.dataTransfer?.setData("text/plain", draft.id);
+        if (dragEvent.dataTransfer) dragEvent.dataTransfer.effectAllowed = "move";
+        card.classList.add("opacity-60");
+      };
+      const dragOver = (event: Event) => { const dragEvent = event as DragEvent; if (draggingProviderId && draggingProviderId !== draft.id) { dragEvent.preventDefault(); if (dragEvent.dataTransfer) dragEvent.dataTransfer.dropEffect = "move"; } };
+      const drop = (event: Event) => {
+        const dragEvent = event as DragEvent;
+        dragEvent.preventDefault();
+        const sourceId = draggingProviderId ?? dragEvent.dataTransfer?.getData("text/plain");
+        const sourceIndex = drafts.findIndex(item => item.id === sourceId);
+        const targetIndex = drafts.findIndex(item => item.id === draft.id);
+        if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return;
+        const reordered = [...drafts];
+        const [moved] = reordered.splice(sourceIndex, 1);
+        if (!moved) return;
+        reordered.splice(targetIndex, 0, moved);
+        reordered.forEach((item, priority) => onDraftChange(item.id, current => ({ ...current, priority: priority + 1 })));
+      };
+      const dragEnd = () => { draggingProviderId = null; card.classList.remove("opacity-60"); };
+      card.addEventListener("dragstart", dragStart);
+      card.addEventListener("dragover", dragOver);
+      card.addEventListener("drop", drop);
+      card.addEventListener("dragend", dragEnd);
       priorityControl.append(label, input);
       card.prepend(priorityControl);
-      return { priorityControl, input, changePriority };
+      return { priorityControl, input, changePriority, card, dragStart, dragOver, drop, dragEnd };
     });
     return () => {
       toggle.removeEventListener("click", toggleMode);
+      restore.removeEventListener("click", restoreMode);
       modeControl.remove();
-      controls.forEach(control => { if (control) { control.input.removeEventListener("change", control.changePriority); control.priorityControl.remove(); } });
+      controls.forEach(control => { if (control) { control.input.removeEventListener("change", control.changePriority); control.card.removeEventListener("dragstart", control.dragStart); control.card.removeEventListener("dragover", control.dragOver); control.card.removeEventListener("drop", control.drop); control.card.removeEventListener("dragend", control.dragEnd); control.priorityControl.remove(); } });
     };
   }, [disabled, drafts, onDraftChange, onPriorityRoutingEnabledChange, priorityRoutingEnabled, providerName]);
 }
@@ -185,14 +223,29 @@ function ClaudeOpus5FailureHistoryLegacy({ logs, loading }: { logs?: ClaudeOpus5
 
 function ClaudeOpus5ProviderBalancerPanel({ providerName = "Claude Opus 5", drafts, settings, metrics, loading, saving, priorityRoutingEnabled, onPriorityRoutingEnabledChange, onChange, onAddProvider, onRemoveProvider, onSave }: { providerName?: string; drafts: ClaudeOpus5ProviderDraft[]; settings?: ClaudeOpus5SettingsData; metrics?: ManagedProviderKeyMetricGroup; loading: boolean; saving: boolean; priorityRoutingEnabled?: boolean; onPriorityRoutingEnabledChange?: (enabled: boolean) => void; onChange: (id: string, update: (draft: ClaudeOpus5ProviderDraft) => ClaudeOpus5ProviderDraft) => void; onAddProvider: (id: string) => void; onRemoveProvider: (id: string) => void; onSave: () => void }) {
   const configured = new Map((settings?.providers ?? []).map(provider => [provider.id, provider]));
+  const utils = trpc.useUtils();
+  const priorityModelId = providerName === "Claude Fable 5" ? "claude-fable-5" : providerName === "Claude Sonnet 4.6" ? "claude-sonnet-4.6" : providerName === "DeepSeek V4 Pro" ? "deepseek-v4-pro" : providerName === "Qwen 3.8 Max" ? "qwen3.8-max" : "claude-opus-5" as const;
+  const restoreEqualShareMutation = trpc.admin.restoreProviderEqualShareRouting.useMutation({
+    onSuccess: async () => {
+      onPriorityRoutingEnabledChange?.(false);
+      await Promise.all([utils.admin.claudeOpus5ProviderSettings.invalidate(), utils.admin.claudeFable5ProviderSettings.invalidate(), utils.admin.deepseekV4ProProviderSettings.invalidate(), utils.admin.sonnet46ProviderSettings.invalidate(), utils.admin.qwen38MaxProviderSettings.invalidate()]);
+      toast.success("Equal-share routing restored");
+    },
+    onError: error => toast.error(error.message),
+  });
   const disabled = loading || saving;
-  const effectivePriorityRoutingEnabled = priorityRoutingEnabled ?? settings?.priorityRoutingEnabled ?? drafts[0]?.priorityRoutingEnabled ?? false;
+  const effectivePriorityRoutingEnabled = priorityRoutingEnabled ?? drafts[0]?.priorityRoutingEnabled ?? settings?.priorityRoutingEnabled ?? false;
   const setPriorityRoutingEnabled = (enabled: boolean) => {
     onPriorityRoutingEnabledChange?.(enabled);
     const firstDraft = drafts[0];
     if (firstDraft) onChange(firstDraft.id, current => ({ ...current, priorityRoutingEnabled: enabled }));
   };
-  useProviderPriorityControls({ providerName, drafts, priorityRoutingEnabled: effectivePriorityRoutingEnabled, disabled, onPriorityRoutingEnabledChange: setPriorityRoutingEnabled, onDraftChange: onChange });
+  const restoreEqualShare = () => {
+    setPriorityRoutingEnabled(false);
+    drafts.forEach((draft, index) => onChange(draft.id, current => ({ ...current, priority: index + 1, priorityRoutingEnabled: index === 0 ? false : current.priorityRoutingEnabled })));
+    restoreEqualShareMutation.mutate({ modelId: priorityModelId });
+  };
+  useProviderPriorityControls({ providerName, drafts, priorityRoutingEnabled: effectivePriorityRoutingEnabled, disabled, onPriorityRoutingEnabledChange: setPriorityRoutingEnabled, onDraftChange: onChange, onRestoreEqualShare: restoreEqualShare });
   const [activeProviderId, setActiveProviderId] = useState("");
   useEffect(() => {
     if (!drafts.length) return;
@@ -200,6 +253,7 @@ function ClaudeOpus5ProviderBalancerPanel({ providerName = "Claude Opus 5", draf
   }, [activeProviderId, drafts]);
   const canSave = drafts.length > 0 && drafts.every(draft => Boolean(draft.label.trim() && draft.baseUrl.trim() && draft.model.trim() && (configured.get(draft.id)?.apiKeyMasks.length || draft.apiKeys.some(key => key.trim()))));
   useEffect(() => {
+    if (effectivePriorityRoutingEnabled) return;
     const heading = Array.from(document.querySelectorAll("section.dashboard-card p")).find(node => node.textContent === `${providerName} multi-provider load balancer`);
     const section = heading?.closest("section");
     const forms = section?.querySelector(".mt-5.space-y-4");
@@ -243,7 +297,7 @@ function ClaudeOpus5ProviderBalancerPanel({ providerName = "Claude Opus 5", draf
     forms.before(tabList);
     activate(selectedId);
     return () => { tabList.remove(); cards.forEach(card => { card.hidden = false; card.removeAttribute("role"); card.removeAttribute("aria-label"); }); };
-  }, [activeProviderId, drafts, providerName]);
+  }, [activeProviderId, drafts, effectivePriorityRoutingEnabled, providerName]);
   const addProvider = () => {
     const id = `provider-${Date.now()}-${drafts.length + 1}`;
     setActiveProviderId(id);
@@ -485,7 +539,12 @@ function DeepseekV4ProProviderBalancerPanel({ metrics }: { metrics?: ManagedProv
   const configured = new Map(((settings.data as DeepseekV4ProSettingsData | undefined)?.providers ?? []).map(provider => [provider.id, provider]));
   const disabled = settings.isLoading || save.isPending;
   const update = (id: string, transform: (draft: ClaudeOpus5ProviderDraft) => ClaudeOpus5ProviderDraft) => setDrafts(current => current.map(draft => draft.id === id ? transform(draft) : draft));
-  useProviderPriorityControls({ providerName: "DeepSeek V4 Pro", drafts, priorityRoutingEnabled, disabled, onPriorityRoutingEnabledChange: setPriorityRoutingEnabled, onDraftChange: update });
+  useProviderPriorityControls({ providerName: "DeepSeek V4 Pro", drafts, priorityRoutingEnabled, disabled, onPriorityRoutingEnabledChange: setPriorityRoutingEnabled, onDraftChange: update, onRestoreEqualShare: () => {
+    const restored = drafts.map((draft, index) => ({ ...draft, priority: index + 1, priorityRoutingEnabled: index === 0 ? false : draft.priorityRoutingEnabled }));
+    setDrafts(restored);
+    setPriorityRoutingEnabled(false);
+    save.mutate({ providers: restored, priorityRoutingEnabled: false });
+  } });
   const valid = drafts.length > 0 && drafts.every(draft => Boolean(draft.label.trim() && draft.baseUrl.trim() && draft.model.trim() && (configured.get(draft.id)?.apiKeyMasks.length || draft.apiKeys.some(key => key.trim()))));
   const [activeProviderId, setActiveProviderId] = useState("");
   useEffect(() => {
@@ -1031,7 +1090,7 @@ export default function AdminDashboard() {
   useEffect(() => { if (fableSettings.data) { const legacy = fableSettings.data as any; setFableProviderDrafts(fableSettings.data.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] }))); setFableBaseUrl(legacy.baseUrl ?? fableSettings.data.providers[0]?.baseUrl ?? ""); setFableModel(legacy.model ?? fableSettings.data.providers[0]?.model ?? ""); setFableApiKeys((legacy.apiKeyMasks ?? fableSettings.data.providers[0]?.apiKeyMasks ?? []).length ? (legacy.apiKeyMasks ?? fableSettings.data.providers[0]?.apiKeyMasks ?? []).map(() => "") : [""]); setFableRemovedSlots([]); } }, [fableSettings.data]);
   useEffect(() => {
     if (!opusSettings.data) return;
-    const liveProviders = opusSettings.data.providers.filter(provider => provider.label.trim().toLowerCase() !== "qwen");
+    const liveProviders = opusSettings.data.providers;
     const fromLive = (provider: ClaudeOpus5ProviderSettingsData, index: number): ClaudeOpus5ProviderDraft => ({ id: provider.id, label: provider.label, enabled: provider.enabled, priority: provider.priority ?? index + 1, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] });
     setOpusProviderDrafts(previous => {
       if (!opusProviderDraftsInitialized) return liveProviders.map(fromLive);

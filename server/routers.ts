@@ -75,6 +75,7 @@ import {
   updateDeepseekV4ProProviderSettings,
   getQwen38MaxProviderSettings,
   updateQwen38MaxProviderSettings,
+  restoreManagedProviderEqualShareRouting,
   getBailuWebshareProxyPoolSettings,
   updateBailuWebshareProxyPoolSettings,
   listAdminPreProvisionedAccounts,
@@ -600,6 +601,11 @@ export const appRouter = router({
       const settings = await updateQwen38MaxProviderSettings(input, ctx.user.id);
       await writeAuditEvent({ actorUserId: ctx.user.id, action: "qwen38_max_provider_settings_updated", entityType: "provider", entityId: "qwen3.8-max", metadata: { providerCount: input.providers.length } });
       return settings;
+    }),
+    restoreProviderEqualShareRouting: adminProcedure.input(z.object({ modelId: z.enum(["claude-opus-5", "claude-fable-5", "deepseek-v4-pro", "claude-sonnet-4.6", "qwen3.8-max"]) })).mutation(async ({ ctx, input }) => {
+      const result = await restoreManagedProviderEqualShareRouting(input.modelId, ctx.user.id);
+      await writeAuditEvent({ actorUserId: ctx.user.id, action: "provider.equal_share_restored", entityType: "provider", entityId: input.modelId, metadata: { priorityRoutingEnabled: false } });
+      return result;
     }),
     qwen38MaxFailureLogs: adminProcedure.query(async () => (await getRecentQwen38MaxFailureLogs(200)).map(entry => ({ ...entry, publicMessage: PUBLIC_PROVIDER_ERROR_MESSAGE }))),
     updateClaudeOpus5ProviderSettings: adminProcedure.input(claudeOpus5ProviderSettingsInput).mutation(async ({ ctx, input }) => {

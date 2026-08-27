@@ -2710,6 +2710,26 @@ export async function updateSonnet46ProviderSettings(input: { providers: Sonnet4
   return getSonnet46ProviderSettings();
 }
 
+export type PriorityRoutingManagedModel = "claude-opus-5" | "claude-fable-5" | "deepseek-v4-pro" | "claude-sonnet-4.6" | "qwen3.8-max";
+
+/** Disables priority routing without changing encrypted provider URLs, models, keys, or current provider priorities. */
+export async function restoreManagedProviderEqualShareRouting(modelId: PriorityRoutingManagedModel, updatedByUserId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  const targets: Record<PriorityRoutingManagedModel, { settingKey: string; runtime: () => Promise<{ providers: ClaudeOpus5ProviderRuntime[]; priorityRoutingEnabled: boolean }> }> = {
+    "claude-fable-5": { settingKey: CLAUDE_FABLE5_NVIDIA_RUNTIME_SETTING_KEY, runtime: getClaudeFable5NvidiaRuntimeConfig },
+    "claude-opus-5": { settingKey: CLAUDE_OPUS5_TOKENREPLY_RUNTIME_SETTING_KEY, runtime: getClaudeOpus5RuntimeConfig },
+    "deepseek-v4-pro": { settingKey: DEEPSEEK_V4PRO_RUNTIME_SETTING_KEY, runtime: getDeepseekV4ProRuntimeConfig },
+    "claude-sonnet-4.6": { settingKey: SONNET46_RUNTIME_SETTING_KEY, runtime: getSonnet46RuntimeConfig },
+    "qwen3.8-max": { settingKey: QWEN38_MAX_RUNTIME_SETTING_KEY, runtime: getQwen38MaxRuntimeConfig },
+  };
+  const target = targets[modelId];
+  const current = await target.runtime();
+  const encrypted = encryptProviderRuntimeConfig({ ...current, priorityRoutingEnabled: false });
+  await db.insert(platformSettings).values({ settingKey: target.settingKey, value: JSON.stringify(encrypted), updatedByUserId }).onDuplicateKeyUpdate({ set: { value: JSON.stringify(encrypted), updatedByUserId, updatedAt: new Date() } });
+  return { modelId, priorityRoutingEnabled: false } as const;
+}
+
 export const MANAGED_PROVIDER_METRIC_MODEL_IDS = ["claude-fable-5", "claude-opus-5", "glm-5.3", "claude-sonnet-4.6", "deepseek-v4-pro", "qwen3.8-max"] as const;
 export type ManagedProviderMetricModel = typeof MANAGED_PROVIDER_METRIC_MODEL_IDS[number];
 
