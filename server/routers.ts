@@ -155,11 +155,12 @@ const claudeFable5ProviderGroupInput = z.object({
     baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512),
     model: z.string().trim().min(1, "Enter a model ID").max(256),
     apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys"),
+    apiKeyEnabled: z.array(z.boolean()).max(50, "A provider pool can contain at most 50 API key states").optional(),
     removeSlots: z.array(z.number().int().positive()).max(50).optional(),
   });
 const claudeFable5ProviderSettingsInput = z.union([
   z.object({ providers: z.array(claudeFable5ProviderGroupInput).min(1, "Keep at least one Claude Fable 5 provider").max(12, "At most 12 Claude Fable 5 providers may be configured") }),
-  z.object({ baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(), model: z.string().trim().min(1, "Enter a model ID").max(256).optional(), apiKeys: z.array(z.string().trim().max(512)).max(50).optional(), removeSlots: z.array(z.number().int().positive()).max(50).optional() }).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined || input.removeSlots !== undefined, "Provide at least one setting to update"),
+  z.object({ baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(), model: z.string().trim().min(1, "Enter a model ID").max(256).optional(), apiKeys: z.array(z.string().trim().max(512)).max(50).optional(), apiKeyEnabled: z.array(z.boolean()).max(50).optional(), removeSlots: z.array(z.number().int().positive()).max(50).optional() }).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined || input.apiKeyEnabled !== undefined || input.removeSlots !== undefined, "Provide at least one setting to update"),
 ]);
 const claudeOpus5ProviderSettingsInput = z.object({
   providers: z.array(z.object({
@@ -169,6 +170,7 @@ const claudeOpus5ProviderSettingsInput = z.object({
     baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512),
     model: z.string().trim().min(1, "Enter a model ID").max(256),
     apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys"),
+    apiKeyEnabled: z.array(z.boolean()).max(50, "A provider pool can contain at most 50 API key states").optional(),
     removeSlots: z.array(z.number().int().positive()).max(50).optional(),
     maxOutputTokens: z.number().int().min(1, "Choose at least one output token").max(32_768, "Qwen output cannot exceed 32,768 tokens").optional(),
     modelPool: z.array(z.object({
@@ -208,8 +210,9 @@ const glm53ProviderSettingsInput = z.object({
   baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(),
   model: z.string().trim().min(1, "Enter a model ID").max(256).optional(),
   apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys").optional(),
+  apiKeyEnabled: z.array(z.boolean()).max(50, "A provider pool can contain at most 50 API key states").optional(),
   removeSlots: z.array(z.number().int().positive()).max(50).optional(),
-}).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined || input.removeSlots !== undefined, "Provide at least one setting to update");
+}).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined || input.apiKeyEnabled !== undefined || input.removeSlots !== undefined, "Provide at least one setting to update");
 const deepseekV4ProProviderGroupInput = z.object({
   id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, "Use letters, numbers, hyphens, or underscores for the provider identifier"),
   label: z.string().trim().min(1, "Enter a provider label").max(80),
@@ -217,6 +220,7 @@ const deepseekV4ProProviderGroupInput = z.object({
   baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512),
   model: z.string().trim().min(1, "Enter a model ID").max(256),
   apiKeys: z.array(z.string().trim().max(512)).min(1).max(50, "A provider pool can contain at most 50 API keys"),
+  apiKeyEnabled: z.array(z.boolean()).max(50, "A provider pool can contain at most 50 API key states").optional(),
   removeSlots: z.array(z.number().int().positive()).max(50).optional(),
 });
 const deepseekV4ProProviderSettingsInput = z.union([
@@ -227,8 +231,9 @@ const deepseekV4ProProviderSettingsInput = z.union([
     baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(),
     model: z.string().trim().min(1, "Enter a model ID").max(256).optional(),
     apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys").optional(),
+    apiKeyEnabled: z.array(z.boolean()).max(50, "A provider pool can contain at most 50 API key states").optional(),
     removeSlots: z.array(z.number().int().positive()).max(50).optional(),
-  }).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined || input.removeSlots !== undefined, "Provide at least one setting to update"),
+  }).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined || input.apiKeyEnabled !== undefined || input.removeSlots !== undefined, "Provide at least one setting to update"),
 ]);
 const sonnet46ProviderSettingsInput = z.object({
   providers: z.array(z.object({
@@ -238,6 +243,7 @@ const sonnet46ProviderSettingsInput = z.object({
     baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512),
     model: z.string().trim().min(1, "Enter a model ID").max(256),
     apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys"),
+    apiKeyEnabled: z.array(z.boolean()).max(50, "A provider pool can contain at most 50 API key states").optional(),
     removeSlots: z.array(z.number().int().positive()).max(50).optional(),
   })).min(1, "Keep at least one Claude Sonnet 4.6 provider").max(12, "Claude Sonnet 4.6 supports at most 12 provider groups"),
 });

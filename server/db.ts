@@ -1288,6 +1288,47 @@ function maskProviderApiKey(value: string) {
   return `${normalized.slice(0, Math.min(3, normalized.length))}••••${normalized.slice(-4)}`;
 }
 
+/** A missing flag intentionally means enabled so existing encrypted pools remain routable after this release. */
+export function isManagedProviderCredentialEnabled(provider: { apiKeyEnabled?: readonly boolean[] }, slot: number) {
+  return provider.apiKeyEnabled?.[slot] !== false;
+}
+
+function providerApiKeyMasks(apiKeys: string[], apiKeyEnabled?: readonly boolean[]) {
+  return apiKeys.map((key, index) => ({
+    slot: index + 1,
+    value: maskProviderApiKey(key),
+    configured: Boolean(key),
+    enabled: apiKeyEnabled?.[index] !== false,
+  }));
+}
+
+type ManagedProviderKeyUpdate = {
+  apiKeys: string[];
+  apiKeyEnabled?: boolean[];
+  removeSlots?: number[];
+};
+
+/** Retains secret values on partial saves while preserving each key's explicit routing state. */
+function applyManagedProviderKeyUpdate(
+  existing: { apiKeys: string[]; apiKeyEnabled?: boolean[] } | undefined,
+  submitted: ManagedProviderKeyUpdate,
+) {
+  const removedSlots = new Set(submitted.removeSlots ?? []);
+  const retained = (existing?.apiKeys ?? []).flatMap((key, index) => removedSlots.has(index + 1)
+    ? []
+    : [{ key, enabled: isManagedProviderCredentialEnabled(existing ?? {}, index) }]);
+  const patched = retained.map((entry, index) => ({
+    key: submitted.apiKeys[index]?.trim() || entry.key,
+    enabled: submitted.apiKeyEnabled?.[index] ?? entry.enabled,
+  }));
+  const appended = submitted.apiKeys.slice(retained.length).flatMap((value, index) => {
+    const key = value.trim();
+    return key ? [{ key, enabled: submitted.apiKeyEnabled?.[retained.length + index] !== false }] : [];
+  });
+  const keys = [...patched, ...appended].slice(0, MAX_MANAGED_PROVIDER_API_KEYS);
+  return { apiKeys: keys.map(entry => entry.key), apiKeyEnabled: keys.map(entry => entry.enabled) };
+}
+
 async function readClaudeFable5RuntimeOverride() {
   const db = await getDb();
   if (!db) return null;
@@ -1330,14 +1371,14 @@ export async function getClaudeFable5NvidiaProviderSettings() {
   return {
     baseUrl: primary?.baseUrl ?? "",
     model: primary?.model ?? "",
-    apiKeyMasks: (primary?.apiKeys ?? []).map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+    apiKeyMasks: providerApiKeyMasks(primary?.apiKeys ?? [], primary?.apiKeyEnabled),
     providers: runtime.providers.map(provider => ({
       id: provider.id,
       label: provider.label,
       enabled: provider.enabled,
       baseUrl: provider.baseUrl,
       model: provider.model,
-      apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+      apiKeyMasks: providerApiKeyMasks(provider.apiKeys, provider.apiKeyEnabled),
     })),
     source: override ? "database" as const : "environment" as const,
     updatedAt: override?.updatedAt ?? null,
@@ -1345,20 +1386,17 @@ export async function getClaudeFable5NvidiaProviderSettings() {
   };
 }
 
-export async function updateClaudeFable5NvidiaProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] }> } | { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] }, updatedByUserId: number) {
+export async function updateClaudeFable5NvidiaProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; apiKeyEnabled?: boolean[]; removeSlots?: number[] }> } | { baseUrl?: string; model?: string; apiKeys?: string[]; apiKeyEnabled?: boolean[]; removeSlots?: number[] }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getClaudeFable5NvidiaRuntimeConfig();
   const currentById = new Map(current.providers.map(provider => [provider.id, provider]));
   const legacyPrimary = current.providers[0] ?? { id: "primary", label: "Primary provider", enabled: true, baseUrl: "", model: "", apiKeys: [] };
-  const submittedProviders = "providers" in input ? input.providers : [{ id: legacyPrimary.id, label: legacyPrimary.label, enabled: legacyPrimary.enabled, baseUrl: input.baseUrl ?? legacyPrimary.baseUrl, model: input.model ?? legacyPrimary.model, apiKeys: input.apiKeys ?? [], removeSlots: input.removeSlots }];
+  const submittedProviders = "providers" in input ? input.providers : [{ id: legacyPrimary.id, label: legacyPrimary.label, enabled: legacyPrimary.enabled, baseUrl: input.baseUrl ?? legacyPrimary.baseUrl, model: input.model ?? legacyPrimary.model, apiKeys: input.apiKeys ?? [], apiKeyEnabled: input.apiKeyEnabled, removeSlots: input.removeSlots }];
   const nextProviders = submittedProviders.map((submitted, index) => {
     const existing = currentById.get(submitted.id);
-    const removedSlots = new Set(submitted.removeSlots ?? []);
-    const retainedKeys = (existing?.apiKeys ?? []).filter((_, keyIndex) => !removedSlots.has(keyIndex + 1));
-    const patchedExistingKeys = retainedKeys.map((key, keyIndex) => submitted.apiKeys[keyIndex]?.trim() || key);
-    const appendedKeys = submitted.apiKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
-    return { id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`), label: submitted.label.trim() || `Provider ${index + 1}`, enabled: submitted.enabled !== false, baseUrl: submitted.baseUrl.trim(), model: submitted.model.trim(), apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS) };
+    const keys = applyManagedProviderKeyUpdate(existing, submitted);
+    return { id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`), label: submitted.label.trim() || `Provider ${index + 1}`, enabled: submitted.enabled !== false, baseUrl: submitted.baseUrl.trim(), model: submitted.model.trim(), ...keys };
   });
   const ids = new Set(nextProviders.map(provider => provider.id));
   if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length)) throw new Error("Each Claude Fable 5 provider needs a unique identifier, base URL, model ID, and at least one API key");
@@ -1416,25 +1454,22 @@ export async function getQwen38MaxProviderSettings() {
   const runtime = await getQwen38MaxRuntimeConfig();
   const override = await readQwen38MaxRuntimeOverride();
   return {
-    providers: runtime.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })) })),
+    providers: runtime.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeyMasks: providerApiKeyMasks(provider.apiKeys, provider.apiKeyEnabled) })),
     source: override ? "database" as const : "environment" as const,
     updatedAt: override?.updatedAt ?? null,
     updatedByUserId: override?.updatedByUserId ?? null,
   };
 }
 
-export async function updateQwen38MaxProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] }> }, updatedByUserId: number) {
+export async function updateQwen38MaxProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; apiKeyEnabled?: boolean[]; removeSlots?: number[] }> }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getQwen38MaxRuntimeConfig();
   const currentById = new Map(current.providers.map(provider => [provider.id, provider]));
   const nextProviders = input.providers.map((submitted, index) => {
     const existing = currentById.get(submitted.id);
-    const removedSlots = new Set(submitted.removeSlots ?? []);
-    const retainedKeys = (existing?.apiKeys ?? []).filter((_, keyIndex) => !removedSlots.has(keyIndex + 1));
-    const patchedExistingKeys = retainedKeys.map((key, keyIndex) => submitted.apiKeys[keyIndex]?.trim() || key);
-    const appendedKeys = submitted.apiKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
-    return { id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`), label: submitted.label.trim() || `Provider ${index + 1}`, enabled: submitted.enabled !== false, baseUrl: submitted.baseUrl.trim(), model: submitted.model.trim(), apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS) };
+    const keys = applyManagedProviderKeyUpdate(existing, submitted);
+    return { id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`), label: submitted.label.trim() || `Provider ${index + 1}`, enabled: submitted.enabled !== false, baseUrl: submitted.baseUrl.trim(), model: submitted.model.trim(), ...keys };
   });
   const ids = new Set(nextProviders.map(provider => provider.id));
   if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length)) throw new Error("Each Qwen 3.8 Max provider needs a unique identifier, base URL, model ID, and at least one API key");
@@ -1455,6 +1490,8 @@ export type ClaudeOpus5ProviderRuntime = {
   baseUrl: string;
   model: string;
   apiKeys: string[];
+  /** Per-key routing switches; omitted legacy entries are treated as enabled. */
+  apiKeyEnabled?: boolean[];
   modelPool?: ClaudeOpus5QwenModelRuntime[];
   /** Qwen-only output ceiling, persisted inside the encrypted Claude Opus runtime configuration. */
   maxOutputTokens?: number;
@@ -2034,6 +2071,7 @@ function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5Prov
     const apiKeys = Array.isArray(raw.apiKeys)
       ? raw.apiKeys.map(key => typeof key === "string" ? key.trim() : "").filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS)
       : [];
+    const apiKeyEnabled = apiKeys.map((_, keyIndex) => Array.isArray(raw.apiKeyEnabled) ? raw.apiKeyEnabled[keyIndex] !== false : true);
     const baseUrl = typeof raw.baseUrl === "string" ? raw.baseUrl.trim() : "";
     const label = typeof raw.label === "string" && raw.label.trim() ? raw.label.trim().slice(0, 80) : `Provider ${index + 1}`;
     const isQwenProvider = isClaudeOpus5QwenProvider(label);
@@ -2048,6 +2086,7 @@ function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5Prov
       baseUrl,
       model,
       apiKeys,
+      apiKeyEnabled,
       ...(modelPool.length ? { modelPool } : {}),
       ...(isQwenProvider ? { maxOutputTokens } : {}),
     }];
@@ -2224,7 +2263,7 @@ export async function getClaudeOpus5ProviderSettings() {
         enabled: provider.enabled,
         baseUrl: provider.baseUrl,
         model: provider.model,
-        apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+        apiKeyMasks: providerApiKeyMasks(provider.apiKeys, provider.apiKeyEnabled),
         ...(isClaudeOpus5QwenProvider(provider.label) ? {
           maxOutputTokens: provider.maxOutputTokens ?? CLAUDE_OPUS5_QWEN_MAX_OUTPUT_TOKENS,
           modelPool: (provider.modelPool ?? []).map(entry => {
@@ -2264,17 +2303,14 @@ export async function getClaudeOpus5ProviderSettings() {
   };
 }
 
-export async function updateClaudeOpus5ProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[]; modelPool?: Array<{ id: string; model: string; enabled?: boolean; quotaTokens?: number }>; maxOutputTokens?: number }> }, updatedByUserId: number) {
+export async function updateClaudeOpus5ProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; apiKeyEnabled?: boolean[]; removeSlots?: number[]; modelPool?: Array<{ id: string; model: string; enabled?: boolean; quotaTokens?: number }>; maxOutputTokens?: number }> }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getClaudeOpus5RuntimeConfig();
   const currentById = new Map(current.providers.map(provider => [provider.id, provider]));
-  const nextProviders = input.providers.map((submitted, index) => {
+  const nextProviders: ClaudeOpus5ProviderRuntime[] = input.providers.map((submitted, index) => {
     const existing = currentById.get(submitted.id);
-    const removedSlots = new Set(submitted.removeSlots ?? []);
-    const retainedKeys = (existing?.apiKeys ?? []).filter((_, keyIndex) => !removedSlots.has(keyIndex + 1));
-    const patchedExistingKeys = retainedKeys.map((key, keyIndex) => submitted.apiKeys[keyIndex]?.trim() || key);
-    const appendedKeys = submitted.apiKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
+    const keys = applyManagedProviderKeyUpdate(existing, submitted);
     const id = normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`);
     const label = submitted.label.trim() || `Provider ${index + 1}`;
     const submittedPool = submitted.modelPool === undefined ? existing?.modelPool : submitted.modelPool;
@@ -2290,7 +2326,7 @@ export async function updateClaudeOpus5ProviderSettings(input: { providers: Arra
       enabled: submitted.enabled !== false,
       baseUrl: submitted.baseUrl.trim(),
       model: submitted.model.trim() || qwenPool[0]?.model || "",
-      apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
+      ...keys,
       ...(qwenPool.length ? { modelPool: qwenPool } : {}),
       ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
     };
@@ -2364,13 +2400,15 @@ export async function deleteClaudeOpus5QwenApiKey(input: { providerId: string; s
   return getClaudeOpus5ProviderSettings();
 }
 
-type Glm53RuntimePayload = { baseUrl: string; model: string; apiKeys: string[] };
+type Glm53RuntimePayload = { baseUrl: string; model: string; apiKeys: string[]; apiKeyEnabled: boolean[] };
 
 function glm53RuntimeFromEnvironment(): Glm53RuntimePayload {
+  const apiKeys = getTokenRouterCredentialPool();
   return {
     baseUrl: process.env.TOKENROUTER_BASE_URL?.trim() ?? "",
     model: process.env.TOKENROUTER_GLM53_MODEL?.trim() ?? "",
-    apiKeys: getTokenRouterCredentialPool(),
+    apiKeys,
+    apiKeyEnabled: apiKeys.map(() => true),
   };
 }
 
@@ -2387,11 +2425,13 @@ async function readGlm53RuntimeOverride() {
     const configuredKeys = Array.isArray(candidate.apiKeys)
       ? candidate.apiKeys.map(value => typeof value === "string" ? value.trim() : "").filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS)
       : [];
+    const apiKeyEnabled = configuredKeys.map((_, index) => Array.isArray(candidate.apiKeyEnabled) ? candidate.apiKeyEnabled[index] !== false : true);
     return {
       payload: {
         baseUrl: typeof candidate.baseUrl === "string" ? candidate.baseUrl.trim() : "",
         model: typeof candidate.model === "string" ? candidate.model.trim() : "",
         apiKeys: configuredKeys,
+        apiKeyEnabled,
       },
       updatedAt: record.updatedAt,
       updatedByUserId: record.updatedByUserId,
@@ -2409,6 +2449,7 @@ export async function getGlm53RuntimeConfig(): Promise<Glm53RuntimePayload> {
     baseUrl: override.payload.baseUrl || fallback.baseUrl,
     model: override.payload.model || fallback.model,
     apiKeys: override.payload.apiKeys.length ? override.payload.apiKeys : fallback.apiKeys.filter(Boolean),
+    apiKeyEnabled: override.payload.apiKeys.length ? override.payload.apiKeyEnabled : fallback.apiKeyEnabled,
   };
 }
 
@@ -2418,26 +2459,22 @@ export async function getGlm53ProviderSettings() {
   return {
     baseUrl: runtime.baseUrl,
     model: runtime.model,
-    apiKeyMasks: runtime.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+    apiKeyMasks: providerApiKeyMasks(runtime.apiKeys, runtime.apiKeyEnabled),
     source: override ? "database" as const : "environment" as const,
     updatedAt: override?.updatedAt ?? null,
     updatedByUserId: override?.updatedByUserId ?? null,
   };
 }
 
-export async function updateGlm53ProviderSettings(input: { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] }, updatedByUserId: number) {
+export async function updateGlm53ProviderSettings(input: { baseUrl?: string; model?: string; apiKeys?: string[]; apiKeyEnabled?: boolean[]; removeSlots?: number[] }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getGlm53RuntimeConfig();
-  const removedSlots = new Set(input.removeSlots ?? []);
-  const retainedKeys = current.apiKeys.filter((_, index) => !removedSlots.has(index + 1));
-  const submittedKeys = input.apiKeys ?? [];
-  const patchedExistingKeys = retainedKeys.map((key, index) => submittedKeys[index]?.trim() || key);
-  const appendedKeys = submittedKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
+  const keys = applyManagedProviderKeyUpdate(current, { apiKeys: input.apiKeys ?? [], apiKeyEnabled: input.apiKeyEnabled, removeSlots: input.removeSlots });
   const next: Glm53RuntimePayload = {
     baseUrl: input.baseUrl?.trim() || current.baseUrl,
     model: input.model?.trim() || current.model,
-    apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
+    ...keys,
   };
   if (!next.baseUrl || !next.model || !next.apiKeys.some(Boolean)) throw new Error("A base URL, model ID, and at least one API key are required for GLM 5.3");
   const encrypted = encryptProviderRuntimeConfig(next);
@@ -2516,20 +2553,20 @@ export async function getDeepseekV4ProProviderSettings() {
       enabled: provider.enabled,
       baseUrl: provider.baseUrl,
       model: provider.model,
-      apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+      apiKeyMasks: providerApiKeyMasks(provider.apiKeys, provider.apiKeyEnabled),
     })),
     /** Compatibility fields retain a read-only view for callers on the legacy setting shape. */
     baseUrl: primary?.baseUrl ?? "",
     model: primary?.model ?? "",
-    apiKeyMasks: primary?.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })) ?? [],
+    apiKeyMasks: providerApiKeyMasks(primary?.apiKeys ?? [], primary?.apiKeyEnabled),
     source: override ? "database" as const : "environment" as const,
     updatedAt: override?.updatedAt ?? null,
     updatedByUserId: override?.updatedByUserId ?? null,
   };
 }
 
-type DeepseekV4ProProviderUpdate = { id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] };
-type DeepseekV4ProLegacyUpdate = { baseUrl?: string; model?: string; apiKeys?: string[]; removeSlots?: number[] };
+type DeepseekV4ProProviderUpdate = { id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; apiKeyEnabled?: boolean[]; removeSlots?: number[] };
+type DeepseekV4ProLegacyUpdate = { baseUrl?: string; model?: string; apiKeys?: string[]; apiKeyEnabled?: boolean[]; removeSlots?: number[] };
 
 export async function updateDeepseekV4ProProviderSettings(input: { providers: DeepseekV4ProProviderUpdate[] } | DeepseekV4ProLegacyUpdate, updatedByUserId: number) {
   const db = await getDb();
@@ -2546,21 +2583,19 @@ export async function updateDeepseekV4ProProviderSettings(input: { providers: De
       baseUrl: input.baseUrl?.trim() || legacyPrimary.baseUrl,
       model: input.model?.trim() || legacyPrimary.model,
       apiKeys: input.apiKeys ?? legacyPrimary.apiKeys.map(() => ""),
+      apiKeyEnabled: input.apiKeyEnabled,
       removeSlots: input.removeSlots,
     }];
   const nextProviders = submittedProviders.map((submitted, index) => {
     const existing = currentById.get(submitted.id);
-    const removedSlots = new Set(submitted.removeSlots ?? []);
-    const retainedKeys = (existing?.apiKeys ?? []).filter((_, keyIndex) => !removedSlots.has(keyIndex + 1));
-    const patchedExistingKeys = retainedKeys.map((key, keyIndex) => submitted.apiKeys[keyIndex]?.trim() || key);
-    const appendedKeys = submitted.apiKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
+    const keys = applyManagedProviderKeyUpdate(existing, submitted);
     return {
       id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`),
       label: submitted.label.trim() || `Provider ${index + 1}`,
       enabled: submitted.enabled !== false,
       baseUrl: submitted.baseUrl.trim(),
       model: submitted.model.trim(),
-      apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
+      ...keys,
     };
   });
   const ids = new Set(nextProviders.map(provider => provider.id));
@@ -2584,7 +2619,7 @@ export async function updateDeepseekV4ProProviderSettings(input: { providers: De
 export type Sonnet46ProviderRuntime = ClaudeOpus5ProviderRuntime;
 type Sonnet46RuntimePayload = { providers: Sonnet46ProviderRuntime[] };
 const MAX_SONNET46_PROVIDERS = 12;
-type Sonnet46ProviderUpdate = { id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[] };
+type Sonnet46ProviderUpdate = { id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; apiKeyEnabled?: boolean[]; removeSlots?: number[] };
 
 function normalizeSonnet46Providers(value: unknown, fallback: Sonnet46ProviderRuntime[]) {
   return normalizeClaudeOpus5Providers(value, fallback).slice(0, MAX_SONNET46_PROVIDERS);
@@ -2622,11 +2657,11 @@ export async function getSonnet46ProviderSettings() {
       enabled: provider.enabled,
       baseUrl: provider.baseUrl,
       model: provider.model,
-      apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
+      apiKeyMasks: providerApiKeyMasks(provider.apiKeys, provider.apiKeyEnabled),
     })),
     baseUrl: primary?.baseUrl ?? "",
     model: primary?.model ?? "",
-    apiKeyMasks: primary?.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })) ?? [],
+    apiKeyMasks: providerApiKeyMasks(primary?.apiKeys ?? [], primary?.apiKeyEnabled),
     source: override ? "database" as const : "environment" as const,
     updatedAt: override?.updatedAt ?? null,
     updatedByUserId: override?.updatedByUserId ?? null,
@@ -2640,17 +2675,14 @@ export async function updateSonnet46ProviderSettings(input: { providers: Sonnet4
   const currentById = new Map(current.providers.map(provider => [provider.id, provider]));
   const nextProviders = input.providers.map((submitted, index) => {
     const existing = currentById.get(submitted.id);
-    const removedSlots = new Set(submitted.removeSlots ?? []);
-    const retainedKeys = (existing?.apiKeys ?? []).filter((_, keyIndex) => !removedSlots.has(keyIndex + 1));
-    const patchedExistingKeys = retainedKeys.map((key, keyIndex) => submitted.apiKeys[keyIndex]?.trim() || key);
-    const appendedKeys = submitted.apiKeys.slice(retainedKeys.length).map(key => key.trim()).filter(Boolean);
+    const keys = applyManagedProviderKeyUpdate(existing, submitted);
     return {
       id: normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`),
       label: submitted.label.trim() || `Provider ${index + 1}`,
       enabled: submitted.enabled !== false,
       baseUrl: submitted.baseUrl.trim(),
       model: submitted.model.trim(),
-      apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
+      ...keys,
     };
   });
   const ids = new Set(nextProviders.map(provider => provider.id));

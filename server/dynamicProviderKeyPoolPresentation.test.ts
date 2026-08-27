@@ -27,6 +27,15 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("removeSlots: deepseekV4ProRemovedSlots");
   });
 
+  it("provides protected per-key enablement controls that keep disabled credentials out of routing", () => {
+    expect(source).toContain("Turn off a key to preserve it securely while excluding it from new calls and failover");
+    expect(source).toContain("enabledStates={keyStates}");
+    expect(source).toContain("apiKeyEnabled: keyStates.map");
+    expect(source).toContain("apiKeyEnabled: props.apiKeys.map");
+    expect(source).toContain("Claude Opus Qwen");
+    expect(source).toContain("tokenforge-key-routing-state");
+  });
+
   it("uses a one-model-at-a-time selector instead of rendering the legacy paired panels", () => {
     expect(source).toContain('id="managed-provider-selector"');
     expect(source).toContain('value={selectedProvider}');

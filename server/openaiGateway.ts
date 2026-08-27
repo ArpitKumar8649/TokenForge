@@ -17,6 +17,7 @@ import {
   getQwen38MaxRuntimeConfig,
   getRenderNimProxyRuntimeConfig,
   getPlatformMaintenanceConfig,
+  isManagedProviderCredentialEnabled,
   PLATFORM_MAINTENANCE_ERROR_MESSAGE,
   getQuotaStatus,
   getModelAvailabilitySnapshot,
@@ -407,7 +408,7 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
   let lastError: unknown = null;
   let lastStatus: number | null = null;
   for (let attempt = 0; attempt < runtime.apiKeys.length; attempt += 1) {
-    const selectedCredential = selectNextGlm53CredentialWithSlot(runtime.apiKeys);
+    const selectedCredential = selectNextGlm53CredentialWithSlot(runtime.apiKeys, runtime.apiKeyEnabled);
     if (!selectedCredential) break;
     const responseStart = createResponseStartDeadline(signal);
     try {
@@ -476,11 +477,12 @@ export function resetDeepseekV4ProProviderBalancing() {
   deepseekV4ProKeyCursors.clear();
 }
 
-function selectNextDeepseekV4ProCredential(provider: { id: string; apiKeys: string[] }) {
+function selectNextDeepseekV4ProCredential(provider: { id: string; apiKeys: string[]; apiKeyEnabled?: boolean[] }) {
   const telemetryProvider = `deepseek-v4-pro:${provider.id}` as CredentialTelemetryProvider;
   const start = deepseekV4ProKeyCursors.get(provider.id) ?? 0;
   for (let offset = 0; offset < provider.apiKeys.length; offset += 1) {
     const index = (start + offset) % provider.apiKeys.length;
+    if (!isManagedProviderCredentialEnabled(provider, index)) continue;
     if (!isCredentialSlotEligible(telemetryProvider, index)) continue;
     deepseekV4ProKeyCursors.set(provider.id, (index + 1) % provider.apiKeys.length);
     return { credential: provider.apiKeys[index]!, slot: index, telemetryProvider };
@@ -491,7 +493,7 @@ function selectNextDeepseekV4ProCredential(provider: { id: string; apiKeys: stri
 /** DeepSeek V4 Pro uses equal-share encrypted provider groups, each with an independent key pool and retry failover. */
 async function forwardDedicatedDeepseekV4ProRequest(input: ChatInput, signal: AbortSignal) {
   const runtime = await getDeepseekV4ProRuntimeConfig();
-  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(deepseekV4ProProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
+  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(deepseekV4ProProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.some((_, index) => isManagedProviderCredentialEnabled(provider, index)));
   deepseekV4ProProviderCursor = runtime.providers.length ? (deepseekV4ProProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
   let lastResponse: globalThis.Response | null = null;
@@ -579,11 +581,12 @@ export function resetSonnet46ProviderBalancing() {
   sonnet46KeyCursors.clear();
 }
 
-function selectNextSonnet46Credential(provider: { id: string; apiKeys: string[] }) {
+function selectNextSonnet46Credential(provider: { id: string; apiKeys: string[]; apiKeyEnabled?: boolean[] }) {
   const telemetryProvider: CredentialTelemetryProvider = `claude-sonnet-4.6:${provider.id}`;
   const start = sonnet46KeyCursors.get(provider.id) ?? 0;
   for (let offset = 0; offset < provider.apiKeys.length; offset += 1) {
     const index = (start + offset) % provider.apiKeys.length;
+    if (!isManagedProviderCredentialEnabled(provider, index)) continue;
     if (!isCredentialSlotEligible(telemetryProvider, index)) continue;
     sonnet46KeyCursors.set(provider.id, (index + 1) % provider.apiKeys.length);
     return { credential: provider.apiKeys[index]!, slot: index, telemetryProvider };
@@ -594,7 +597,7 @@ function selectNextSonnet46Credential(provider: { id: string; apiKeys: string[] 
 /** Claude Sonnet 4.6 uses equal-share encrypted provider groups with isolated key pools and retry failover. */
 async function forwardDedicatedSonnet46Request(input: ChatInput, signal: AbortSignal) {
   const runtime = await getSonnet46RuntimeConfig();
-  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(sonnet46ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
+  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(sonnet46ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.some((_, index) => isManagedProviderCredentialEnabled(provider, index)));
   sonnet46ProviderCursor = runtime.providers.length ? (sonnet46ProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
   let lastResponse: globalThis.Response | null = null;
@@ -778,11 +781,12 @@ async function forwardBailuRequestWithWebshareFailover(url: string, input: ChatI
   throw lastError instanceof Error ? lastError : new Error("Every configured Bailu Webshare proxy failed before a provider response was available.");
 }
 
-function selectNextClaudeOpus5Credential(provider: { id: string; apiKeys: string[] }) {
+function selectNextClaudeOpus5Credential(provider: { id: string; apiKeys: string[]; apiKeyEnabled?: boolean[] }) {
   const telemetryProvider: CredentialTelemetryProvider = `claude-opus-5:${provider.id}`;
   const start = claudeOpus5KeyCursors.get(provider.id) ?? 0;
   for (let offset = 0; offset < provider.apiKeys.length; offset += 1) {
     const index = (start + offset) % provider.apiKeys.length;
+    if (!isManagedProviderCredentialEnabled(provider, index)) continue;
     if (!isCredentialSlotEligible(telemetryProvider, index)) continue;
     claudeOpus5KeyCursors.set(provider.id, (index + 1) % provider.apiKeys.length);
     return { credential: provider.apiKeys[index]!, slot: index, telemetryProvider };
@@ -1173,7 +1177,7 @@ async function tryForwardClaudeOpus5ThroughRenderSwarm(input: ChatInput, signal:
 /** Claude Opus 5 balances each new call evenly across configured provider groups, then across eligible keys in that group. */
 async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: AbortSignal, context?: ProviderRequestContext) {
   const runtime = await getClaudeOpus5RuntimeConfig();
-  const rotatedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeOpus5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
+  const rotatedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeOpus5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.some((_, index) => isManagedProviderCredentialEnabled(provider, index)));
   claudeOpus5ProviderCursor = runtime.providers.length ? (claudeOpus5ProviderCursor + 1) % runtime.providers.length : 0;
   const baiPreparation = await prepareBaiContinuation("claude-opus-5", input, context);
   const baiProviders = (await Promise.all(rotatedProviders
@@ -1345,11 +1349,12 @@ export function resetClaudeFable5ProviderBalancing() {
   claudeFable5KeyCursors.clear();
 }
 
-function selectNextClaudeFable5Credential(provider: { id: string; apiKeys: string[] }) {
+function selectNextClaudeFable5Credential(provider: { id: string; apiKeys: string[]; apiKeyEnabled?: boolean[] }) {
   const telemetryProvider = `claude-fable-5:${provider.id}` as CredentialTelemetryProvider;
   const start = claudeFable5KeyCursors.get(provider.id) ?? 0;
   for (let offset = 0; offset < provider.apiKeys.length; offset += 1) {
     const slot = (start + offset) % provider.apiKeys.length;
+    if (!isManagedProviderCredentialEnabled(provider, slot)) continue;
     if (!isCredentialSlotEligible(telemetryProvider, slot)) continue;
     claudeFable5KeyCursors.set(provider.id, (slot + 1) % provider.apiKeys.length);
     return { credential: provider.apiKeys[slot]!, slot, telemetryProvider };
@@ -1360,7 +1365,7 @@ function selectNextClaudeFable5Credential(provider: { id: string; apiKeys: strin
 /** Claude Fable 5 balances calls evenly across enabled provider groups and then keys, never the shared TokenRouter pool. */
 async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: AbortSignal) {
   const runtime = await getClaudeFable5NvidiaRuntimeConfig();
-  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeFable5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
+  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeFable5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.some((_, index) => isManagedProviderCredentialEnabled(provider, index)));
   claudeFable5ProviderCursor = runtime.providers.length ? (claudeFable5ProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
   let lastStatus: number | null = null;
@@ -1425,11 +1430,12 @@ export function resetQwen38MaxProviderBalancing() {
   qwen38MaxKeyCursors.clear();
 }
 
-function selectNextQwen38MaxCredential(provider: { id: string; apiKeys: string[] }) {
+function selectNextQwen38MaxCredential(provider: { id: string; apiKeys: string[]; apiKeyEnabled?: boolean[] }) {
   const telemetryProvider = `qwen3.8-max:${provider.id}` as CredentialTelemetryProvider;
   const start = qwen38MaxKeyCursors.get(provider.id) ?? 0;
   for (let offset = 0; offset < provider.apiKeys.length; offset += 1) {
     const slot = (start + offset) % provider.apiKeys.length;
+    if (!isManagedProviderCredentialEnabled(provider, slot)) continue;
     if (!isCredentialSlotEligible(telemetryProvider, slot)) continue;
     qwen38MaxKeyCursors.set(provider.id, (slot + 1) % provider.apiKeys.length);
     return { credential: provider.apiKeys[slot]!, slot, telemetryProvider };
@@ -1439,7 +1445,7 @@ function selectNextQwen38MaxCredential(provider: { id: string; apiKeys: string[]
 
 async function forwardDedicatedQwen38MaxRequest(input: ChatInput, signal: AbortSignal) {
   const runtime = await getQwen38MaxRuntimeConfig();
-  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(qwen38MaxProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
+  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(qwen38MaxProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.some((_, index) => isManagedProviderCredentialEnabled(provider, index)));
   qwen38MaxProviderCursor = runtime.providers.length ? (qwen38MaxProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
   let lastStatus: number | null = null;
