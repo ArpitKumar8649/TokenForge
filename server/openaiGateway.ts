@@ -644,7 +644,8 @@ function bailuWebshareProxyAgent(proxy: Awaited<ReturnType<typeof getBailuWebsha
   const existing = bailuWebshareProxyAgents.get(proxy.id);
   if (existing?.signature === signature) return existing.agent;
   if (existing) existing.agent.destroy();
-  const proxyUrl = new URL(`socks5://${proxy.host}:${proxy.port}`);
+  // Resolve Bailu’s changing destination address from the proxy network, avoiding cloud-runtime DNS answers that a Direct proxy cannot reach.
+  const proxyUrl = new URL(`socks5h://${proxy.host}:${proxy.port}`);
   proxyUrl.username = proxy.username;
   proxyUrl.password = proxy.password;
   const agent = new SocksProxyAgent(proxyUrl);
