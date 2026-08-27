@@ -339,6 +339,26 @@ describe("TokenForge Playground gateway", () => {
     ]);
   });
 
+  it("clamps only a b.ai-labelled Claude Opus provider max_tokens request to its valid minimum", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "Valid output" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [{ id: "bai", label: "B.ai", enabled: true, baseUrl: "https://bai-provider.example", model: "private-bai-model", apiKeys: ["server-only-bai-key"] }] });
+
+    await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", max_tokens: 2, messages: [{ role: "user", content: "Use a valid output cap." }] }, new AbortController().signal);
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({ max_tokens: 3, model: "private-bai-model" });
+  });
+
+  it("leaves a non-b.ai Claude Opus provider max_tokens value unchanged", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "Provider accepts it" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [{ id: "other", label: "Other provider", enabled: true, baseUrl: "https://other-provider.example", model: "private-other-model", apiKeys: ["server-only-other-key"] }] });
+
+    await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", max_tokens: 2, messages: [{ role: "user", content: "Leave this request alone." }] }, new AbortController().signal);
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({ max_tokens: 2, model: "private-other-model" });
+  });
+
   it("retries a retryable Claude Opus 5 response once before streaming with the next TokenReply credential", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "upstream_busy" } }), { status: 503 }))
@@ -1005,6 +1025,16 @@ describe("TokenForge Playground gateway", () => {
       "Bearer server-only-managed-glm-key-1",
     ]);
     expect(recordManagedProviderKeyOutcome).toHaveBeenCalledTimes(3);
+  });
+
+  it("clamps a GLM 5.3 request only when its configured provider host is b.ai", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "Valid GLM output" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(getGlm53RuntimeConfig).mockResolvedValue({ baseUrl: "https://api.b.ai", model: "private-glm-model", apiKeys: ["server-only-managed-glm-key-1"] });
+
+    await forwardProviderRequest("glm-5.3", { model: "glm-5.3", max_tokens: 1, messages: [{ role: "user", content: "Respect b.ai minimum output." }] }, new AbortController().signal);
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({ max_tokens: 3, model: "private-glm-model" });
   });
 
   it("masks GLM 5.3 HTTP and SSE provider diagnostics while retaining only a redacted administrator failure record", async () => {

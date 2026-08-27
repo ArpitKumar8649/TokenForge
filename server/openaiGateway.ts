@@ -362,12 +362,37 @@ function openAiChatCompletionsUrl(baseUrl: string) {
   return `${base.endsWith("/v1") ? base : `${base}/v1`}/chat/completions`;
 }
 
+const BAI_MINIMUM_MAX_TOKENS = 3;
+
+function isBaiProviderLabel(label: string | undefined) {
+  return label?.trim().toLowerCase() === "b.ai";
+}
+
+function isBaiProviderBaseUrl(baseUrl: string) {
+  try {
+    const hostname = new URL(baseUrl).hostname.toLowerCase();
+    return hostname === "b.ai" || hostname.endsWith(".b.ai");
+  } catch {
+    return false;
+  }
+}
+
+/** B.ai rejects max_tokens values below three. Normalize only immediately before a b.ai upstream request. */
+function normalizeBaiMaxTokens(input: ChatInput, applies: boolean): ChatInput {
+  if (!applies || input.max_tokens === undefined) return input;
+  const requested = input.max_tokens;
+  const next = typeof requested === "number" && Number.isFinite(requested)
+    ? Math.max(BAI_MINIMUM_MAX_TOKENS, Math.floor(requested))
+    : BAI_MINIMUM_MAX_TOKENS;
+  return next === requested ? input : { ...input, max_tokens: next };
+}
+
 /** GLM 5.3 uses its own encrypted runtime configuration and credential pool. */
 async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSignal) {
   const runtime = await getGlm53RuntimeConfig();
   const url = openAiChatCompletionsUrl(runtime.baseUrl);
   if (!url || !runtime.model) throw new Error("TokenForge GLM 5.3 inference is not configured");
-  const requestBody = { ...input, model: runtime.model };
+  const requestBody = { ...normalizeBaiMaxTokens(input, isBaiProviderBaseUrl(runtime.baseUrl)), model: runtime.model };
   const provider = { id: "glm53-primary", label: "GLM 5.3 provider" };
   let lastError: unknown = null;
   let lastStatus: number | null = null;
@@ -1081,12 +1106,13 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
       if (!selectedCredential) break;
       const responseStart = createResponseStartDeadline(signal);
       try {
+        const providerInput = normalizeBaiMaxTokens(input, isBaiProviderLabel(provider.label));
         const response = isBailuClaudeOpus5Provider(provider)
-          ? await forwardBailuRequestWithWebshareFailover(url, input, upstreamModel, selectedCredential.credential, responseStart.signal, responseStart.timedOut)
+          ? await forwardBailuRequestWithWebshareFailover(url, providerInput, upstreamModel, selectedCredential.credential, responseStart.signal, responseStart.timedOut)
           : await fetch(url, {
             method: "POST",
-            headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
-            body: JSON.stringify({ ...input, model: upstreamModel }),
+            headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: providerInput.stream ? "text/event-stream" : "application/json" },
+            body: JSON.stringify({ ...providerInput, model: upstreamModel }),
             signal: responseStart.signal,
           });
         responseStart.clear();

@@ -522,3 +522,5 @@
 - [x] Add durable Bailu proxy-slot request, success, failure, cooldown, and last-activity telemetry with automatic temporary pause after retryable transport failures.
 - [x] Route Bailu requests only through enabled, non-cooling proxy slots and display live per-slot health/cooldown status in the protected admin dashboard.
 - [x] Add focused cooldown, failover, recovery, and dashboard presentation regressions; durable metrics initialization confirmed for all three saved slots, with 67 focused assertions passing; validate and publish in the following release checkpoint.
+- [x] Trace why some Claude Opus 5 and GLM 5.3 b.ai requests forward max_tokens at or below 2, then clamp only b.ai-bound requests to the provider-valid minimum before upstream forwarding; API payload spread and Playground’s optional output cap allowed 1–2 through unchanged until the selected provider request was built.
+- [x] Add provider-scoped regressions for b.ai minimum max_tokens normalization and validate the gateway; 54 focused gateway assertions pass, including b.ai-only clamp and non-b.ai unchanged behavior; publish in the following release checkpoint.
