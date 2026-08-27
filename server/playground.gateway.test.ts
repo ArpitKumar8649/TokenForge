@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./db", () => ({
   getBailuWebshareProxyPoolRuntimeConfig: vi.fn(),
+  loadBaiReasoningContinuation: vi.fn(),
   releaseBailuWebshareProxySlot: vi.fn(),
   findActiveApiKey: vi.fn(),
   getClaudeFable5NvidiaRuntimeConfig: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("./db", () => ({
   releaseRenderNimProxyEndpoint: vi.fn(),
   recordUsage: vi.fn(),
   reserveCredit: vi.fn(),
+  storeBaiReasoningContinuation: vi.fn(),
   sanitizeRenderNimProxyFailureMessage: vi.fn((value: unknown) => typeof value === "string" ? value.replace(/Bearer\s+\S+/gi, "Bearer [redacted]") : "Upstream request failed."),
   settleReservedCredit: vi.fn(),
   touchApiKey: vi.fn(),
@@ -38,7 +40,7 @@ vi.mock("./db", () => ({
 vi.mock("node:https", () => ({ default: { request: vi.fn() } }));
 vi.mock("socks-proxy-agent", () => ({ SocksProxyAgent: vi.fn().mockImplementation((proxyUrl: URL) => ({ destroy: vi.fn(), proxyUrl })) }));
 
-import { getBailuWebshareProxyPoolRuntimeConfig, getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, getSonnet46RuntimeConfig, isModelAvailable, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordSonnet46FailureLog, recordManagedProviderKeyOutcome, recordUsage, releaseBailuWebshareProxySlot, reserveCredit, settleReservedCredit, tryAcquireBailuWebshareProxySlot } from "./db";
+import { getBailuWebshareProxyPoolRuntimeConfig, getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, getSonnet46RuntimeConfig, isModelAvailable, loadBaiReasoningContinuation, loadOrcaRouterCredentialSlotCiphertexts, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordSonnet46FailureLog, recordManagedProviderKeyOutcome, recordUsage, releaseBailuWebshareProxySlot, reserveCredit, settleReservedCredit, storeBaiReasoningContinuation, tryAcquireBailuWebshareProxySlot } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetBailuWebshareProxyPool, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, resetQwen38MaxProviderBalancing, resetSonnet46ProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import https from "node:https";
 import { SocksProxyAgent } from "socks-proxy-agent";
@@ -96,6 +98,8 @@ beforeEach(() => {
   vi.mocked(getRenderNimProxyRuntimeConfig).mockResolvedValue({ enabled: false, apiKey: "", model: "", endpoints: [] });
   vi.mocked(getBailuWebshareProxyPoolRuntimeConfig).mockResolvedValue({ enabled: false, proxies: [] });
   vi.mocked(tryAcquireBailuWebshareProxySlot).mockResolvedValue(true);
+  vi.mocked(loadBaiReasoningContinuation).mockResolvedValue(null);
+  vi.mocked(storeBaiReasoningContinuation).mockResolvedValue(undefined);
   process.env.FXQIDIAN_BASE_URL = "https://provider.example";
   process.env.FXQIDIAN_API_KEY = "server-only-provider-secret";
   process.env.FXQIDIAN_API_KEY_2 = "server-only-provider-secret-2";
@@ -347,6 +351,41 @@ describe("TokenForge Playground gateway", () => {
     await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", max_tokens: 2, messages: [{ role: "user", content: "Use a valid output cap." }] }, new AbortController().signal);
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({ max_tokens: 3, model: "private-bai-model" });
+  });
+
+  it("captures private b.ai Claude Opus reasoning and rehydrates it only for the same authenticated assistant continuation", async () => {
+    const assistant = { role: "assistant", content: "I will use the supplied tool result." };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { ...assistant, reasoning_content: "Private provider reasoning" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: "Continuation complete" } }], usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 } }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [{ id: "bai", label: "B.ai", enabled: true, baseUrl: "https://bai-provider.example", model: "private-bai-model", apiKeys: ["server-only-bai-key"] }] });
+
+    const initial = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Think before replying." }] }, new AbortController().signal, { userId: 42 });
+    const publicInitial = sanitizeModelResponsePayload("claude-opus-5", await initial.json());
+    expect(JSON.stringify(publicInitial)).not.toContain("Private provider reasoning");
+    await Promise.resolve();
+    expect(storeBaiReasoningContinuation).toHaveBeenCalledWith(42, "claude-opus-5", expect.stringMatching(/^[a-f0-9]{64}$/), "Private provider reasoning");
+
+    vi.mocked(loadBaiReasoningContinuation).mockResolvedValue("Private provider reasoning");
+    await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Think before replying." }, assistant, { role: "user", content: "Continue now." }] }, new AbortController().signal, { userId: 42 });
+
+    const continuationPayload = JSON.parse(fetchMock.mock.calls[1][1].body as string);
+    expect(continuationPayload.messages).toContainEqual({ ...assistant, reasoning_content: "Private provider reasoning" });
+    expect(loadBaiReasoningContinuation).toHaveBeenCalledWith(42, "claude-opus-5", expect.stringMatching(/^[a-f0-9]{64}$/));
+  });
+
+  it("captures completed b.ai Claude Opus stream reasoning privately while strict public SSE projection omits it", async () => {
+    const event = { choices: [{ delta: { role: "assistant", content: "Visible stream answer", reasoning_content: "Private streamed reasoning" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } })));
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [{ id: "bai", label: "B.ai", enabled: true, baseUrl: "https://bai-provider.example", model: "private-bai-model", apiKeys: ["server-only-bai-key"] }] });
+
+    const upstream = await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", stream: true, messages: [{ role: "user", content: "Stream a response." }] }, new AbortController().signal, { userId: 42 });
+    const rawStream = await upstream.text();
+    const publicStream = rawStream.split("\n").map(line => line.startsWith("data:") ? `data: ${sanitizeModelSseData("claude-opus-5", line.slice(5).trim())}` : line).join("\n");
+
+    expect(publicStream).not.toContain("Private streamed reasoning");
+    expect(storeBaiReasoningContinuation).toHaveBeenCalledWith(42, "claude-opus-5", expect.stringMatching(/^[a-f0-9]{64}$/), "Private streamed reasoning");
   });
 
   it("leaves a non-b.ai Claude Opus provider max_tokens value unchanged", async () => {
@@ -1035,6 +1074,33 @@ describe("TokenForge Playground gateway", () => {
     await forwardProviderRequest("glm-5.3", { model: "glm-5.3", max_tokens: 1, messages: [{ role: "user", content: "Respect b.ai minimum output." }] }, new AbortController().signal);
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({ max_tokens: 3, model: "private-glm-model" });
+  });
+
+  it("rehydrates private b.ai GLM reasoning only for the matching authenticated continuation", async () => {
+    const assistant = { role: "assistant", content: "GLM visible response" };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "GLM continuation" } }], usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(getGlm53RuntimeConfig).mockResolvedValue({ baseUrl: "https://api.b.ai", model: "private-glm-model", apiKeys: ["server-only-managed-glm-key-1"] });
+    vi.mocked(loadBaiReasoningContinuation).mockResolvedValue("Private GLM reasoning");
+
+    await forwardProviderRequest("glm-5.3", { model: "glm-5.3", messages: [{ role: "user", content: "Start." }, assistant, { role: "user", content: "Continue." }] }, new AbortController().signal, { userId: 42 });
+
+    const forwardedPayload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(forwardedPayload.messages).toContainEqual({ ...assistant, reasoning_content: "Private GLM reasoning" });
+    expect(loadBaiReasoningContinuation).toHaveBeenCalledWith(42, "glm-5.3", expect.stringMatching(/^[a-f0-9]{64}$/));
+  });
+
+  it("captures completed b.ai GLM stream reasoning privately while strict public SSE projection omits it", async () => {
+    const event = { choices: [{ delta: { role: "assistant", content: "Visible GLM stream", reasoning_content: "Private GLM streamed reasoning" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } })));
+    vi.mocked(getGlm53RuntimeConfig).mockResolvedValue({ baseUrl: "https://api.b.ai", model: "private-glm-model", apiKeys: ["server-only-managed-glm-key-1"] });
+
+    const upstream = await forwardProviderRequest("glm-5.3", { model: "glm-5.3", stream: true, messages: [{ role: "user", content: "Stream a GLM response." }] }, new AbortController().signal, { userId: 42 });
+    const rawStream = await upstream.text();
+    const publicStream = rawStream.split("\n").map(line => line.startsWith("data:") ? `data: ${sanitizeModelSseData("glm-5.3", line.slice(5).trim())}` : line).join("\n");
+
+    expect(publicStream).not.toContain("Private GLM streamed reasoning");
+    expect(storeBaiReasoningContinuation).toHaveBeenCalledWith(42, "glm-5.3", expect.stringMatching(/^[a-f0-9]{64}$/), "Private GLM streamed reasoning");
   });
 
   it("masks GLM 5.3 HTTP and SSE provider diagnostics while retaining only a redacted administrator failure record", async () => {

@@ -344,6 +344,30 @@ export const glmToolContinuationStates = mysqlTable(
   ],
 );
 
+/**
+ * Provider-private b.ai thinking state. It is encrypted, account-bound, and expires
+ * quickly so a later visible assistant turn can be safely rehydrated only for b.ai.
+ */
+export const baiReasoningContinuations = mysqlTable(
+  "bai_reasoning_continuations",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    userId: int("userId").notNull().references(() => users.id, { onDelete: "cascade" }),
+    modelId: varchar("modelId", { length: 64 }).notNull(),
+    assistantFingerprint: varchar("assistantFingerprint", { length: 64 }).notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    iv: varchar("iv", { length: 32 }).notNull(),
+    authTag: varchar("authTag", { length: 32 }).notNull(),
+    expiresAt: timestamp("expiresAt").notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => [
+    uniqueIndex("bai_reasoning_continuation_user_model_message_unique_idx").on(table.userId, table.modelId, table.assistantFingerprint),
+    index("bai_reasoning_continuation_expires_idx").on(table.expiresAt),
+  ],
+);
+
 export const providerConfigs = mysqlTable("provider_configs", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
   slug: varchar("slug", { length: 64 }).notNull().unique(),

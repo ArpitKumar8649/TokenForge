@@ -541,7 +541,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
     const timeout = setTimeout(() => aborter.abort(), providerResponseStartTimeoutMs(model));
     let upstream: globalThis.Response;
     try {
-      upstream = await forwardProviderRequest(model, upstreamInput, aborter.signal);
+      upstream = await forwardProviderRequest(model, upstreamInput, aborter.signal, { userId: key.userId });
     } catch (error) {
       clearTimeout(timeout);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages provider request did not complete" });

@@ -4,6 +4,7 @@ import https from "node:https";
 import { Readable } from "node:stream";
 import {
   getBailuWebshareProxyPoolRuntimeConfig,
+  loadBaiReasoningContinuation,
   releaseBailuWebshareProxySlot,
   findActiveApiKey,
   getClaudeFable5NvidiaRuntimeConfig,
@@ -35,6 +36,7 @@ import {
   tryAcquireRenderNimProxyEndpoint,
   sanitizeRenderNimProxyFailureMessage,
   tryAcquireBailuWebshareProxySlot,
+  storeBaiReasoningContinuation,
 } from "./db";
 import { SocksProxyAgent } from "socks-proxy-agent";
 import { selectNextClusterProtocolCredentialWithSlot } from "./clusterProtocolCredentials";
@@ -87,6 +89,7 @@ type ChatMessage = TokenForgeChatMessage;
 export type TokenForgeChatInput = { model?: string; messages?: ChatMessage[]; stream?: boolean; max_tokens?: number; [key: string]: unknown };
 type ChatInput = TokenForgeChatInput;
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number; reasoning_tokens?: number; cached_tokens?: number; cache_read_input_tokens?: number; totalTokens?: number };
+type ProviderRequestContext = { userId: number };
 
 export function modelScopedGuidance(model: TokenForgeModelId): TokenForgeChatMessage {
   if (model === "claude-opus-5") {
@@ -388,11 +391,13 @@ function normalizeBaiMaxTokens(input: ChatInput, applies: boolean): ChatInput {
 }
 
 /** GLM 5.3 uses its own encrypted runtime configuration and credential pool. */
-async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSignal) {
+async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSignal, context?: ProviderRequestContext) {
   const runtime = await getGlm53RuntimeConfig();
   const url = openAiChatCompletionsUrl(runtime.baseUrl);
   if (!url || !runtime.model) throw new Error("TokenForge GLM 5.3 inference is not configured");
-  const requestBody = { ...normalizeBaiMaxTokens(input, isBaiProviderBaseUrl(runtime.baseUrl)), model: runtime.model };
+  const isBai = isBaiProviderBaseUrl(runtime.baseUrl);
+  const preparedInput = isBai ? await rehydrateBaiReasoningHistory("glm-5.3", input, context) : input;
+  const requestBody = { ...normalizeBaiMaxTokens(preparedInput, isBai), model: runtime.model };
   const provider = { id: "glm53-primary", label: "GLM 5.3 provider" };
   let lastError: unknown = null;
   let lastStatus: number | null = null;
@@ -421,10 +426,18 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
             recordCredentialFailover("glm-5.3");
             continue;
           }
+          if (isBai) captureBaiReasoningContinuation("glm-5.3", context, payload);
         }
         recordCredentialSuccess("glm-5.3", selectedCredential.slot);
         void recordManagedProviderKeyOutcome("glm-5.3", selectedCredential.credential, true).catch(() => undefined);
-        return wrapManagedProviderResponseWithFailureLog(response, provider, signal, "GLM 5.3", recordGlm53FailureLog);
+        return wrapManagedProviderResponseWithFailureLog(
+          response,
+          provider,
+          signal,
+          "GLM 5.3",
+          recordGlm53FailureLog,
+          isBai ? payload => captureBaiReasoningContinuation("glm-5.3", context, payload) : undefined,
+        );
       }
       const retryable = retryableProviderStatus(response.status);
       const rawBody = await response.text().catch(() => "");
@@ -843,17 +856,21 @@ function wrapRenderResponseWithLease(response: globalThis.Response, endpointId: 
 }
 
 /** Record a provider stream failure after headers without treating a client cancellation as an upstream outage. */
-function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal, onCompleteUsage?: (usage: Usage) => void, onQwenZeroOutput?: (usage: Usage) => void, failureSource?: { sourceId: string; sourceLabel: string }) {
+function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal, onCompleteUsage?: (usage: Usage) => void, onQwenZeroOutput?: (usage: Usage) => void, failureSource?: { sourceId: string; sourceLabel: string }, onBaiReasoningComplete?: (payload: unknown) => void) {
   if (!response.body || response.body.locked) return response;
   const reader = response.body.getReader();
   let recorded = false;
   const isBailu = isBailuClaudeOpus5Provider(provider);
+  const isBai = isBaiProviderLabel(provider.label);
   const isQwen = isQwenClaudeOpus5Provider(provider);
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   let buffer = "";
   let finalUsage: Usage = {};
   let receivedOutput = false;
+  let baiReasoning = "";
+  let baiContent = "";
+  const baiToolCalls = new Map<number, { id?: string; name?: string; arguments: string }>();
   const recordStreamFailure = (error: unknown) => {
     if (recorded || clientSignal.aborted) return;
     recorded = true;
@@ -875,12 +892,25 @@ function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Resp
       const data = line.slice(5).trim();
       if (!data || data === "[DONE]") continue;
       try {
-        const event = JSON.parse(data) as { usage?: Usage; choices?: Array<{ delta?: { content?: unknown; tool_calls?: unknown[] } }> };
+        const event = JSON.parse(data) as any;
         finalUsage = { ...finalUsage, ...usageFrom(event) };
         const delta = event.choices?.[0]?.delta;
         const hasText = typeof delta?.content === "string" && delta.content.trim().length > 0;
         const hasToolCalls = Array.isArray(delta?.tool_calls) && delta.tool_calls.length > 0;
         if (hasText || hasToolCalls) receivedOutput = true;
+        if (isBai) {
+          if (typeof delta?.content === "string") baiContent += delta.content;
+          const reasoning = delta?.reasoning_content ?? delta?.reasoning ?? delta?.thinking;
+          if (typeof reasoning === "string") baiReasoning += reasoning;
+          for (const toolCall of delta?.tool_calls ?? []) {
+            const index = typeof toolCall.index === "number" ? toolCall.index : baiToolCalls.size;
+            const collected = baiToolCalls.get(index) ?? { arguments: "" };
+            if (typeof toolCall.id === "string") collected.id = toolCall.id;
+            if (typeof toolCall.function?.name === "string") collected.name = toolCall.function.name;
+            if (typeof toolCall.function?.arguments === "string") collected.arguments += toolCall.function.arguments;
+            baiToolCalls.set(index, collected);
+          }
+        }
       } catch { /* Malformed records are converted to the neutral envelope by the caller SSE sanitizer. */ }
     }
   };
@@ -898,6 +928,12 @@ function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Resp
         const next = await reader.read();
         if (next.done) {
           writeNeutralZeroOutputFailure(controller);
+          if (isBai && baiReasoning.trim() && !clientSignal.aborted) {
+            const toolCalls = Array.from(baiToolCalls.values())
+              .filter((call): call is { id: string; name: string; arguments: string } => Boolean(call.id && call.name))
+              .map(call => ({ id: call.id, type: "function", function: { name: call.name, arguments: call.arguments } }));
+            onBaiReasoningComplete?.({ choices: [{ message: { role: "assistant", content: baiContent || null, reasoning_content: baiReasoning, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) } }] });
+          }
           onCompleteUsage?.(finalUsage);
           return controller.close();
         }
@@ -918,7 +954,7 @@ function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Resp
 type ManagedFailureLogger = (input: { sourceType: "provider"; sourceId: string; sourceLabel: string; failureKind: "stream"; retryable: boolean; callerMessage: string }) => Promise<void>;
 
 /** Preserve private diagnostics for administrators while ensuring an empty managed-provider stream becomes the neutral caller envelope. */
-function wrapManagedProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal, label: string, recordFailure: ManagedFailureLogger) {
+function wrapManagedProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal, label: string, recordFailure: ManagedFailureLogger, onBaiReasoningComplete?: (payload: unknown) => void) {
   if (!response.body || response.body.locked || !response.headers.get("content-type")?.includes("text/event-stream")) return response;
   const reader = response.body.getReader();
   let recorded = false;
@@ -927,6 +963,9 @@ function wrapManagedProviderResponseWithFailureLog(response: globalThis.Response
   let buffer = "";
   let finalUsage: Usage = {};
   let receivedOutput = false;
+  let baiReasoning = "";
+  let baiContent = "";
+  const baiToolCalls = new Map<number, { id?: string; name?: string; arguments: string }>();
   const recordStreamFailure = (error: unknown) => {
     if (recorded || clientSignal.aborted) return;
     recorded = true;
@@ -948,10 +987,23 @@ function wrapManagedProviderResponseWithFailureLog(response: globalThis.Response
       const data = line.slice(5).trim();
       if (!data || data === "[DONE]") continue;
       try {
-        const event = JSON.parse(data) as { usage?: Usage; choices?: Array<{ delta?: { content?: unknown; tool_calls?: unknown[] } }> };
+        const event = JSON.parse(data) as any;
         finalUsage = { ...finalUsage, ...usageFrom(event) };
         const delta = event.choices?.[0]?.delta;
         if ((typeof delta?.content === "string" && delta.content.trim()) || (Array.isArray(delta?.tool_calls) && delta.tool_calls.length)) receivedOutput = true;
+        if (onBaiReasoningComplete) {
+          if (typeof delta?.content === "string") baiContent += delta.content;
+          const reasoning = delta?.reasoning_content ?? delta?.reasoning ?? delta?.thinking;
+          if (typeof reasoning === "string") baiReasoning += reasoning;
+          for (const toolCall of delta?.tool_calls ?? []) {
+            const index = typeof toolCall.index === "number" ? toolCall.index : baiToolCalls.size;
+            const collected = baiToolCalls.get(index) ?? { arguments: "" };
+            if (typeof toolCall.id === "string") collected.id = toolCall.id;
+            if (typeof toolCall.function?.name === "string") collected.name = toolCall.function.name;
+            if (typeof toolCall.function?.arguments === "string") collected.arguments += toolCall.function.arguments;
+            baiToolCalls.set(index, collected);
+          }
+        }
       } catch { /* A malformed event is independently sanitized at the public SSE boundary. */ }
     }
   };
@@ -968,6 +1020,12 @@ function wrapManagedProviderResponseWithFailureLog(response: globalThis.Response
         const next = await reader.read();
         if (next.done) {
           writeNeutralEmptyOutput(controller);
+          if (onBaiReasoningComplete && baiReasoning.trim() && !clientSignal.aborted) {
+            const toolCalls = Array.from(baiToolCalls.values())
+              .filter((call): call is { id: string; name: string; arguments: string } => Boolean(call.id && call.name))
+              .map(call => ({ id: call.id, type: "function", function: { name: call.name, arguments: call.arguments } }));
+            onBaiReasoningComplete({ choices: [{ message: { role: "assistant", content: baiContent || null, reasoning_content: baiReasoning, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) } }] });
+          }
           return controller.close();
         }
         inspectSseChunk(next.value);
@@ -1057,7 +1115,7 @@ async function tryForwardClaudeOpus5ThroughRenderSwarm(input: ChatInput, signal:
 }
 
 /** Claude Opus 5 balances each new call evenly across configured provider groups, then across eligible keys in that group. */
-async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: AbortSignal) {
+async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: AbortSignal, context?: ProviderRequestContext) {
   const runtime = await getClaudeOpus5RuntimeConfig();
   const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeOpus5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
   claudeOpus5ProviderCursor = runtime.providers.length ? (claudeOpus5ProviderCursor + 1) % runtime.providers.length : 0;
@@ -1106,7 +1164,9 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
       if (!selectedCredential) break;
       const responseStart = createResponseStartDeadline(signal);
       try {
-        const providerInput = normalizeBaiMaxTokens(input, isBaiProviderLabel(provider.label));
+        const isBai = isBaiProviderLabel(provider.label);
+        const preparedInput = isBai ? await rehydrateBaiReasoningHistory("claude-opus-5", input, context) : input;
+        const providerInput = normalizeBaiMaxTokens(preparedInput, isBai);
         const response = isBailuClaudeOpus5Provider(provider)
           ? await forwardBailuRequestWithWebshareFailover(url, providerInput, upstreamModel, selectedCredential.credential, responseStart.signal, responseStart.timedOut)
           : await fetch(url, {
@@ -1130,6 +1190,10 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
               continue;
             }
           }
+          if (!input.stream && isBai) {
+            const payload = await response.clone().json().catch(() => null);
+            captureBaiReasoningContinuation("claude-opus-5", context, payload);
+          }
           recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
           void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
           if (!input.stream && qwenModel) {
@@ -1146,7 +1210,15 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
             }
             recordQwenModelUsage(usageFrom(payload));
           }
-          return wrapClaudeOpus5ProviderResponseWithFailureLog(response, provider, signal, qwenModel ? recordQwenModelUsage : undefined, qwenModel ? usage => recordQwenZeroOutput(usage, false) : undefined, qwenFailureSource);
+          return wrapClaudeOpus5ProviderResponseWithFailureLog(
+            response,
+            provider,
+            signal,
+            qwenModel ? recordQwenModelUsage : undefined,
+            qwenModel ? usage => recordQwenZeroOutput(usage, false) : undefined,
+            qwenFailureSource,
+            isBai ? payload => captureBaiReasoningContinuation("claude-opus-5", context, payload) : undefined,
+          );
         }
         const retryable = retryableProviderStatus(response.status);
         const rawBody = await response.text().catch(() => "");
@@ -1365,10 +1437,10 @@ async function forwardOrcaRouterRequest(input: ChatInput, signal: AbortSignal) {
   );
 }
 
-async function forwardTokenRouterRequest(input: ChatInput, signal: AbortSignal) {
-  if (input.model === "claude-opus-5") return forwardDedicatedClaudeOpus5Request(input, signal);
+async function forwardTokenRouterRequest(input: ChatInput, signal: AbortSignal, context?: ProviderRequestContext) {
+  if (input.model === "claude-opus-5") return forwardDedicatedClaudeOpus5Request(input, signal, context);
   if (input.model === "claude-fable-5") return forwardDedicatedClaudeFable5Request(input, signal);
-  if (input.model === "glm-5.3") return forwardDedicatedGlm53Request(input, signal);
+  if (input.model === "glm-5.3") return forwardDedicatedGlm53Request(input, signal, context);
   if (input.model === "claude-sonnet-4.6") return forwardDedicatedSonnet46Request(input, signal);
   if (input.model === "qwen3.8-max") return forwardDedicatedQwen38MaxRequest(input, signal);
   const base = process.env.TOKENROUTER_BASE_URL?.replace(/\/$/, "");
@@ -1502,7 +1574,7 @@ function canonicalManagedIdentityResponse(model: TokenForgeModelId, identity: st
   return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, { status: 200, headers: { "content-type": "text/event-stream" } });
 }
 
-export async function forwardProviderRequest(model: TokenForgeModelId, input: TokenForgeChatInput, signal: AbortSignal) {
+export async function forwardProviderRequest(model: TokenForgeModelId, input: TokenForgeChatInput, signal: AbortSignal, context?: ProviderRequestContext) {
   if (isStrictPublicManagedModel(model) && isManagedIdentityDisclosureRequest(input.messages)) {
     return canonicalManagedIdentityResponse(model, publicIdentityForManagedModel(model), input.stream);
   }
@@ -1511,7 +1583,7 @@ export async function forwardProviderRequest(model: TokenForgeModelId, input: To
   if (provider === CLUSTER_PROTOCOL_PROVIDER_SLUG) return forwardClusterRequest(input, signal);
   if (provider === TOKENHARBOR_PROVIDER_SLUG) return forwardTokenHarborRequest(input, signal);
   if (provider === CLAUDE_OPUS5_PROVIDER_SLUG) return forwardOrcaRouterRequest(input, signal);
-  if (provider === TOKENROUTER_PROVIDER_SLUG) return forwardTokenRouterRequest(input, signal);
+  if (provider === TOKENROUTER_PROVIDER_SLUG) return forwardTokenRouterRequest(input, signal, context);
   throw new Error("TokenForge inference routing is not configured for this model");
 }
 
@@ -1618,6 +1690,43 @@ function publicAssistantSegment(model: TokenForgeModelId, value: unknown) {
     ...(content !== undefined ? { content } : {}),
     ...(toolCalls ? { tool_calls: toolCalls } : {}),
   };
+}
+
+function bAiAssistantTurnFingerprint(model: TokenForgeModelId, value: unknown) {
+  const visible = publicAssistantSegment(model, value);
+  if (!visible || visible.role !== "assistant") return null;
+  return createHash("sha256").update(JSON.stringify(visible)).digest("hex");
+}
+
+function withoutCallerReasoning(message: ChatMessage): ChatMessage {
+  const { reasoning_content: _reasoningContent, reasoning: _reasoning, thinking: _thinking, ...visibleMessage } = message as Record<string, unknown>;
+  return visibleMessage;
+}
+
+async function rehydrateBaiReasoningHistory(model: "claude-opus-5" | "glm-5.3", input: ChatInput, context: ProviderRequestContext | undefined): Promise<ChatInput> {
+  if (!context?.userId || !Array.isArray(input.messages)) return input;
+  let changed = false;
+  const messages = await Promise.all(input.messages.map(async message => {
+    if (!message || typeof message !== "object" || message.role !== "assistant") return message;
+    const visibleMessage = withoutCallerReasoning(message);
+    if (visibleMessage !== message) changed = true;
+    const fingerprint = bAiAssistantTurnFingerprint(model, visibleMessage);
+    if (!fingerprint) return visibleMessage;
+    const reasoningContent = await loadBaiReasoningContinuation(context.userId, model, fingerprint);
+    if (!reasoningContent) return visibleMessage;
+    changed = true;
+    return { ...visibleMessage, reasoning_content: reasoningContent };
+  }));
+  return changed ? { ...input, messages } : input;
+}
+
+function captureBaiReasoningContinuation(model: "claude-opus-5" | "glm-5.3", context: ProviderRequestContext | undefined, payload: unknown) {
+  if (!context?.userId) return;
+  const reasoningContent = reasoningContentFrom(payload);
+  const message = isRecord(payload) && Array.isArray(payload.choices) && isRecord(payload.choices[0]) ? payload.choices[0].message : null;
+  const fingerprint = bAiAssistantTurnFingerprint(model, message);
+  if (!reasoningContent || !fingerprint) return;
+  void storeBaiReasoningContinuation(context.userId, model, fingerprint, reasoningContent).catch(() => undefined);
 }
 
 function publicManagedUsage(value: unknown) {
@@ -1737,7 +1846,7 @@ export async function runPlaygroundCompletion(input: {
       ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
       ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
       ...(input.model === "qwen3.8-max" || input.model === "claude-fable-5" ? { reasoning_effort: "xhigh" } : {}),
-    }, aborter.signal);
+    }, aborter.signal, { userId: input.userId });
     // Headers arrived; the remaining body may complete within the managed hosting request ceiling.
     clearTimeout(timeout);
     if (!upstream.ok) {
@@ -1823,7 +1932,7 @@ async function streamPlaygroundCompletion(input: {
       ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
       ...(input.temperature !== undefined ? { temperature: input.temperature } : {}),
       ...(input.model === "qwen3.8-max" || input.model === "claude-fable-5" ? { reasoning_effort: "xhigh" } : {}),
-    }, aborter.signal);
+    }, aborter.signal, { userId: input.userId });
     // Do not let the response-start timer interrupt an SSE body after upstream headers arrive.
     clearTimeout(timeout);
     if (!upstream.ok) {
@@ -1971,7 +2080,7 @@ export function registerOpenAiGateway(app: Express) {
       upstream = await forwardProviderRequest(input.model as TokenForgeModelId, {
         ...input,
         messages: withModelScopedGuidance(input.model as TokenForgeModelId, input.messages),
-      }, aborter.signal);
+      }, aborter.signal, { userId: key.userId });
     } catch (error) {
       clearTimeout(timeout);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request did not complete" });

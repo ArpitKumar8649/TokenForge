@@ -6,6 +6,7 @@ import {
   accountFlags,
   apiKeys,
   auditEvents,
+  baiReasoningContinuations,
   bailuWebshareProxySlotMetrics,
   claudeOpus5FailureLogs,
   creditAccounts,
@@ -43,6 +44,7 @@ import { getFxqidianCredentialPool } from "./fxqidianCredentials";
 import { getTokenRouterCredentialPool } from "./tokenRouterCredentials";
 import { getCredentialSlotTelemetry, getProviderCredentialTelemetry, type CredentialTelemetryProvider } from "./providerCredentialTelemetry";
 import { encryptOrcaRouterCredential } from "./orcaRouterCredentialVault";
+import { decryptBaiReasoningContinuation, encryptBaiReasoningContinuation } from "./baiReasoningContinuationVault";
 import { decryptGlmToolContinuation, encryptGlmToolContinuation, type GlmPrivateToolContinuation } from "./glmToolContinuationVault";
 import { decryptProviderRuntimeConfig, encryptProviderRuntimeConfig } from "./providerRuntimeConfigVault";
 import { TOKENFORGE_REFERRAL_REWARD_NANOS, isSpecialReferralCampaignCode, normalizeReferralCode } from "../shared/referrals";
@@ -67,6 +69,7 @@ const SONNET46_RUNTIME_SETTING_KEY = "sonnet46_runtime_v1";
 const QWEN38_MAX_RUNTIME_SETTING_KEY = "qwen38_max_runtime_v1";
 const RENDER_NIM_PROXY_SWARM_SETTING_KEY = "render_nim_proxy_swarm_v1";
 const BAILU_WEBSHARE_PROXY_POOL_SETTING_KEY = "bailu_webshare_proxy_pool_v1";
+const BAI_REASONING_CONTINUATION_TTL_MS = 10 * 60 * 1_000;
 const SPECIAL_REFERRAL_CAMPAIGN_KEY = "special-referral-150-v1";
 export const SPECIAL_REFERRAL_CAMPAIGN_CAP = 150;
 export const SPECIAL_REFERRAL_BONUS_NANOS = 150 * NANODOLLARS_PER_DOLLAR;
@@ -836,6 +839,42 @@ export async function loadGlmToolContinuations(userId: number, toolCallIds: read
     }
   }
   return result;
+}
+
+/** Encrypt provider-private b.ai reasoning for a single visible assistant turn and owning account only. */
+export async function storeBaiReasoningContinuation(userId: number, modelId: "claude-opus-5" | "glm-5.3", assistantFingerprint: string, reasoningContent: string) {
+  const db = await getDb();
+  if (!db || !Number.isInteger(userId) || userId <= 0 || !/^[a-f0-9]{64}$/i.test(assistantFingerprint) || !reasoningContent.trim()) return;
+  const encrypted = encryptBaiReasoningContinuation(reasoningContent);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + BAI_REASONING_CONTINUATION_TTL_MS);
+  await db.transaction(async tx => {
+    await tx.delete(baiReasoningContinuations).where(lte(baiReasoningContinuations.expiresAt, now));
+    await tx.insert(baiReasoningContinuations).values({ userId, modelId, assistantFingerprint, ciphertext: encrypted.ciphertext, iv: encrypted.iv, authTag: encrypted.authTag, expiresAt })
+      .onDuplicateKeyUpdate({ set: { ciphertext: encrypted.ciphertext, iv: encrypted.iv, authTag: encrypted.authTag, expiresAt } });
+  });
+}
+
+/** Return a still-valid b.ai reasoning continuation only for the owning account and public model. */
+export async function loadBaiReasoningContinuation(userId: number, modelId: "claude-opus-5" | "glm-5.3", assistantFingerprint: string) {
+  const db = await getDb();
+  if (!db || !Number.isInteger(userId) || userId <= 0 || !/^[a-f0-9]{64}$/i.test(assistantFingerprint)) return null;
+  const row = (await db.select().from(baiReasoningContinuations).where(and(
+    eq(baiReasoningContinuations.userId, userId),
+    eq(baiReasoningContinuations.modelId, modelId),
+    eq(baiReasoningContinuations.assistantFingerprint, assistantFingerprint),
+  )).limit(1))[0];
+  if (!row) return null;
+  if (row.expiresAt <= new Date()) {
+    await db.delete(baiReasoningContinuations).where(eq(baiReasoningContinuations.id, row.id));
+    return null;
+  }
+  try {
+    return decryptBaiReasoningContinuation(row);
+  } catch {
+    await db.delete(baiReasoningContinuations).where(eq(baiReasoningContinuations.id, row.id));
+    return null;
+  }
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
