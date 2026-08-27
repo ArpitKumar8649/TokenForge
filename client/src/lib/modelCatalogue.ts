@@ -63,6 +63,6 @@ export function prioritizePlaygroundModels<T extends { id: string }>(models: rea
 }
 
 export const formatUsdPerMillion = (value: number) => `$${value.toFixed(2)}`;
-export const TOKENFORGE_PLATFORM_CHARGE_MULTIPLIER = 1.5;
+export const TOKENFORGE_PLATFORM_CHARGE_MULTIPLIER = 3.5;
 export const tokenForgeCreditRatePerMillion = (upstreamRate: number) => upstreamRate * TOKENFORGE_PLATFORM_CHARGE_MULTIPLIER;
 export const formatTokenForgeCreditRatePerMillion = (upstreamRate: number) => `$${tokenForgeCreditRatePerMillion(upstreamRate).toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}`;

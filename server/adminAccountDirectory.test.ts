@@ -19,4 +19,8 @@ describe("normalizeAdminAccountDirectoryInput", () => {
   it("uses latest joined when an unsupported sort is supplied", () => {
     expect(normalizeAdminAccountDirectoryInput({ sort: "unknown" as never }).sort).toBe("latestJoin");
   });
+
+  it("accepts the most-referrals directory sort for the protected account view", () => {
+    expect(normalizeAdminAccountDirectoryInput({ sort: "mostReferrals" })).toMatchObject({ sort: "mostReferrals" });
+  });
 });

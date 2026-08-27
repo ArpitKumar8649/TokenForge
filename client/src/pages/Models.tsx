@@ -15,7 +15,7 @@ export default function Models() {
         <div className="catalogue-heading">
           <div>
             <h1>{TOKENFORGE_MODELS.length} text models.<br /><em>One considered interface.</em></h1>
-            <p>Every active route supports OpenAI-compatible chat completions, provider-isolated execution, and a published TokenForge credit rate that includes the 1.5× platform charge. Image, audio, embedding, transcription, and research-only routes are intentionally excluded.</p>
+            <p>Every active route supports OpenAI-compatible chat completions, provider-isolated execution, and a published TokenForge credit rate that includes the 3.5× platform charge. Image, audio, embedding, transcription, and research-only routes are intentionally excluded.</p>
           </div>
           <div className="catalogue-stats">
             <div><strong>{String(TOKENFORGE_MODELS.length).padStart(2, "0")}</strong><span>verified text routes</span></div>
@@ -42,7 +42,7 @@ export default function Models() {
                 <section className="model-rate-card" aria-label={`${model.name} TokenForge credit rate`}>
                   <div className="model-rate-card__head">
                     <p>Credit rate</p>
-                    <span>1.5× included</span>
+                    <span>3.5× included</span>
                   </div>
                   <dl>
                     <div><dt>Input</dt><dd>{formatTokenForgeCreditRatePerMillion(model.inputUsdPerMillion)}</dd><small>/ 1M tokens</small></div>
@@ -65,7 +65,7 @@ export default function Models() {
           <div className="catalogue-note__icon"><Gauge size={20} /></div>
           <div>
             <strong>Verified rates are a requirement for activation.</strong>
-            <p>Prices link to first-party provider materials. TokenForge applies a clearly disclosed 1.5× platform charge to upstream rates when credits are reserved and settled. Availability is checked when a request begins; TokenForge never silently switches a selected model.</p>
+            <p>Prices link to first-party provider materials. TokenForge applies a clearly disclosed 3.5× platform charge to upstream rates when credits are reserved and settled. Availability is checked when a request begins; TokenForge never silently switches a selected model.</p>
           </div>
           <Link href="/signup" className="models-cta">Create an account <Braces size={16} /></Link>
         </section>

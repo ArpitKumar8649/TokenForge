@@ -44,6 +44,26 @@ describe("composeAdminAccountOverview", () => {
 
     expect(accounts[0]).toMatchObject({ balanceNanos: 0, lifetimeSpendNanos: 0, requestCount: 0, totalTokens: 0, lastActivityAt: null });
   });
+
+  it("uses a visible zero when an account has not made any referrals", () => {
+    const accounts = composeAdminAccountOverview([
+      {
+        id: 9,
+        name: "No referrals yet",
+        email: null,
+        role: "user",
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+        lastSignedIn: new Date("2026-01-01T00:00:00Z"),
+        suspended: null,
+        suspicious: null,
+        requestLimit: null,
+        tokenLimit: null,
+        balanceNanos: null,
+      },
+    ], []);
+
+    expect(accounts[0]).toMatchObject({ referralCount: 0 });
+  });
 });
 
 describe("normalizeAdminEmailProviderCounts", () => {

@@ -499,6 +499,15 @@
 - [x] Reproduce the supplied Webshare Direct proxy path against the saved Bailu provider route and compare it with TokenForge’s proxy transport without logging credentials or raw provider content.
 - [x] Diagnose why the confirmed working Webshare Direct proxy accepts the Termux connection but closes TokenForge cloud-runtime HTTP tunnels before any Bailu request is sent.
 - [x] Determine and validate the documented SOCKS5 Direct connection mode as a Webshare transport compatible with the TokenForge cloud runtime.
+- [x] Verify the currently enabled Bailu Webshare proxy pool with a fresh controlled TokenForge request and confirm its configured routing scope.
+- [x] Diagnose the production-only Bailu SOCKS5 HostUnreachable failures and prevent stale runtime configuration from masking the active verified proxy pool; isolated one-slot routing now reaches Bailu but receives its HTTP 403 IP-policy rejection.
+- [x] Change the TokenForge platform charge multiplier from 1.5× to 3.5× across reservation, settlement, displayed pricing, and regressions.
+- [x] Add each account’s referral count to protected administrator account data and add a most-referrals account sorting option.
+- [x] Confirm whether the requested referral reset should preserve already-awarded referral credits and ledger history before deleting any referral attribution records; user confirmed attribution-only deletion with referral codes and historical credits retained.
+- [x] Validate the Bailu routing, platform-charge, referral-count, and account-sort changes with TypeScript, focused gateway/account/pricing suites, a clean diff check, and an isolated one-slot Bailu probe; publish in the following release checkpoint.
+- [x] Isolate Bailu’s own proxy attempt from Claude Opus cross-provider fallback and verify the configured proxy slots independently; both slots reached Bailu but received its HTTP 403 source-IP policy response.
+- [x] Retain exactly one enabled Bailu Webshare proxy slot, then re-test a Bailu-only request with no Claude Opus provider fallback; Bailu returned HTTP 403 through the proxy, confirming proxy transport but no usable provider response.
+- [x] Delete all existing referral-attribution records after the confirmed scope: retain referral codes and previously awarded immutable credit-ledger entries; remaining attribution count verified as 0.
 - [x] Pause the Bailu fixed-egress rollout pending the requested Claude Opus 5 and GLM 5.3 response-quality investigation.
 - [x] Run controlled Claude Opus 5 and GLM 5.3 gateway probes, compare normalized outputs with Playground rendering, and diagnose broken-response causes.
 - [x] Add opt-in quality regressions and validate that no reproducible Claude Opus 5 or GLM 5.3 gateway, SSE, or client text-corruption defect was present in the controlled probes.

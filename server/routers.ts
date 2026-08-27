@@ -111,7 +111,7 @@ const adminAccountDirectoryInput = z.object({
   pageSize: z.number().int().min(5).max(50).default(10),
   search: z.string().trim().max(120).default(""),
   status: z.enum(["all", "active", "suspended", "flagged"]).default("all"),
-  sort: z.enum(["latestJoin", "mostTokens", "discordVerified", "mostCredit", "specialReferral"]).default("latestJoin"),
+  sort: z.enum(["latestJoin", "mostTokens", "discordVerified", "mostCredit", "mostReferrals", "specialReferral"]).default("latestJoin"),
 });
 const adminPreProvisionAccountInput = z.object({
   email: z.string().trim().email("Enter a valid email address").max(320, "Email addresses must be 320 characters or fewer"),

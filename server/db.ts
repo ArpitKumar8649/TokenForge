@@ -2908,6 +2908,7 @@ export type AdminAccountBase = {
   discordVerifiedAt: Date | null;
   specialReferralSlot?: number | null;
   specialReferralAwardedAt?: Date | null;
+  referralCount?: number | null;
 };
 
 export type AdminAccountUsage = {
@@ -2923,11 +2924,11 @@ export type AdminAccountDirectoryInput = {
   pageSize?: number;
   search?: string;
   status?: "all" | "active" | "suspended" | "flagged";
-  sort?: "latestJoin" | "mostTokens" | "discordVerified" | "mostCredit" | "specialReferral";
+  sort?: "latestJoin" | "mostTokens" | "discordVerified" | "mostCredit" | "mostReferrals" | "specialReferral";
 };
 
 export function normalizeAdminAccountDirectoryInput(input: AdminAccountDirectoryInput = {}) {
-  const sort = input.sort === "mostTokens" || input.sort === "discordVerified" || input.sort === "mostCredit" || input.sort === "specialReferral" || input.sort === "latestJoin"
+  const sort = input.sort === "mostTokens" || input.sort === "discordVerified" || input.sort === "mostCredit" || input.sort === "mostReferrals" || input.sort === "specialReferral" || input.sort === "latestJoin"
     ? input.sort
     : "latestJoin";
   return {
@@ -2951,6 +2952,7 @@ export function composeAdminAccountOverview(accounts: AdminAccountBase[], usageR
       requestCount: Number(usage?.requestCount ?? 0),
       totalTokens: Number(usage?.totalTokens ?? 0),
       lifetimeSpendNanos: Number(usage?.lifetimeSpendNanos ?? 0),
+      referralCount: Number(account.referralCount ?? 0),
       lastActivityAt: lastActivity && !Number.isNaN(lastActivity.getTime()) ? lastActivity : null,
     };
   });
@@ -3010,17 +3012,24 @@ export async function listAdminAccounts(input: AdminAccountDirectoryInput = {}) 
     where ${usageEvents.userId} = ${users.id}
       and ${usageEvents.status} = ${"success"}
   ), 0)`;
+  const referralCount = sql<number>`coalesce((
+    select count(${referralAttributions.id})
+    from ${referralAttributions}
+    where ${referralAttributions.referrerUserId} = ${users.id}
+  ), 0)`;
   const sortOrder = query.sort === "mostTokens"
     ? [desc(successfulLifetimeTokens), desc(users.createdAt), desc(users.id)]
     : query.sort === "discordVerified"
       ? [desc(accountControls.discordVerifiedAt), desc(users.createdAt), desc(users.id)]
       : query.sort === "mostCredit"
         ? [desc(creditAccounts.balanceNanos), desc(users.createdAt), desc(users.id)]
+        : query.sort === "mostReferrals"
+          ? [desc(referralCount), desc(users.createdAt), desc(users.id)]
         : query.sort === "specialReferral"
           ? [desc(specialReferralClaims.awardedAt), desc(specialReferralClaims.reservedAt), desc(users.createdAt), desc(users.id)]
         : [desc(users.createdAt), desc(users.id)];
   const accounts = await db
-    .select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos, discordVerifiedAt: accountControls.discordVerifiedAt, specialReferralSlot: specialReferralClaims.slotNumber, specialReferralAwardedAt: specialReferralClaims.awardedAt })
+    .select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos, discordVerifiedAt: accountControls.discordVerifiedAt, specialReferralSlot: specialReferralClaims.slotNumber, specialReferralAwardedAt: specialReferralClaims.awardedAt, referralCount })
     .from(users)
     .leftJoin(accountControls, eq(users.id, accountControls.userId))
     .leftJoin(creditAccounts, eq(users.id, creditAccounts.userId))

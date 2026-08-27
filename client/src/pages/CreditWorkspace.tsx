@@ -31,7 +31,7 @@ function WalletHero({ compact = false }: { compact?: boolean }) {
         <p className="credit-kicker"><WalletCards size={13} /> Promotional credit wallet</p>
         <span className="credit-hero__label">Available to build with</span>
         <h2>{formatCreditWhole(data.balanceNanos)}</h2>
-        <p className="credit-hero__description">Non-withdrawable platform credit. Successful requests settle from provider-reported usage at the published TokenForge credit rate, including the 1.5× platform charge.</p>
+        <p className="credit-hero__description">Non-withdrawable platform credit. Successful requests settle from provider-reported usage at the published TokenForge credit rate, including the 3.5× platform charge.</p>
       </div>
       <div className="credit-hero__stats" aria-label="Credit reward details">
         <div><span><Sparkles size={14} /> Starting credit</span><b>$50.00</b><small>for a new wallet</small></div>
@@ -63,8 +63,8 @@ export function calculateUsagePricingBreakdown(modelId: string, inputTokens: num
   return calculateSettledUsagePricingBreakdownNanos({
     inputTokens: Number(inputTokens ?? 0),
     outputTokens: Number(outputTokens ?? 0),
-    upstreamInputUsdPerMillion: model.inputUsdPerMillion / 1.5,
-    upstreamOutputUsdPerMillion: model.outputUsdPerMillion / 1.5,
+    upstreamInputUsdPerMillion: model.inputUsdPerMillion / 3.5,
+    upstreamOutputUsdPerMillion: model.outputUsdPerMillion / 3.5,
     finalCreditDeductionNanos: Number(chargeNanos ?? 0),
   });
 }
@@ -145,7 +145,7 @@ export function UsageLogs() {
                   <summary>See request pricing <ChevronDown size={14} aria-hidden="true" /></summary>
                   {pricing ? <div className="usage-pricing-breakdown__rows">
                     <div><span>Provider base cost</span><b>{formatCreditNanos(pricing.providerBaseNanos)}</b></div>
-                    <div><span>Platform charge <small>(1.5× rate)</small></span><b>{formatCreditNanos(pricing.platformChargeNanos)}</b></div>
+                    <div><span>Platform charge <small>(3.5× rate)</small></span><b>{formatCreditNanos(pricing.platformChargeNanos)}</b></div>
                     <div><span>Final credit deduction</span><b>−{formatCreditNanos(pricing.finalCreditDeductionNanos)}</b></div>
                   </div> : <p className="usage-pricing-breakdown__unavailable">Pricing details are unavailable for this historical model route.</p>}
                 </details>}

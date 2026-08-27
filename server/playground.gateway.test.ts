@@ -263,7 +263,7 @@ describe("TokenForge Playground gateway", () => {
       sourceIpHash: "hashed-source-ip",
     });
 
-    expect(result).toMatchObject({ model: "glm-5.2", usage: { totalTokens: 30 }, credit: { chargeNanos: 144_000, balanceNanos: 49_999_856_000 } });
+    expect(result).toMatchObject({ model: "glm-5.2", usage: { totalTokens: 30 }, credit: { chargeNanos: 336_000, balanceNanos: 49_999_664_000 } });
     expect(fetchMock).toHaveBeenCalledWith("https://provider.example/v1/chat/completions", expect.objectContaining({
       headers: expect.objectContaining({ Authorization: "Bearer server-only-provider-secret" }),
       body: expect.stringContaining('"model":"glm-5.2"'),
@@ -277,8 +277,8 @@ describe("TokenForge Playground gateway", () => {
     expect(forwardedPayload.messages[1].content).toContain("useful, detailed, and clearly structured");
     expect(forwardedPayload.messages[2]).toEqual({ role: "user", content: "How should I protect an upstream credential?" });
     expect(reserveCredit).toHaveBeenCalledWith(42, expect.any(Number), expect.stringMatching(/^tf_pg_/));
-    expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 144_000 }));
-    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, modelId: "glm-5.2", status: "success", inputTokens: 12, outputTokens: 18, chargeNanos: 144_000, sourceIpHash: "hashed-source-ip" }));
+    expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 336_000 }));
+    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, modelId: "glm-5.2", status: "success", inputTokens: 12, outputTokens: 18, chargeNanos: 336_000, sourceIpHash: "hashed-source-ip" }));
     expect(vi.mocked(recordUsage).mock.calls[0][0]).not.toHaveProperty("apiKeyId");
   });
 
@@ -513,8 +513,8 @@ describe("TokenForge Playground gateway", () => {
       body: expect.stringContaining('"model":"kimi-k3"'),
     }));
     expect(JSON.stringify(fetchMock.mock.calls[0][1].headers)).not.toContain("server-only-provider-secret");
-    expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 495_000 }));
-    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "kimi-k3", status: "success", inputTokens: 10, outputTokens: 20, chargeNanos: 495_000 }));
+    expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 1_155_000 }));
+    expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "kimi-k3", status: "success", inputTokens: 10, outputTokens: 20, chargeNanos: 1_155_000 }));
   });
 
   it("rotates sequential Cluster Protocol gateway calls across every configured server-only credential", async () => {
@@ -565,8 +565,8 @@ describe("TokenForge Playground gateway", () => {
     expect(forwardedPayload.messages[0].content).toContain("I am DeepSeek V4 Pro, available through TokenForge.");
     expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toContain("server-only-provider-secret");
     expect(JSON.stringify(fetchMock.mock.calls[0][1])).not.toContain("server-only-cluster-secret");
-    expect(reserveCredit).toHaveBeenCalledWith(42, 432_810, expect.stringMatching(/^tf_pg_/));
-    expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 10_500 }));
+    expect(reserveCredit).toHaveBeenCalledWith(42, 1_009_890, expect.stringMatching(/^tf_pg_/));
+    expect(settleReservedCredit).toHaveBeenCalledWith(expect.objectContaining({ userId: 42, finalChargeNanos: 24_500 }));
     expect(recordUsage).toHaveBeenCalledWith(expect.objectContaining({ modelId: "deepseek-v4-pro", status: "success", inputTokens: 10, outputTokens: 20 }));
   });
 

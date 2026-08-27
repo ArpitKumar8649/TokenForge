@@ -153,6 +153,12 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain('dashboard-card min-w-0 p-3 sm:p-4');
   });
 
+  it("shows each protected account’s referral count and supports most-referrals sorting", () => {
+    expect(source).toContain("Referrals made");
+    expect(source).toContain("account.referralCount.toLocaleString()");
+    expect(source).toContain('value="mostReferrals">Most referrals made</option>');
+  });
+
   it("keeps a locally deleted DeepSeek provider key removed after the successful save response", () => {
     expect(source).toContain("setInitialized(true);");
     expect(source).not.toContain("setInitialized(false);");
