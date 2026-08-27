@@ -1,5 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { createHash, createHmac, randomUUID } from "node:crypto";
+import https from "node:https";
+import { Readable } from "node:stream";
 import {
   getBailuWebshareProxyPoolRuntimeConfig,
   findActiveApiKey,
@@ -32,7 +34,7 @@ import {
   tryAcquireRenderNimProxyEndpoint,
   sanitizeRenderNimProxyFailureMessage,
 } from "./db";
-import { fetch as undiciFetch, ProxyAgent } from "undici";
+import { SocksProxyAgent } from "socks-proxy-agent";
 import { selectNextClusterProtocolCredentialWithSlot } from "./clusterProtocolCredentials";
 import { selectNextBluesMindsClaudeFable5CredentialWithSlot } from "./bluesMindsClaudeFable5Credentials";
 import { selectNextFxqidianCredentialWithSlot } from "./fxqidianCredentials";
@@ -614,7 +616,7 @@ let claudeOpus5ProviderCursor = 0;
 const claudeOpus5KeyCursors = new Map<string, number>();
 const claudeOpus5QwenModelCursors = new Map<string, number>();
 let bailuWebshareProxyCursor = 0;
-const bailuWebshareProxyAgents = new Map<string, { signature: string; agent: ProxyAgent }>();
+const bailuWebshareProxyAgents = new Map<string, { signature: string; agent: SocksProxyAgent }>();
 
 export function resetClaudeOpus5ProviderBalancing() {
   claudeOpus5ProviderCursor = 0;
@@ -626,7 +628,7 @@ export async function resetBailuWebshareProxyPool() {
   bailuWebshareProxyCursor = 0;
   const agents = Array.from(bailuWebshareProxyAgents.values());
   bailuWebshareProxyAgents.clear();
-  await Promise.all(agents.map(({ agent }) => agent.close().catch(() => undefined)));
+  for (const { agent } of agents) agent.destroy();
 }
 
 function orderedBailuWebshareProxies(proxies: Awaited<ReturnType<typeof getBailuWebshareProxyPoolRuntimeConfig>>["proxies"]) {
@@ -641,26 +643,46 @@ function bailuWebshareProxyAgent(proxy: Awaited<ReturnType<typeof getBailuWebsha
   const signature = createHash("sha256").update(`${proxy.host}:${proxy.port}\u0000${proxy.username}\u0000${proxy.password}`).digest("hex");
   const existing = bailuWebshareProxyAgents.get(proxy.id);
   if (existing?.signature === signature) return existing.agent;
-  if (existing) void existing.agent.close().catch(() => undefined);
-  const token = `Basic ${Buffer.from(`${proxy.username}:${proxy.password}`, "utf8").toString("base64")}`;
-  const agent = new ProxyAgent({ uri: `http://${proxy.host}:${proxy.port}`, token });
+  if (existing) existing.agent.destroy();
+  const proxyUrl = new URL(`socks5://${proxy.host}:${proxy.port}`);
+  proxyUrl.username = proxy.username;
+  proxyUrl.password = proxy.password;
+  const agent = new SocksProxyAgent(proxyUrl);
   bailuWebshareProxyAgents.set(proxy.id, { signature, agent });
   return agent;
 }
 
 async function forwardBailuRequestThroughWebshare(url: string, input: ChatInput, upstreamModel: string, credential: string, signal: AbortSignal, proxy: Awaited<ReturnType<typeof getBailuWebshareProxyPoolRuntimeConfig>>["proxies"][number]) {
-  const response = await undiciFetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${credential}`,
-      "Content-Type": "application/json",
-      Accept: input.stream ? "text/event-stream" : "application/json",
-    },
-    body: JSON.stringify({ ...input, model: upstreamModel }),
-    signal,
-    dispatcher: bailuWebshareProxyAgent(proxy),
+  return new Promise<globalThis.Response>((resolve, reject) => {
+    const request = https.request(url, {
+      method: "POST",
+      agent: bailuWebshareProxyAgent(proxy),
+      signal,
+      headers: {
+        Authorization: `Bearer ${credential}`,
+        "Content-Type": "application/json",
+        Accept: input.stream ? "text/event-stream" : "application/json",
+      },
+    }, response => {
+      const headers = new Headers();
+      for (const [name, value] of Object.entries(response.headers)) {
+        if (value === undefined) continue;
+        headers.set(name, Array.isArray(value) ? value.join(", ") : value);
+      }
+      const status = response.statusCode ?? 502;
+      if (status < 200 || status >= 300) {
+        const chunks: Buffer[] = [];
+        response.on("data", chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        response.once("error", reject);
+        response.once("end", () => resolve(new Response(Buffer.concat(chunks), { status, headers })));
+        return;
+      }
+      resolve(new Response(response.readableEnded ? null : Readable.toWeb(response) as ReadableStream, { status, headers }));
+    });
+    request.once("error", reject);
+    request.write(JSON.stringify({ ...input, model: upstreamModel }));
+    request.end();
   });
-  return response as unknown as globalThis.Response;
 }
 
 async function forwardBailuRequestWithWebshareFailover(url: string, input: ChatInput, upstreamModel: string, credential: string, signal: AbortSignal) {

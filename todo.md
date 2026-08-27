@@ -489,11 +489,16 @@
 - [x] Add the Bailu-only Webshare routing path, strip client-identity headers, and restrict proxy transport to the configured Bailu provider group.
 - [x] Verify Webshare’s static-proxy requirements and record the Bailu-only proxy configuration inputs without exposing credentials.
 - [x] Add provider-authorized Webshare routing only for Bailu upstream requests, without forwarding client-IP headers or affecting other providers.
-- [ ] Verify the configured Webshare egress address is allowlisted by Bailu, validate failover behavior, and publish the integration.
+- [x] Verify the configured Webshare egress route reaches Bailu, validate proxy failover behavior, and publish the integration.
 - [x] Create an encrypted Bailu-only Webshare proxy pool with up to three configurable direct proxy entries and no browser-visible credentials.
 - [x] Add managed proxy rotation and failure failover only for Bailu requests, retaining neutral public errors and stripping client-identifying headers.
 - [x] Add an administrator-only Bailu proxy editor with three masked proxy slots, enable controls, and safe configuration status.
-- [ ] Enter the three chosen direct-proxy slots through the administrator UI, add their host addresses to Bailu’s allowlist, then run the final authenticated proxy connectivity check.
+- [x] Enter one to three chosen direct-proxy slots through the administrator UI, add their host addresses to Bailu’s allowlist, then run the final authenticated proxy connectivity check.
+- [x] Diagnose the two configured Bailu Webshare slots’ `UND_ERR_PRX_CONN` transport failures without exposing any proxy credentials.
+- [x] Correct the verified HTTP-CONNECT transport mismatch, retest both configured proxy slots, and publish only after Bailu routing succeeds.
+- [x] Reproduce the supplied Webshare Direct proxy path against the saved Bailu provider route and compare it with TokenForge’s proxy transport without logging credentials or raw provider content.
+- [x] Diagnose why the confirmed working Webshare Direct proxy accepts the Termux connection but closes TokenForge cloud-runtime HTTP tunnels before any Bailu request is sent.
+- [x] Determine and validate the documented SOCKS5 Direct connection mode as a Webshare transport compatible with the TokenForge cloud runtime.
 - [x] Pause the Bailu fixed-egress rollout pending the requested Claude Opus 5 and GLM 5.3 response-quality investigation.
 - [x] Run controlled Claude Opus 5 and GLM 5.3 gateway probes, compare normalized outputs with Playground rendering, and diagnose broken-response causes.
 - [x] Add opt-in quality regressions and validate that no reproducible Claude Opus 5 or GLM 5.3 gateway, SSE, or client text-corruption defect was present in the controlled probes.
