@@ -215,5 +215,10 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("priorityRoutingEnabled");
     expect(source).toContain("Priority mode uses lower numbers first");
     expect(source).toContain("Qwen provider priority");
+    expect(source).toContain("input.disabled = disabled || !priorityRoutingEnabled");
+    expect(source).toContain("Restore equal-share");
+    expect(source).toContain("restoreProviderEqualShareRouting.useMutation");
+    expect(source).toContain("Drag a provider or enter its number, then select Save load balancer below.");
+    expect(source).toContain("card.draggable = priorityRoutingEnabled && !disabled");
   });
 });

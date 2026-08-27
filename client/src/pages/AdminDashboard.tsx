@@ -98,7 +98,7 @@ function useProviderPriorityControls({ providerName, drafts, priorityRoutingEnab
     modeControl.dataset.priorityRoutingControl = providerName;
     modeControl.className = "mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/8 bg-black/15 px-3 py-3";
     const copy = document.createElement("div");
-    copy.innerHTML = `<p class="text-[10px] font-bold uppercase tracking-[.13em] text-[#858697]">Provider routing mode</p><p class="mt-1 text-[10px] leading-5 text-[#858697]">${priorityRoutingEnabled ? "Priority mode uses lower numbers first and fails over only after a group’s eligible keys fail." : "Equal-share mode rotates evenly across enabled provider groups, as before."}</p>`;
+    copy.innerHTML = `<p class="text-[10px] font-bold uppercase tracking-[.13em] text-[#858697]">Provider routing mode</p><p class="mt-1 text-[10px] leading-5 text-[#858697]">${priorityRoutingEnabled ? "Priority mode uses lower numbers first and fails over only after a group’s eligible keys fail. Drag a provider or enter its number, then select Save load balancer below." : "Equal-share mode rotates evenly across enabled provider groups, as before. Priority inputs stay disabled until priority routing is enabled."}</p>`;
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.disabled = disabled;
@@ -133,8 +133,8 @@ function useProviderPriorityControls({ providerName, drafts, priorityRoutingEnab
       input.max = "99";
       input.step = "1";
       input.value = String(draft.priority ?? index + 1);
-      input.disabled = disabled;
-      input.className = "h-8 w-20 rounded-md border border-white/10 bg-black/20 px-2 font-mono text-xs text-[#e6e6ee] outline-none focus:border-[#c9ff73]/60";
+      input.disabled = disabled || !priorityRoutingEnabled;
+      input.className = "h-8 w-20 rounded-md border border-white/10 bg-black/20 px-2 font-mono text-xs text-[#e6e6ee] outline-none focus:border-[#c9ff73]/60 disabled:cursor-not-allowed disabled:opacity-45";
       input.setAttribute("aria-label", `${draft.label || `Provider ${index + 1}`} priority`);
       const changePriority = () => onDraftChange(draft.id, current => ({ ...current, priority: Math.min(99, Math.max(1, Math.trunc(Number(input.value) || 1))) }));
       input.addEventListener("change", changePriority);
@@ -422,7 +422,7 @@ function ClaudeOpus5QwenModelPoolPanel() {
     control.className = "mt-4 flex flex-wrap items-end justify-between gap-3 rounded-xl border border-white/8 bg-black/15 p-3";
     control.dataset.qwenPriorityRoutingControl = "true";
     const copy = document.createElement("div");
-    copy.innerHTML = `<p class="text-[10px] font-bold uppercase tracking-[.13em] text-[#858697]">Claude Opus provider routing</p><p class="mt-1 text-[10px] leading-5 text-[#858697]">${priorityRoutingEnabled ? "Priority mode is on: the lowest provider number is attempted first." : "Equal-share mode is on: enabled providers rotate evenly."}</p>`;
+    copy.innerHTML = `<p class="text-[10px] font-bold uppercase tracking-[.13em] text-[#858697]">Claude Opus provider routing</p><p class="mt-1 text-[10px] leading-5 text-[#858697]">${priorityRoutingEnabled ? "Priority mode is on: set Qwen’s number, then select Save Qwen model pool below." : "Equal-share mode is on: Qwen priority is inactive and cannot be edited."}</p>`;
     const mode = document.createElement("button");
     mode.type = "button";
     mode.disabled = disabled;
@@ -434,8 +434,8 @@ function ClaudeOpus5QwenModelPoolPanel() {
     input.max = "99";
     input.step = "1";
     input.value = String(priority);
-    input.disabled = disabled;
-    input.className = "h-9 w-20 rounded-md border border-white/10 bg-black/20 px-2 font-mono text-xs text-[#e6e6ee] outline-none focus:border-[#c9ff73]/60";
+    input.disabled = disabled || !priorityRoutingEnabled;
+    input.className = "h-9 w-20 rounded-md border border-white/10 bg-black/20 px-2 font-mono text-xs text-[#e6e6ee] outline-none focus:border-[#c9ff73]/60 disabled:cursor-not-allowed disabled:opacity-45";
     input.setAttribute("aria-label", "Qwen provider priority");
     const label = document.createElement("label");
     label.className = "flex items-center gap-2 text-[10px] font-semibold text-[#a8a9b8]";
