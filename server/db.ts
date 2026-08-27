@@ -6,6 +6,7 @@ import {
   accountFlags,
   apiKeys,
   auditEvents,
+  baiCredentialCapacitySlots,
   baiReasoningContinuations,
   baiProviderCircuitStates,
   bailuWebshareProxySlotMetrics,
@@ -72,6 +73,8 @@ const RENDER_NIM_PROXY_SWARM_SETTING_KEY = "render_nim_proxy_swarm_v1";
 const BAILU_WEBSHARE_PROXY_POOL_SETTING_KEY = "bailu_webshare_proxy_pool_v1";
 const BAI_REASONING_CONTINUATION_TTL_MS = 10 * 60 * 1_000;
 const BAI_PROVIDER_CIRCUIT_COOLDOWN_MS = 60_000;
+export const BAI_CREDENTIAL_MAX_ACTIVE_REQUESTS = 10;
+const BAI_CREDENTIAL_LEASE_MS = 15 * 60 * 1_000;
 const SPECIAL_REFERRAL_CAMPAIGN_KEY = "special-referral-150-v1";
 export const SPECIAL_REFERRAL_CAMPAIGN_CAP = 150;
 export const SPECIAL_REFERRAL_BONUS_NANOS = 150 * NANODOLLARS_PER_DOLLAR;
@@ -936,6 +939,98 @@ export async function recordBaiProviderSuccess(providerGroupId: string) {
     .onDuplicateKeyUpdate({ set: { consecutiveRateLimits: 0, cooldownUntil: null, lastSuccessAt: now } });
 }
 
+export type BaiCredentialCapacityLease = {
+  leaseId: string;
+  providerModelId: "claude-opus-5" | "glm-5.3";
+  providerGroupId: string;
+  credentialFingerprint: string;
+  slot: number;
+};
+
+export type BaiCredentialCapacityStatus = {
+  activeRequests: number;
+  remainingRequests: number;
+  maxActiveRequests: number;
+};
+
+function baiCredentialFingerprint(modelId: "claude-opus-5" | "glm-5.3", credential: string, providerGroupId: string) {
+  return managedProviderCredentialFingerprint(modelId, credential, providerGroupId);
+}
+
+async function ensureBaiCredentialCapacitySlots(modelId: "claude-opus-5" | "glm-5.3", providerGroupId: string, credential: string) {
+  const db = await getDb();
+  if (!db || !providerGroupId.trim() || !credential.trim()) return null;
+  const credentialFingerprint = baiCredentialFingerprint(modelId, credential, providerGroupId);
+  await Promise.all(Array.from({ length: BAI_CREDENTIAL_MAX_ACTIVE_REQUESTS }, (_, slot) => db.insert(baiCredentialCapacitySlots).values({
+    providerModelId: modelId,
+    providerGroupId,
+    credentialFingerprint,
+    slot,
+  }).onDuplicateKeyUpdate({ set: { updatedAt: new Date() } })));
+  return { db, credentialFingerprint };
+}
+
+/** Atomically claim one of ten shared b.ai credential slots. A stale lease expires safely if an instance disappears. */
+export async function tryAcquireBaiCredentialCapacityLease(modelId: "claude-opus-5" | "glm-5.3", providerGroupId: string, credential: string): Promise<BaiCredentialCapacityLease | null> {
+  const initialized = await ensureBaiCredentialCapacitySlots(modelId, providerGroupId, credential);
+  if (!initialized) return null;
+  const { db, credentialFingerprint } = initialized;
+  const now = new Date();
+  const leaseId = randomBytes(20).toString("hex");
+  const leaseExpiresAt = new Date(now.getTime() + BAI_CREDENTIAL_LEASE_MS);
+  const slots = await db.select({ slot: baiCredentialCapacitySlots.slot }).from(baiCredentialCapacitySlots).where(and(
+    eq(baiCredentialCapacitySlots.providerModelId, modelId),
+    eq(baiCredentialCapacitySlots.providerGroupId, providerGroupId),
+    eq(baiCredentialCapacitySlots.credentialFingerprint, credentialFingerprint),
+  )).orderBy(asc(baiCredentialCapacitySlots.slot));
+  for (const candidate of slots) {
+    const result = await db.update(baiCredentialCapacitySlots).set({ leaseId, leaseExpiresAt, acquiredAt: now, releasedAt: null }).where(and(
+      eq(baiCredentialCapacitySlots.providerModelId, modelId),
+      eq(baiCredentialCapacitySlots.providerGroupId, providerGroupId),
+      eq(baiCredentialCapacitySlots.credentialFingerprint, credentialFingerprint),
+      eq(baiCredentialCapacitySlots.slot, candidate.slot),
+      or(isNull(baiCredentialCapacitySlots.leaseExpiresAt), lte(baiCredentialCapacitySlots.leaseExpiresAt, now)),
+    ));
+    if (Number(result[0]?.affectedRows ?? 0) === 1) return { leaseId, providerModelId: modelId, providerGroupId, credentialFingerprint, slot: candidate.slot };
+  }
+  return null;
+}
+
+/** Releases only the exact capacity lease acquired by this request, preventing a late completion from releasing a newer request. */
+export async function releaseBaiCredentialCapacityLease(lease: BaiCredentialCapacityLease | null | undefined) {
+  if (!lease) return;
+  const db = await getDb();
+  if (!db) return;
+  await db.update(baiCredentialCapacitySlots).set({ leaseId: null, leaseExpiresAt: null, releasedAt: new Date() }).where(and(
+    eq(baiCredentialCapacitySlots.providerModelId, lease.providerModelId),
+    eq(baiCredentialCapacitySlots.providerGroupId, lease.providerGroupId),
+    eq(baiCredentialCapacitySlots.credentialFingerprint, lease.credentialFingerprint),
+    eq(baiCredentialCapacitySlots.slot, lease.slot),
+    eq(baiCredentialCapacitySlots.leaseId, lease.leaseId),
+  ));
+}
+
+export async function getBaiCredentialCapacityStatuses(modelId: "claude-opus-5" | "glm-5.3", providerGroupId: string, credentials: readonly string[]) {
+  const usableCredentials = credentials.map(value => value.trim()).filter(Boolean);
+  await Promise.all(usableCredentials.map(credential => ensureBaiCredentialCapacitySlots(modelId, providerGroupId, credential)));
+  const db = await getDb();
+  if (!db || !usableCredentials.length) return usableCredentials.map((): BaiCredentialCapacityStatus => ({ activeRequests: 0, remainingRequests: BAI_CREDENTIAL_MAX_ACTIVE_REQUESTS, maxActiveRequests: BAI_CREDENTIAL_MAX_ACTIVE_REQUESTS }));
+  const fingerprints = usableCredentials.map(credential => baiCredentialFingerprint(modelId, credential, providerGroupId));
+  const now = new Date();
+  const rows = await db.select({ credentialFingerprint: baiCredentialCapacitySlots.credentialFingerprint, activeRequests: sql<number>`COUNT(*)` }).from(baiCredentialCapacitySlots).where(and(
+    eq(baiCredentialCapacitySlots.providerModelId, modelId),
+    eq(baiCredentialCapacitySlots.providerGroupId, providerGroupId),
+    inArray(baiCredentialCapacitySlots.credentialFingerprint, fingerprints),
+    isNotNull(baiCredentialCapacitySlots.leaseExpiresAt),
+    gte(baiCredentialCapacitySlots.leaseExpiresAt, now),
+  )).groupBy(baiCredentialCapacitySlots.credentialFingerprint);
+  const activeByFingerprint = new Map(rows.map(row => [row.credentialFingerprint, Number(row.activeRequests ?? 0)]));
+  return fingerprints.map(fingerprint => {
+    const activeRequests = activeByFingerprint.get(fingerprint) ?? 0;
+    return { activeRequests, remainingRequests: Math.max(0, BAI_CREDENTIAL_MAX_ACTIVE_REQUESTS - activeRequests), maxActiveRequests: BAI_CREDENTIAL_MAX_ACTIVE_REQUESTS };
+  });
+}
+
 export async function getBaiProviderCircuitStatuses() {
   const db = await getDb();
   if (!db) return [] as BaiProviderCircuitStatus[];
@@ -1247,6 +1342,10 @@ async function purgeRemovedManagedProviderGroups(
   }
   if (modelId === "claude-opus-5") {
     await tx.delete(baiProviderCircuitStates).where(inArray(baiProviderCircuitStates.providerGroupId, providerIds));
+    await tx.delete(baiCredentialCapacitySlots).where(and(
+      eq(baiCredentialCapacitySlots.providerModelId, "claude-opus-5"),
+      inArray(baiCredentialCapacitySlots.providerGroupId, providerIds),
+    ));
     await tx.delete(managedProviderModelUsage).where(and(
       eq(managedProviderModelUsage.providerModelId, "claude-opus-5"),
       inArray(managedProviderModelUsage.providerGroupId, providerIds),
@@ -2254,16 +2353,20 @@ export async function getClaudeOpus5ProviderSettings() {
   const override = await readClaudeOpus5RuntimeOverride();
   const usageByProvider = new Map(await Promise.all(runtime.providers.filter(provider => isClaudeOpus5QwenProvider(provider.label)).map(async provider => [provider.id, await getClaudeOpus5QwenModelUsage(provider.id)] as const)));
   const baiCircuitByProvider = new Map((await getBaiProviderCircuitStatuses()).map(status => [status.providerGroupId, status] as const));
+  const baiCapacityByProvider = new Map(await Promise.all(runtime.providers
+    .filter(provider => provider.label.trim().toLowerCase() === "b.ai")
+    .map(async provider => [provider.id, await getBaiCredentialCapacityStatuses("claude-opus-5", provider.id, provider.apiKeys)] as const)));
   return {
     providers: runtime.providers.map(provider => {
       const usage = usageByProvider.get(provider.id);
+      const capacity = baiCapacityByProvider.get(provider.id);
       return {
         id: provider.id,
         label: provider.label,
         enabled: provider.enabled,
         baseUrl: provider.baseUrl,
         model: provider.model,
-        apiKeyMasks: providerApiKeyMasks(provider.apiKeys, provider.apiKeyEnabled),
+        apiKeyMasks: providerApiKeyMasks(provider.apiKeys, provider.apiKeyEnabled).map((mask, index) => capacity ? { ...mask, ...capacity[index] } : mask),
         ...(isClaudeOpus5QwenProvider(provider.label) ? {
           maxOutputTokens: provider.maxOutputTokens ?? CLAUDE_OPUS5_QWEN_MAX_OUTPUT_TOKENS,
           modelPool: (provider.modelPool ?? []).map(entry => {
@@ -2456,10 +2559,19 @@ export async function getGlm53RuntimeConfig(): Promise<Glm53RuntimePayload> {
 export async function getGlm53ProviderSettings() {
   const runtime = await getGlm53RuntimeConfig();
   const override = await readGlm53RuntimeOverride();
+  const isBai = (() => {
+    try {
+      const hostname = new URL(runtime.baseUrl).hostname.toLowerCase();
+      return hostname === "b.ai" || hostname.endsWith(".b.ai");
+    } catch {
+      return false;
+    }
+  })();
+  const capacity = isBai ? await getBaiCredentialCapacityStatuses("glm-5.3", "glm53-primary", runtime.apiKeys) : null;
   return {
     baseUrl: runtime.baseUrl,
     model: runtime.model,
-    apiKeyMasks: providerApiKeyMasks(runtime.apiKeys, runtime.apiKeyEnabled),
+    apiKeyMasks: providerApiKeyMasks(runtime.apiKeys, runtime.apiKeyEnabled).map((mask, index) => capacity ? { ...mask, ...capacity[index] } : mask),
     source: override ? "database" as const : "environment" as const,
     updatedAt: override?.updatedAt ?? null,
     updatedByUserId: override?.updatedByUserId ?? null,

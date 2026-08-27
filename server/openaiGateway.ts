@@ -6,6 +6,7 @@ import {
   getBailuWebshareProxyPoolRuntimeConfig,
   isBaiProviderCircuitEligible,
   loadBaiReasoningContinuation,
+  releaseBaiCredentialCapacityLease,
   releaseBailuWebshareProxySlot,
   findActiveApiKey,
   getClaudeFable5NvidiaRuntimeConfig,
@@ -38,6 +39,7 @@ import {
   settleReservedCredit,
   touchApiKey,
   tryAcquireRenderNimProxyEndpoint,
+  tryAcquireBaiCredentialCapacityLease,
   sanitizeRenderNimProxyFailureMessage,
   tryAcquireBailuWebshareProxySlot,
   storeBaiReasoningContinuation,
@@ -410,6 +412,11 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
   for (let attempt = 0; attempt < runtime.apiKeys.length; attempt += 1) {
     const selectedCredential = selectNextGlm53CredentialWithSlot(runtime.apiKeys, runtime.apiKeyEnabled);
     if (!selectedCredential) break;
+    const baiCapacityLease = isBai ? await tryAcquireBaiCredentialCapacityLease("glm-5.3", provider.id, selectedCredential.credential) : null;
+    if (isBai && !baiCapacityLease) {
+      lastError = new Error("Every enabled b.ai credential is at its maximum active request capacity.");
+      continue;
+    }
     const responseStart = createResponseStartDeadline(signal);
     try {
       const response = await fetch(url, {
@@ -427,6 +434,7 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
             recordCredentialFailure("glm-5.3", selectedCredential.slot);
             void recordManagedProviderKeyOutcome("glm-5.3", selectedCredential.credential, false).catch(() => undefined);
             response.body?.cancel().catch(() => undefined);
+            void releaseBaiCredentialCapacityLease(baiCapacityLease).catch(() => undefined);
             lastError = new Error(diagnostic);
             lastStatus = 503;
             recordCredentialFailover("glm-5.3");
@@ -436,7 +444,7 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
         }
         recordCredentialSuccess("glm-5.3", selectedCredential.slot);
         void recordManagedProviderKeyOutcome("glm-5.3", selectedCredential.credential, true).catch(() => undefined);
-        return wrapManagedProviderResponseWithFailureLog(
+        const forwarded = wrapManagedProviderResponseWithFailureLog(
           response,
           provider,
           signal,
@@ -444,6 +452,7 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
           recordGlm53FailureLog,
           isBai ? payload => captureBaiReasoningContinuation("glm-5.3", context, payload) : undefined,
         );
+        return wrapBaiResponseWithCapacityLease(forwarded, baiCapacityLease, signal);
       }
       const retryable = retryableProviderStatus(response.status);
       const rawBody = await response.text().catch(() => "");
@@ -451,6 +460,7 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
       void recordGlm53FailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, httpStatus: response.status, failureKind: "http", retryable, callerMessage: rawBody || diagnostic }).catch(() => undefined);
       recordCredentialFailure("glm-5.3", selectedCredential.slot);
       void recordManagedProviderKeyOutcome("glm-5.3", selectedCredential.credential, false).catch(() => undefined);
+      void releaseBaiCredentialCapacityLease(baiCapacityLease).catch(() => undefined);
       if (!retryable) return publicManagedProviderFailureResponse(response.status);
       lastError = new Error(diagnostic);
       lastStatus = response.status;
@@ -461,6 +471,7 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
       void recordGlm53FailureLog({ sourceType: "provider", sourceId: provider.id, sourceLabel: provider.label, failureKind: timeout ? "timeout" : "network", retryable: true, callerMessage: timeout ? `GLM 5.3 provider response did not start within ${Math.round(PROVIDER_RESPONSE_START_TIMEOUT_MS / 1_000)} seconds.` : error instanceof Error ? error.message : "GLM 5.3 provider network request failed." }).catch(() => undefined);
       recordCredentialFailure("glm-5.3", selectedCredential.slot);
       void recordManagedProviderKeyOutcome("glm-5.3", selectedCredential.credential, false).catch(() => undefined);
+      void releaseBaiCredentialCapacityLease(baiCapacityLease).catch(() => undefined);
       if (signal.aborted) throw error;
     }
     recordCredentialFailover("glm-5.3");
@@ -915,6 +926,51 @@ function wrapRenderResponseWithLease(response: globalThis.Response, endpointId: 
   return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
 }
 
+/** Keeps a b.ai credential-capacity lease until the exact response body has completed or the caller ends it. */
+function wrapBaiResponseWithCapacityLease(response: globalThis.Response, lease: Awaited<ReturnType<typeof tryAcquireBaiCredentialCapacityLease>>, clientSignal: AbortSignal) {
+  if (!lease) return response;
+  if (!response.body) {
+    void releaseBaiCredentialCapacityLease(lease).catch(() => undefined);
+    return response;
+  }
+  const reader = response.body.getReader();
+  let finalized = false;
+  const finalize = () => {
+    if (finalized) return;
+    finalized = true;
+    clientSignal.removeEventListener("abort", onClientAbort);
+    void releaseBaiCredentialCapacityLease(lease).catch(() => undefined);
+  };
+  const onClientAbort = () => {
+    void reader.cancel().catch(() => undefined).finally(finalize);
+  };
+  clientSignal.addEventListener("abort", onClientAbort, { once: true });
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const next = await reader.read();
+        if (next.done) {
+          finalize();
+          controller.close();
+          return;
+        }
+        controller.enqueue(next.value);
+      } catch (error) {
+        finalize();
+        controller.error(error);
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason);
+      } finally {
+        finalize();
+      }
+    },
+  });
+  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
 /** Record a provider stream failure after headers without treating a client cancellation as an upstream outage. */
 function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal, onCompleteUsage?: (usage: Usage) => void, onQwenZeroOutput?: (usage: Usage) => void, failureSource?: { sourceId: string; sourceLabel: string }, onBaiReasoningComplete?: (payload: unknown) => void) {
   if (!response.body || response.body.locked || !response.headers.get("content-type")?.includes("text/event-stream")) return response;
@@ -1229,9 +1285,14 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
     for (let attempt = 0; attempt < provider.apiKeys.length; attempt += 1) {
       const selectedCredential = selectNextClaudeOpus5Credential(provider);
       if (!selectedCredential) break;
+      const isBai = isBaiProviderLabel(provider.label);
+      const baiCapacityLease = isBai ? await tryAcquireBaiCredentialCapacityLease("claude-opus-5", provider.id, selectedCredential.credential) : null;
+      if (isBai && !baiCapacityLease) {
+        lastError = new Error("Every enabled b.ai credential is at its maximum active request capacity.");
+        continue;
+      }
       const responseStart = createResponseStartDeadline(signal);
       try {
-        const isBai = isBaiProviderLabel(provider.label);
         const preparedInput = isBai ? normalizeBaiToolChoice(baiPreparation.input) : input;
         const providerInput = isQwenClaudeOpus5Provider(provider)
           ? normalizeQwenPoolMaxTokens(preparedInput, provider)
@@ -1280,7 +1341,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
             }
             recordQwenModelUsage(usageFrom(payload));
           }
-          return wrapClaudeOpus5ProviderResponseWithFailureLog(
+          const forwarded = wrapClaudeOpus5ProviderResponseWithFailureLog(
             response,
             provider,
             signal,
@@ -1289,6 +1350,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
             qwenFailureSource,
             isBai ? payload => captureBaiReasoningContinuation("claude-opus-5", context, payload) : undefined,
           );
+          return wrapBaiResponseWithCapacityLease(forwarded, baiCapacityLease, signal);
         }
         const retryable = retryableProviderStatus(response.status);
         const rawBody = await response.text().catch(() => "");
@@ -1307,10 +1369,12 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
         if (!retryable) {
           recordCredentialSuccess(selectedCredential.telemetryProvider, selectedCredential.slot);
           void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, true, new Date(), true, provider.id).catch(() => undefined);
+          void releaseBaiCredentialCapacityLease(baiCapacityLease).catch(() => undefined);
           return publicManagedProviderFailureResponse(response.status);
         }
         recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
         void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+        void releaseBaiCredentialCapacityLease(baiCapacityLease).catch(() => undefined);
         lastError = new Error(diagnostic);
         lastFailureStatus = response.status;
         if (baiRateLimited) {
@@ -1322,6 +1386,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
         lastError = error;
         recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
         void recordManagedProviderKeyOutcome("claude-opus-5", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
+        void releaseBaiCredentialCapacityLease(baiCapacityLease).catch(() => undefined);
         const timeout = responseStart.timedOut() && !signal.aborted;
         void recordClaudeOpus5FailureLog({
           sourceType: "provider",

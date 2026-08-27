@@ -213,4 +213,12 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("New b.ai attempts resume automatically");
     expect(source).toContain("<BaiProviderCircuitPanel />");
   });
+
+  it("shows live, protected b.ai per-key active and remaining request capacity without rendering any lease identifiers", () => {
+    expect(source).toContain("activeRequests?: number; remainingRequests?: number; maxActiveRequests?: number");
+    expect(source).toContain("{masks[index]?.activeRequests ?? 0}/{capacity} active");
+    expect(source).toContain("{masks[index]?.remainingRequests ?? capacity} left");
+    expect(source).toContain('glm53ProviderSettings.useQuery(undefined, { enabled: isAdminSession, refetchInterval: 5_000');
+    expect(source).not.toContain("leaseId");
+  });
 });

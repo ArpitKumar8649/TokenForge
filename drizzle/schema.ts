@@ -379,6 +379,28 @@ export const baiProviderCircuitStates = mysqlTable("bai_provider_circuit_states"
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 }, table => [index("bai_provider_circuit_cooldown_idx").on(table.cooldownUntil)]);
 
+/**
+ * Ten opaque, atomically claimable request slots for each b.ai credential.
+ * Credential material is never stored: the model/group-scoped fingerprint is
+ * a server-derived identifier used only for protected capacity accounting.
+ */
+export const baiCredentialCapacitySlots = mysqlTable("bai_credential_capacity_slots", {
+  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+  providerModelId: varchar("providerModelId", { length: 64 }).notNull(),
+  providerGroupId: varchar("providerGroupId", { length: 128 }).notNull(),
+  credentialFingerprint: varchar("credentialFingerprint", { length: 128 }).notNull(),
+  slot: int("slot").notNull(),
+  leaseId: varchar("leaseId", { length: 64 }),
+  leaseExpiresAt: timestamp("leaseExpiresAt"),
+  acquiredAt: timestamp("acquiredAt"),
+  releasedAt: timestamp("releasedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => [
+  uniqueIndex("bai_credential_capacity_slot_unique_idx").on(table.providerModelId, table.providerGroupId, table.credentialFingerprint, table.slot),
+  index("bai_credential_capacity_lookup_idx").on(table.providerModelId, table.providerGroupId, table.credentialFingerprint, table.leaseExpiresAt),
+]);
+
 export const providerConfigs = mysqlTable("provider_configs", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
   slug: varchar("slug", { length: 64 }).notNull().unique(),

@@ -11,7 +11,7 @@ describe("managed GLM and DeepSeek credential pools", () => {
   it("round-robins GLM 5.3 through only normalized active keys and wraps to the first key", () => {
     const pool = [" glm-key-1 ", "", "glm-key-2"];
     expect(selectNextGlm53CredentialWithSlot(pool)).toMatchObject({ credential: "glm-key-1", slot: 0, poolSize: 2 });
-    expect(selectNextGlm53CredentialWithSlot(pool)).toMatchObject({ credential: "glm-key-2", slot: 1, poolSize: 2 });
+    expect(selectNextGlm53CredentialWithSlot(pool)).toMatchObject({ credential: "glm-key-2", slot: 2, poolSize: 2 });
     expect(selectNextGlm53CredentialWithSlot(pool)).toMatchObject({ credential: "glm-key-1", slot: 0, poolSize: 2 });
     expect(selectNextGlm53CredentialWithSlot([])).toBeNull();
   });

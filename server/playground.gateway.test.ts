@@ -4,6 +4,7 @@ vi.mock("./db", () => ({
   getBailuWebshareProxyPoolRuntimeConfig: vi.fn(),
   isBaiProviderCircuitEligible: vi.fn(),
   loadBaiReasoningContinuation: vi.fn(),
+  releaseBaiCredentialCapacityLease: vi.fn(),
   releaseBailuWebshareProxySlot: vi.fn(),
   findActiveApiKey: vi.fn(),
   getClaudeFable5NvidiaRuntimeConfig: vi.fn(),
@@ -40,11 +41,12 @@ vi.mock("./db", () => ({
   touchApiKey: vi.fn(),
   tryAcquireRenderNimProxyEndpoint: vi.fn(),
   tryAcquireBailuWebshareProxySlot: vi.fn(),
+  tryAcquireBaiCredentialCapacityLease: vi.fn(),
 }));
 vi.mock("node:https", () => ({ default: { request: vi.fn() } }));
 vi.mock("socks-proxy-agent", () => ({ SocksProxyAgent: vi.fn().mockImplementation((proxyUrl: URL) => ({ destroy: vi.fn(), proxyUrl })) }));
 
-import { getBailuWebshareProxyPoolRuntimeConfig, getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, getSonnet46RuntimeConfig, isBaiProviderCircuitEligible, isManagedProviderCredentialEnabled, isModelAvailable, loadBaiReasoningContinuation, loadOrcaRouterCredentialSlotCiphertexts, recordBaiProviderRateLimit, recordBaiProviderSuccess, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordSonnet46FailureLog, recordManagedProviderKeyOutcome, recordUsage, releaseBailuWebshareProxySlot, reserveCredit, settleReservedCredit, storeBaiReasoningContinuation, tryAcquireBailuWebshareProxySlot } from "./db";
+import { getBailuWebshareProxyPoolRuntimeConfig, getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, getSonnet46RuntimeConfig, isBaiProviderCircuitEligible, isManagedProviderCredentialEnabled, isModelAvailable, loadBaiReasoningContinuation, loadOrcaRouterCredentialSlotCiphertexts, recordBaiProviderRateLimit, recordBaiProviderSuccess, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordSonnet46FailureLog, recordManagedProviderKeyOutcome, recordUsage, releaseBaiCredentialCapacityLease, releaseBailuWebshareProxySlot, reserveCredit, settleReservedCredit, storeBaiReasoningContinuation, tryAcquireBaiCredentialCapacityLease, tryAcquireBailuWebshareProxySlot } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetBailuWebshareProxyPool, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, resetQwen38MaxProviderBalancing, resetSonnet46ProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import https from "node:https";
 import { SocksProxyAgent } from "socks-proxy-agent";
@@ -103,6 +105,8 @@ beforeEach(() => {
   vi.mocked(getBailuWebshareProxyPoolRuntimeConfig).mockResolvedValue({ enabled: false, proxies: [] });
   vi.mocked(isManagedProviderCredentialEnabled).mockImplementation(() => true);
   vi.mocked(isBaiProviderCircuitEligible).mockResolvedValue(true);
+  vi.mocked(tryAcquireBaiCredentialCapacityLease).mockResolvedValue({ leaseId: "test-lease", providerModelId: "claude-opus-5", providerGroupId: "primary", credentialFingerprint: "test-fingerprint", slot: 0 });
+  vi.mocked(releaseBaiCredentialCapacityLease).mockResolvedValue(undefined);
   vi.mocked(tryAcquireBailuWebshareProxySlot).mockResolvedValue(true);
   vi.mocked(loadBaiReasoningContinuation).mockResolvedValue(null);
   vi.mocked(storeBaiReasoningContinuation).mockResolvedValue(undefined);
@@ -1233,11 +1237,14 @@ describe("TokenForge Playground gateway", () => {
     vi.mocked(getGlm53RuntimeConfig).mockResolvedValue({ baseUrl: "https://api.b.ai", model: "private-glm-model", apiKeys: ["server-only-managed-glm-key-1"] });
 
     const upstream = await forwardProviderRequest("glm-5.3", { model: "glm-5.3", stream: true, messages: [{ role: "user", content: "Stream a GLM response." }] }, new AbortController().signal, { userId: 42 });
+    expect(tryAcquireBaiCredentialCapacityLease).toHaveBeenCalledWith("glm-5.3", "glm53-primary", "server-only-managed-glm-key-1");
+    expect(releaseBaiCredentialCapacityLease).not.toHaveBeenCalled();
     const rawStream = await upstream.text();
     const publicStream = rawStream.split("\n").map(line => line.startsWith("data:") ? `data: ${sanitizeModelSseData("glm-5.3", line.slice(5).trim())}` : line).join("\n");
 
     expect(publicStream).not.toContain("Private GLM streamed reasoning");
     expect(storeBaiReasoningContinuation).toHaveBeenCalledWith(42, "glm-5.3", expect.stringMatching(/^[a-f0-9]{64}$/), "Private GLM streamed reasoning");
+    expect(releaseBaiCredentialCapacityLease).toHaveBeenCalledWith(expect.objectContaining({ leaseId: "test-lease" }));
   });
 
   it("masks GLM 5.3 HTTP and SSE provider diagnostics while retaining only a redacted administrator failure record", async () => {
