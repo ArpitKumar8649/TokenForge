@@ -1402,6 +1402,8 @@ export type ClaudeOpus5ProviderRuntime = {
   model: string;
   apiKeys: string[];
   modelPool?: ClaudeOpus5QwenModelRuntime[];
+  /** Qwen-only output ceiling, persisted inside the encrypted Claude Opus runtime configuration. */
+  maxOutputTokens?: number;
 };
 
 export type ClaudeOpus5QwenModelRuntime = {
@@ -1415,6 +1417,7 @@ export type ClaudeOpus5RuntimePayload = { providers: ClaudeOpus5ProviderRuntime[
 const MAX_CLAUDE_OPUS5_PROVIDERS = 12;
 export const CLAUDE_OPUS5_QWEN_DEFAULT_MODEL_TOKEN_QUOTA = 1_000_000;
 const MAX_CLAUDE_OPUS5_QWEN_MODELS = 50;
+export const CLAUDE_OPUS5_QWEN_MAX_OUTPUT_TOKENS = 32_768;
 
 export type BailuWebshareProxyRuntime = {
   id: string;
@@ -1959,6 +1962,12 @@ function normalizeClaudeOpus5QwenModelPool(value: unknown) {
   }).slice(0, MAX_CLAUDE_OPUS5_QWEN_MODELS);
 }
 
+function normalizeClaudeOpus5QwenMaxOutputTokens(value: unknown) {
+  const candidate = Number(value);
+  if (!Number.isFinite(candidate)) return CLAUDE_OPUS5_QWEN_MAX_OUTPUT_TOKENS;
+  return Math.min(CLAUDE_OPUS5_QWEN_MAX_OUTPUT_TOKENS, Math.max(1, Math.trunc(candidate)));
+}
+
 function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5ProviderRuntime[]) {
   if (!Array.isArray(value)) return fallback;
   const seen = new Set<string>();
@@ -1973,7 +1982,9 @@ function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5Prov
       : [];
     const baseUrl = typeof raw.baseUrl === "string" ? raw.baseUrl.trim() : "";
     const label = typeof raw.label === "string" && raw.label.trim() ? raw.label.trim().slice(0, 80) : `Provider ${index + 1}`;
-    const modelPool = isClaudeOpus5QwenProvider(label) ? normalizeClaudeOpus5QwenModelPool(raw.modelPool) : [];
+    const isQwenProvider = isClaudeOpus5QwenProvider(label);
+    const modelPool = isQwenProvider ? normalizeClaudeOpus5QwenModelPool(raw.modelPool) : [];
+    const maxOutputTokens = isQwenProvider ? normalizeClaudeOpus5QwenMaxOutputTokens(raw.maxOutputTokens) : undefined;
     const model = (typeof raw.model === "string" ? raw.model.trim() : "") || modelPool[0]?.model || "";
     if (!baseUrl || !model || !apiKeys.length) return [];
     return [{
@@ -1984,6 +1995,7 @@ function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5Prov
       model,
       apiKeys,
       ...(modelPool.length ? { modelPool } : {}),
+      ...(isQwenProvider ? { maxOutputTokens } : {}),
     }];
   }).slice(0, MAX_CLAUDE_OPUS5_PROVIDERS);
   return providers.length ? providers : fallback;
@@ -2160,6 +2172,7 @@ export async function getClaudeOpus5ProviderSettings() {
         model: provider.model,
         apiKeyMasks: provider.apiKeys.map((key, index) => ({ slot: index + 1, value: maskProviderApiKey(key), configured: Boolean(key) })),
         ...(isClaudeOpus5QwenProvider(provider.label) ? {
+          maxOutputTokens: provider.maxOutputTokens ?? CLAUDE_OPUS5_QWEN_MAX_OUTPUT_TOKENS,
           modelPool: (provider.modelPool ?? []).map(entry => {
             const totals = usage?.get(entry.id);
             const totalTokens = totals?.totalTokens ?? 0;
@@ -2197,7 +2210,7 @@ export async function getClaudeOpus5ProviderSettings() {
   };
 }
 
-export async function updateClaudeOpus5ProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[]; modelPool?: Array<{ id: string; model: string; enabled?: boolean; quotaTokens?: number }> }> }, updatedByUserId: number) {
+export async function updateClaudeOpus5ProviderSettings(input: { providers: Array<{ id: string; label: string; enabled?: boolean; baseUrl: string; model: string; apiKeys: string[]; removeSlots?: number[]; modelPool?: Array<{ id: string; model: string; enabled?: boolean; quotaTokens?: number }>; maxOutputTokens?: number }> }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getClaudeOpus5RuntimeConfig();
@@ -2214,6 +2227,9 @@ export async function updateClaudeOpus5ProviderSettings(input: { providers: Arra
     const qwenPool = isClaudeOpus5QwenProvider(label)
       ? normalizeClaudeOpus5QwenModelPool(submittedPool?.length ? submittedPool : [{ id: "qwen-model-1", model: submitted.model, enabled: true, quotaTokens: CLAUDE_OPUS5_QWEN_DEFAULT_MODEL_TOKEN_QUOTA }])
       : [];
+    const maxOutputTokens = isClaudeOpus5QwenProvider(label)
+      ? normalizeClaudeOpus5QwenMaxOutputTokens(submitted.maxOutputTokens ?? existing?.maxOutputTokens)
+      : undefined;
     return {
       id,
       label,
@@ -2222,6 +2238,7 @@ export async function updateClaudeOpus5ProviderSettings(input: { providers: Arra
       model: submitted.model.trim() || qwenPool[0]?.model || "",
       apiKeys: [...patchedExistingKeys, ...appendedKeys].filter(Boolean).slice(0, MAX_MANAGED_PROVIDER_API_KEYS),
       ...(qwenPool.length ? { modelPool: qwenPool } : {}),
+      ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
     };
   });
   const submittedProviderIds = new Set(nextProviders.map(provider => provider.id));

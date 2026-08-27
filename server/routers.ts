@@ -170,6 +170,7 @@ const claudeOpus5ProviderSettingsInput = z.object({
     model: z.string().trim().min(1, "Enter a model ID").max(256),
     apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys"),
     removeSlots: z.array(z.number().int().positive()).max(50).optional(),
+    maxOutputTokens: z.number().int().min(1, "Choose at least one output token").max(32_768, "Qwen output cannot exceed 32,768 tokens").optional(),
     modelPool: z.array(z.object({
       id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, "Use letters, numbers, hyphens, or underscores for the model entry ID"),
       model: z.string().trim().min(1, "Enter a model ID").max(256),

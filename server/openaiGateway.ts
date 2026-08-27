@@ -800,9 +800,17 @@ function isQwenClaudeOpus5Provider(provider: { label: string }) {
 
 const QWEN_POOL_MAX_TOKENS = 32_768;
 
-function normalizeQwenPoolMaxTokens(input: ChatInput): ChatInput {
-  if (typeof input.max_tokens !== "number" || !Number.isFinite(input.max_tokens)) return input;
-  const next = Math.min(QWEN_POOL_MAX_TOKENS, Math.max(1, Math.floor(input.max_tokens)));
+function qwenPoolMaxOutputTokens(provider: { maxOutputTokens?: number }) {
+  const configured = Number(provider.maxOutputTokens);
+  return Number.isFinite(configured)
+    ? Math.min(QWEN_POOL_MAX_TOKENS, Math.max(1, Math.trunc(configured)))
+    : QWEN_POOL_MAX_TOKENS;
+}
+
+function normalizeQwenPoolMaxTokens(input: ChatInput, provider: { maxOutputTokens?: number }): ChatInput {
+  const cap = qwenPoolMaxOutputTokens(provider);
+  if (typeof input.max_tokens !== "number" || !Number.isFinite(input.max_tokens)) return { ...input, max_tokens: cap };
+  const next = Math.min(cap, Math.max(1, Math.floor(input.max_tokens)));
   return next === input.max_tokens ? input : { ...input, max_tokens: next };
 }
 
@@ -832,7 +840,10 @@ async function effectiveReservationMaxOutputTokens(model: TokenForgeModelId, inp
     if (!provider.baseUrl.trim() || !provider.model.trim()) continue;
     if (!isQwenClaudeOpus5Provider(provider)) return requestedMaxTokens;
     if ((await getEligibleClaudeOpus5QwenModels(provider)).length) {
-      return Math.min(requestedMaxTokens, QWEN_POOL_MAX_TOKENS);
+      const cap = qwenPoolMaxOutputTokens(provider);
+      return typeof input.max_tokens === "number" && Number.isFinite(input.max_tokens)
+        ? Math.min(requestedMaxTokens, cap)
+        : cap;
     }
   }
   return requestedMaxTokens;
@@ -1219,7 +1230,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
         const isBai = isBaiProviderLabel(provider.label);
         const preparedInput = isBai ? normalizeBaiToolChoice(baiPreparation.input) : input;
         const providerInput = isQwenClaudeOpus5Provider(provider)
-          ? normalizeQwenPoolMaxTokens(preparedInput)
+          ? normalizeQwenPoolMaxTokens(preparedInput, provider)
           : normalizeBaiMaxTokens(preparedInput, isBai);
         const response = isBailuClaudeOpus5Provider(provider)
           ? await forwardBailuRequestWithWebshareFailover(url, providerInput, upstreamModel, selectedCredential.credential, responseStart.signal, responseStart.timedOut)

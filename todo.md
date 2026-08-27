@@ -533,3 +533,4 @@
 - [x] Clamp Qwen-pool effective max_tokens to 32,768 for upstream routing and credit reservation estimates, while settling from actual usage as before.
 - [x] Add a durable b.ai Claude Opus provider-group rate-limit circuit breaker that pauses 429-failing b.ai traffic, respects cooldown eligibility, safely fails over, and restores healthy b.ai priority automatically.
 - [x] Display b.ai provider cooldown state in protected administration; add Qwen-cap and b.ai breaker regressions; validate and publish.
+- [x] Add an administrator-controlled Qwen-pool maximum output-token setting above the Qwen pool, enforce a safe bounded value for routing and reservation, display the current saved limit in muted text, add regressions, validate, and publish.

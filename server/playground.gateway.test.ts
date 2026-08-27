@@ -404,21 +404,32 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({ max_tokens: 2, model: "private-other-model" });
   });
 
-  it("caps only Claude Opus Qwen-pool outbound max_tokens at 32,768 and reserves against that capped maximum", async () => {
+  it("uses the saved Claude Opus Qwen-pool output limit for outbound max_tokens and reservation", async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: "Provider response" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } })));
     vi.stubGlobal("fetch", fetchMock);
-    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [{ id: "qwen", label: "Qwen", enabled: true, baseUrl: "https://qwen-provider.example", model: "private-qwen-default", apiKeys: ["server-only-qwen-key"] }] });
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [{ id: "qwen", label: "Qwen", enabled: true, baseUrl: "https://qwen-provider.example", model: "private-qwen-default", apiKeys: ["server-only-qwen-key"], maxOutputTokens: 4_096 }] });
     vi.mocked(getEligibleClaudeOpus5QwenModels).mockResolvedValue([{ id: "qwen-a", model: "private-qwen-model", quotaTokens: 1_000_000 }]);
 
     await runPlaygroundCompletion({ userId: 42, model: "claude-opus-5", maxOutputTokens: 100_000, messages: [{ role: "user", content: "Use the Qwen pool." }], sourceIpHash: "qwen-cap" });
 
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({ model: "private-qwen-model", max_tokens: 32_768 });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({ model: "private-qwen-model", max_tokens: 4_096 });
     const qwenReservation = vi.mocked(reserveCredit).mock.calls[0]?.[1] ?? 0;
     vi.mocked(reserveCredit).mockClear();
     vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [{ id: "other", label: "Other provider", enabled: true, baseUrl: "https://other-provider.example", model: "private-other-model", apiKeys: ["server-only-other-key"] }] });
     await runPlaygroundCompletion({ userId: 42, model: "claude-opus-5", maxOutputTokens: 100_000, messages: [{ role: "user", content: "Use another provider." }], sourceIpHash: "other-cap" });
     expect(qwenReservation).toBeLessThan(vi.mocked(reserveCredit).mock.calls[0]?.[1] ?? 0);
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toMatchObject({ model: "private-other-model", max_tokens: 100_000 });
+  });
+
+  it("sets the saved Qwen-pool output limit when callers omit max_tokens", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: "Provider response" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } })));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [{ id: "qwen", label: "Qwen", enabled: true, baseUrl: "https://qwen-provider.example", model: "private-qwen-default", apiKeys: ["server-only-qwen-key"], maxOutputTokens: 8_192 }] });
+    vi.mocked(getEligibleClaudeOpus5QwenModels).mockResolvedValue([{ id: "qwen-a", model: "private-qwen-model", quotaTokens: 1_000_000 }]);
+
+    await runPlaygroundCompletion({ userId: 42, model: "claude-opus-5", messages: [{ role: "user", content: "Use the saved Qwen default." }], sourceIpHash: "qwen-default" });
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({ model: "private-qwen-model", max_tokens: 8_192 });
   });
 
   it("prefers a healthy b.ai provider for a new Claude Opus conversation", async () => {

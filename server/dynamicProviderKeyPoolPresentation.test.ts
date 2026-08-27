@@ -103,6 +103,10 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("Failing internal model ID");
     expect(source).toContain("Qwen zero-output outcomes");
     expect(source).toContain('entry.sourceId.startsWith("qwen:")');
+    expect(source).toContain("Maximum output tokens");
+    expect(source).toContain("Current saved limit:");
+    expect(source).toContain('id="opus-qwen-max-output-tokens"');
+    expect(source).toContain("Maximum permitted value: 32,768");
   });
 
   it("preserves intentional Qwen model deletions and newly added Claude Opus providers through live settings refreshes", () => {
