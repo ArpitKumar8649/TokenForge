@@ -152,13 +152,15 @@ const claudeFable5ProviderGroupInput = z.object({
     id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, "Use letters, numbers, hyphens, or underscores for the provider ID"),
     label: z.string().trim().min(1, "Enter a provider label").max(80),
     enabled: z.boolean().optional(),
+    priority: z.number().int().min(1, "Priority must be at least 1").max(99, "Priority cannot exceed 99").optional(),
+    priorityRoutingEnabled: z.boolean().optional(),
     baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512),
     model: z.string().trim().min(1, "Enter a model ID").max(256),
     apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys"),
     removeSlots: z.array(z.number().int().positive()).max(50).optional(),
   });
 const claudeFable5ProviderSettingsInput = z.union([
-  z.object({ providers: z.array(claudeFable5ProviderGroupInput).min(1, "Keep at least one Claude Fable 5 provider").max(12, "At most 12 Claude Fable 5 providers may be configured") }),
+  z.object({ providers: z.array(claudeFable5ProviderGroupInput).min(1, "Keep at least one Claude Fable 5 provider").max(12, "At most 12 Claude Fable 5 providers may be configured"), priorityRoutingEnabled: z.boolean().optional() }),
   z.object({ baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(), model: z.string().trim().min(1, "Enter a model ID").max(256).optional(), apiKeys: z.array(z.string().trim().max(512)).max(50).optional(), removeSlots: z.array(z.number().int().positive()).max(50).optional() }).refine(input => input.baseUrl !== undefined || input.model !== undefined || input.apiKeys !== undefined || input.removeSlots !== undefined, "Provide at least one setting to update"),
 ]);
 const claudeOpus5ProviderSettingsInput = z.object({
@@ -166,6 +168,8 @@ const claudeOpus5ProviderSettingsInput = z.object({
     id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, "Use letters, numbers, hyphens, or underscores for the provider ID"),
     label: z.string().trim().min(1, "Enter a provider label").max(80),
     enabled: z.boolean().optional(),
+    priority: z.number().int().min(1, "Priority must be at least 1").max(99, "Priority cannot exceed 99").optional(),
+    priorityRoutingEnabled: z.boolean().optional(),
     baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512),
     model: z.string().trim().min(1, "Enter a model ID").max(256),
     apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys"),
@@ -178,6 +182,7 @@ const claudeOpus5ProviderSettingsInput = z.object({
       quotaTokens: z.number().int().min(1_000).max(100_000_000).optional(),
     })).max(50, "A Qwen provider can contain at most 50 model IDs").optional(),
   })).min(1, "Keep at least one Claude Opus 5 provider").max(12, "At most 12 Claude Opus 5 providers may be configured"),
+  priorityRoutingEnabled: z.boolean().optional(),
 });
 const claudeOpus5QwenModelDeleteInput = z.object({
   providerId: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i),
@@ -214,6 +219,8 @@ const deepseekV4ProProviderGroupInput = z.object({
   id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, "Use letters, numbers, hyphens, or underscores for the provider identifier"),
   label: z.string().trim().min(1, "Enter a provider label").max(80),
   enabled: z.boolean().optional(),
+  priority: z.number().int().min(1, "Priority must be at least 1").max(99, "Priority cannot exceed 99").optional(),
+  priorityRoutingEnabled: z.boolean().optional(),
   baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512),
   model: z.string().trim().min(1, "Enter a model ID").max(256),
   apiKeys: z.array(z.string().trim().max(512)).min(1).max(50, "A provider pool can contain at most 50 API keys"),
@@ -222,6 +229,7 @@ const deepseekV4ProProviderGroupInput = z.object({
 const deepseekV4ProProviderSettingsInput = z.union([
   z.object({
     providers: z.array(deepseekV4ProProviderGroupInput).min(1).max(12, "DeepSeek V4 Pro supports at most 12 provider groups"),
+    priorityRoutingEnabled: z.boolean().optional(),
   }),
   z.object({
     baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512).optional(),
@@ -235,11 +243,14 @@ const sonnet46ProviderSettingsInput = z.object({
     id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, "Use letters, numbers, hyphens, or underscores for the provider identifier"),
     label: z.string().trim().min(1, "Enter a provider label").max(80),
     enabled: z.boolean().optional(),
+    priority: z.number().int().min(1, "Priority must be at least 1").max(99, "Priority cannot exceed 99").optional(),
+    priorityRoutingEnabled: z.boolean().optional(),
     baseUrl: z.string().trim().url("Enter a valid HTTPS base URL").max(512),
     model: z.string().trim().min(1, "Enter a model ID").max(256),
     apiKeys: z.array(z.string().trim().max(512)).max(50, "A provider pool can contain at most 50 API keys"),
     removeSlots: z.array(z.number().int().positive()).max(50).optional(),
   })).min(1, "Keep at least one Claude Sonnet 4.6 provider").max(12, "Claude Sonnet 4.6 supports at most 12 provider groups"),
+  priorityRoutingEnabled: z.boolean().optional(),
 });
 const discordUnverifiedCleanupInput = z.object({
   expectedCount: z.number().int().min(0).max(1_000_000),

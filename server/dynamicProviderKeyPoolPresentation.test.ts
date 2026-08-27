@@ -204,4 +204,15 @@ describe("dynamic managed provider API-key pool controls", () => {
     expect(source).toContain("New b.ai attempts resume automatically");
     expect(source).toContain("<BaiProviderCircuitPanel />");
   });
+
+  it("adds optional lower-number-first provider priority controls while retaining equal-share routing when disabled", () => {
+    expect(source).toContain("function useProviderPriorityControls");
+    expect(source).toContain("Provider routing mode");
+    expect(source).toContain("Priority routing on");
+    expect(source).toContain("Equal-share routing");
+    expect(source).toContain("Provider priority");
+    expect(source).toContain("priorityRoutingEnabled");
+    expect(source).toContain("Priority mode uses lower numbers first");
+    expect(source).toContain("Qwen provider priority");
+  });
 });
