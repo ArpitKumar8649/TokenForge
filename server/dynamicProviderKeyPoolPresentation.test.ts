@@ -139,6 +139,11 @@ describe("dynamic managed provider API-key pool controls", () => {
 
   it("provides a Bailu-only administrator-managed Webshare direct-proxy pool without browser-visible credentials", () => {
     expect(source).toContain("function BailuWebshareProxyPoolPanel");
+    expect(source).toContain("function BailuWebshareProxyUrlImporter");
+    expect(source).toContain("Add Bailu Direct proxy by URL");
+    expect(source).toContain("Complete Direct proxy URL");
+    expect(source).toContain("Parse & add proxy");
+    expect(source).toContain("proxyUrl: directProxyUrl");
     expect(source).toContain("Bailu Webshare egress pool");
     expect(source).toContain("trpc.admin.bailuWebshareProxyPoolSettings.useQuery");
     expect(source).toContain("updateBailuWebshareProxyPoolSettings.useMutation");

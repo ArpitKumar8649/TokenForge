@@ -511,3 +511,9 @@
 - [x] Pause the Bailu fixed-egress rollout pending the requested Claude Opus 5 and GLM 5.3 response-quality investigation.
 - [x] Run controlled Claude Opus 5 and GLM 5.3 gateway probes, compare normalized outputs with Playground rendering, and diagnose broken-response causes.
 - [x] Add opt-in quality regressions and validate that no reproducible Claude Opus 5 or GLM 5.3 gateway, SSE, or client text-corruption defect was present in the controlled probes.
+- [x] Run a one-off Bailu 2.7 direct request through the retained single Webshare proxy using the newly supplied test credential, with no Claude Opus fallback and no credential logging; received HTTP 200 with a usable response.
+- [x] Replace all saved Bailu provider credential entries with the newly approved single server-side key and re-enable the Bailu provider group; six previous credential entries were removed and exactly one replacement key is configured.
+- [x] Verify the re-enabled TokenForge Bailu route through the retained single proxy with fallback disabled; the saved TokenForge configuration returned HTTP 200 with a usable response.
+- [x] Reconfigure a second Bailu Webshare proxy slot supplied by the administrator, then run a no-fallback two-proxy rotation check with the newly approved Bailu key; both isolated slots returned HTTP 200 with usable responses.
+- [x] Accept a complete Direct-proxy URL for an administrator-added Bailu slot and parse it server-side into encrypted host, port, username, and password fields without exposing it in the UI.
+- [x] Validate the updated Bailu provider configuration with TypeScript, 65 focused gateway and administrator-presentation assertions, and a clean diff check; publish in the following release checkpoint.

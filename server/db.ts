@@ -1330,6 +1330,23 @@ function normalizeBailuWebshareProxyHost(value: unknown) {
   return host.split(".").every(segment => Number(segment) >= 0 && Number(segment) <= 255) ? host : "";
 }
 
+function parseBailuWebshareDirectProxyUrl(value: unknown) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    if (!["http:", "https:", "socks5:"].includes(parsed.protocol)) return null;
+    const host = normalizeBailuWebshareProxyHost(parsed.hostname);
+    const port = Number(parsed.port);
+    const username = decodeURIComponent(parsed.username);
+    const password = decodeURIComponent(parsed.password);
+    if (!host || !Number.isInteger(port) || port < 1 || port > 65_535 || !username || !password) return null;
+    return { host, port, username: username.slice(0, 512), password: password.slice(0, 512) };
+  } catch {
+    return null;
+  }
+}
+
 function normalizeBailuWebshareProxyPool(value: unknown, fallback: BailuWebshareProxyRuntime[] = []) {
   if (!Array.isArray(value)) return fallback;
   const seen = new Set<string>();
@@ -1391,20 +1408,23 @@ export async function getBailuWebshareProxyPoolSettings() {
   };
 }
 
-export async function updateBailuWebshareProxyPoolSettings(input: { enabled?: boolean; proxies: Array<{ id: string; label?: string; host: string; port: number; username?: string; password?: string; enabled?: boolean }> }, updatedByUserId: number) {
+export async function updateBailuWebshareProxyPoolSettings(input: { enabled?: boolean; proxies: Array<{ id: string; label?: string; host?: string; port?: number; username?: string; password?: string; proxyUrl?: string; enabled?: boolean }> }, updatedByUserId: number) {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
   const current = await getBailuWebshareProxyPoolRuntimeConfig();
   const existingById = new Map(current.proxies.map(proxy => [proxy.id, proxy]));
   const proxies = normalizeBailuWebshareProxyPool(input.proxies.map((submitted, index) => {
     const existing = existingById.get(submitted.id);
+    const suppliedUrl = submitted.proxyUrl?.trim() ?? "";
+    const parsedUrl = suppliedUrl ? parseBailuWebshareDirectProxyUrl(suppliedUrl) : null;
+    const invalidSuppliedUrl = Boolean(suppliedUrl && !parsedUrl);
     return {
       id: submitted.id,
       label: submitted.label ?? `Webshare proxy ${index + 1}`,
-      host: submitted.host,
-      port: submitted.port,
-      username: submitted.username?.trim() || existing?.username || "",
-      password: submitted.password || existing?.password || "",
+      host: invalidSuppliedUrl ? "" : parsedUrl?.host ?? submitted.host ?? "",
+      port: invalidSuppliedUrl ? 0 : parsedUrl?.port ?? submitted.port ?? 0,
+      username: invalidSuppliedUrl ? "" : parsedUrl?.username || submitted.username?.trim() || existing?.username || "",
+      password: invalidSuppliedUrl ? "" : parsedUrl?.password || submitted.password || existing?.password || "",
       enabled: submitted.enabled !== false,
     };
   }));

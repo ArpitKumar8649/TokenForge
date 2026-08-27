@@ -191,11 +191,16 @@ const bailuWebshareProxyPoolInput = z.object({
   proxies: z.array(z.object({
     id: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/i, "Use letters, numbers, hyphens, or underscores for the proxy ID"),
     label: z.string().trim().max(80).optional(),
-    host: z.string().trim().regex(/^\d{1,3}(?:\.\d{1,3}){3}$/, "Enter the Webshare direct proxy IPv4 address"),
-    port: z.number().int().min(1).max(65_535),
+    proxyUrl: z.string().trim().max(2_048).optional(),
+    host: z.string().trim().optional(),
+    port: z.number().int().min(1).max(65_535).optional(),
     username: z.string().max(512).optional(),
     password: z.string().max(512).optional(),
     enabled: z.boolean().optional(),
+  }).superRefine((proxy, ctx) => {
+    if (proxy.proxyUrl) return;
+    if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(proxy.host ?? "")) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["host"], message: "Enter a complete Direct proxy URL or the Webshare direct proxy IPv4 address" });
+    if (!proxy.port) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["port"], message: "Enter a Direct proxy URL or port" });
   })).max(3, "Bailu supports at most three Webshare direct proxies"),
 });
 const glm53ProviderSettingsInput = z.object({
