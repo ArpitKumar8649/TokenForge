@@ -396,7 +396,9 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
   const url = openAiChatCompletionsUrl(runtime.baseUrl);
   if (!url || !runtime.model) throw new Error("TokenForge GLM 5.3 inference is not configured");
   const isBai = isBaiProviderBaseUrl(runtime.baseUrl);
-  const preparedInput = isBai ? await rehydrateBaiReasoningHistory("glm-5.3", input, context) : input;
+  const baiPreparation = isBai ? await prepareBaiContinuation("glm-5.3", input, context) : { input, hasAssistantHistory: false, canRouteToBai: true };
+  if (isBai && !baiPreparation.canRouteToBai) throw new Error("b.ai reasoning continuation is unavailable for this mixed-provider or expired conversation.");
+  const preparedInput = isBai ? normalizeBaiToolChoice(baiPreparation.input) : input;
   const requestBody = { ...normalizeBaiMaxTokens(preparedInput, isBai), model: runtime.model };
   const provider = { id: "glm53-primary", label: "GLM 5.3 provider" };
   let lastError: unknown = null;
@@ -1117,8 +1119,12 @@ async function tryForwardClaudeOpus5ThroughRenderSwarm(input: ChatInput, signal:
 /** Claude Opus 5 balances each new call evenly across configured provider groups, then across eligible keys in that group. */
 async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: AbortSignal, context?: ProviderRequestContext) {
   const runtime = await getClaudeOpus5RuntimeConfig();
-  const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeOpus5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
+  const rotatedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeOpus5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.length);
   claudeOpus5ProviderCursor = runtime.providers.length ? (claudeOpus5ProviderCursor + 1) % runtime.providers.length : 0;
+  const baiPreparation = await prepareBaiContinuation("claude-opus-5", input, context);
+  const baiProviders = rotatedProviders.filter(provider => isBaiProviderLabel(provider.label));
+  const otherProviders = rotatedProviders.filter(provider => !isBaiProviderLabel(provider.label));
+  const orderedProviders = baiPreparation.canRouteToBai ? [...baiProviders, ...otherProviders] : otherProviders;
   let lastError: unknown = null;
   let lastFailureStatus: number | null = null;
   for (const provider of orderedProviders) {
@@ -1165,7 +1171,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
       const responseStart = createResponseStartDeadline(signal);
       try {
         const isBai = isBaiProviderLabel(provider.label);
-        const preparedInput = isBai ? await rehydrateBaiReasoningHistory("claude-opus-5", input, context) : input;
+        const preparedInput = isBai ? normalizeBaiToolChoice(baiPreparation.input) : input;
         const providerInput = normalizeBaiMaxTokens(preparedInput, isBai);
         const response = isBailuClaudeOpus5Provider(provider)
           ? await forwardBailuRequestWithWebshareFailover(url, providerInput, upstreamModel, selectedCredential.credential, responseStart.signal, responseStart.timedOut)
@@ -1699,25 +1705,45 @@ function bAiAssistantTurnFingerprint(model: TokenForgeModelId, value: unknown) {
 }
 
 function withoutCallerReasoning(message: ChatMessage): ChatMessage {
-  const { reasoning_content: _reasoningContent, reasoning: _reasoning, thinking: _thinking, ...visibleMessage } = message as Record<string, unknown>;
+  const source = message as Record<string, unknown>;
+  if (!("reasoning_content" in source) && !("reasoning" in source) && !("thinking" in source)) return message;
+  const { reasoning_content: _reasoningContent, reasoning: _reasoning, thinking: _thinking, ...visibleMessage } = source;
   return visibleMessage;
 }
 
-async function rehydrateBaiReasoningHistory(model: "claude-opus-5" | "glm-5.3", input: ChatInput, context: ProviderRequestContext | undefined): Promise<ChatInput> {
-  if (!context?.userId || !Array.isArray(input.messages)) return input;
+type BaiContinuationPreparation = { input: ChatInput; hasAssistantHistory: boolean; canRouteToBai: boolean };
+
+async function prepareBaiContinuation(model: "claude-opus-5" | "glm-5.3", input: ChatInput, context: ProviderRequestContext | undefined): Promise<BaiContinuationPreparation> {
+  if (!Array.isArray(input.messages)) return { input, hasAssistantHistory: false, canRouteToBai: true };
+  const assistantMessages = input.messages.filter(message => Boolean(message) && typeof message === "object" && message.role === "assistant");
+  if (!assistantMessages.length) return { input, hasAssistantHistory: false, canRouteToBai: true };
+  if (!context?.userId) return { input, hasAssistantHistory: true, canRouteToBai: false };
   let changed = false;
+  let missingContinuation = false;
   const messages = await Promise.all(input.messages.map(async message => {
     if (!message || typeof message !== "object" || message.role !== "assistant") return message;
     const visibleMessage = withoutCallerReasoning(message);
     if (visibleMessage !== message) changed = true;
     const fingerprint = bAiAssistantTurnFingerprint(model, visibleMessage);
-    if (!fingerprint) return visibleMessage;
+    if (!fingerprint) {
+      missingContinuation = true;
+      return visibleMessage;
+    }
     const reasoningContent = await loadBaiReasoningContinuation(context.userId, model, fingerprint);
-    if (!reasoningContent) return visibleMessage;
+    if (!reasoningContent) {
+      missingContinuation = true;
+      return visibleMessage;
+    }
     changed = true;
     return { ...visibleMessage, reasoning_content: reasoningContent };
   }));
-  return changed ? { ...input, messages } : input;
+  return { input: changed ? { ...input, messages } : input, hasAssistantHistory: true, canRouteToBai: !missingContinuation };
+}
+
+function normalizeBaiToolChoice(input: ChatInput): ChatInput {
+  if (!("tool_choice" in input) || input.tool_choice === undefined || input.tool_choice === "auto") return input;
+  const { tool_choice: _toolChoice, ...withoutForcedToolChoice } = input;
+  return withoutForcedToolChoice;
 }
 
 function captureBaiReasoningContinuation(model: "claude-opus-5" | "glm-5.3", context: ProviderRequestContext | undefined, payload: unknown) {

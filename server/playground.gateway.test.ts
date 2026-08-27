@@ -398,6 +398,46 @@ describe("TokenForge Playground gateway", () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({ max_tokens: 2, model: "private-other-model" });
   });
 
+  it("prefers a healthy b.ai provider for a new Claude Opus conversation", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "b.ai response" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [
+      { id: "other", label: "Other provider", enabled: true, baseUrl: "https://other-provider.example", model: "private-other-model", apiKeys: ["server-only-other-key"] },
+      { id: "bai", label: "B.ai", enabled: true, baseUrl: "https://bai-provider.example", model: "private-bai-model", apiKeys: ["server-only-bai-key"] },
+    ] });
+
+    await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Start a new chat." }] }, new AbortController().signal, { userId: 42 });
+
+    expect(fetchMock.mock.calls[0][0]).toBe("https://bai-provider.example/v1/chat/completions");
+  });
+
+  it("skips b.ai for a Claude Opus continuation whose assistant turn has no matching private b.ai reasoning", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "Compatible provider response" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(loadBaiReasoningContinuation).mockResolvedValue(null);
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [
+      { id: "bai", label: "B.ai", enabled: true, baseUrl: "https://bai-provider.example", model: "private-bai-model", apiKeys: ["server-only-bai-key"] },
+      { id: "other", label: "Other provider", enabled: true, baseUrl: "https://other-provider.example", model: "private-other-model", apiKeys: ["server-only-other-key"] },
+    ] });
+
+    await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Start." }, { role: "assistant", content: "Earlier provider answer." }, { role: "user", content: "Continue." }] }, new AbortController().signal, { userId: 42 });
+
+    expect(fetchMock.mock.calls[0][0]).toBe("https://other-provider.example/v1/chat/completions");
+  });
+
+  it("removes only unsupported forced b.ai tool_choice while retaining tool definitions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "Tool available" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({ providers: [{ id: "bai", label: "B.ai", enabled: true, baseUrl: "https://bai-provider.example", model: "private-bai-model", apiKeys: ["server-only-bai-key"] }] });
+    const tools = [{ type: "function", function: { name: "get_status", parameters: { type: "object", properties: {} } } }];
+
+    await forwardProviderRequest("claude-opus-5", { model: "claude-opus-5", messages: [{ role: "user", content: "Use the tool." }], tools, tool_choice: { type: "function", function: { name: "get_status" } } }, new AbortController().signal, { userId: 42 });
+
+    const forwarded = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(forwarded.tools).toEqual(tools);
+    expect(forwarded).not.toHaveProperty("tool_choice");
+  });
+
   it("retries a retryable Claude Opus 5 response once before streaming with the next TokenReply credential", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "upstream_busy" } }), { status: 503 }))
@@ -1074,6 +1114,19 @@ describe("TokenForge Playground gateway", () => {
     await forwardProviderRequest("glm-5.3", { model: "glm-5.3", max_tokens: 1, messages: [{ role: "user", content: "Respect b.ai minimum output." }] }, new AbortController().signal);
 
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({ max_tokens: 3, model: "private-glm-model" });
+  });
+
+  it("removes only unsupported forced b.ai GLM tool_choice while retaining tool definitions", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "Tool available" } }], usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 } }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(getGlm53RuntimeConfig).mockResolvedValue({ baseUrl: "https://api.b.ai", model: "private-glm-model", apiKeys: ["server-only-managed-glm-key-1"] });
+    const tools = [{ type: "function", function: { name: "get_status", parameters: { type: "object", properties: {} } } }];
+
+    await forwardProviderRequest("glm-5.3", { model: "glm-5.3", messages: [{ role: "user", content: "Use the tool." }], tools, tool_choice: { type: "function", function: { name: "get_status" } } }, new AbortController().signal, { userId: 42 });
+
+    const forwarded = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(forwarded.tools).toEqual(tools);
+    expect(forwarded).not.toHaveProperty("tool_choice");
   });
 
   it("rehydrates private b.ai GLM reasoning only for the matching authenticated continuation", async () => {

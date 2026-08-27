@@ -527,3 +527,6 @@
 - [x] Send one controlled Claude Opus 5 b.ai-bound request with max_tokens set to 1 and verify the protected-route response without exposing credentials or raw upstream details; TokenForge normalized it to 3 and the provider returned HTTP 200 with a usable response.
 - [x] Add encrypted, account-bound, short-lived server-only b.ai reasoning continuation storage for Claude Opus 5 and GLM 5.3; rehydrate it only into the matching later b.ai request and never expose it publicly.
 - [x] Add privacy and multi-turn b.ai thinking-mode regressions and validate JSON/SSE public redaction; 74 focused gateway and Anthropic assertions pass; publish in the following release checkpoint.
+- [x] Prefer a healthy enabled b.ai provider for new Claude Opus 5 and GLM 5.3 conversations, while keeping b.ai-originated continuations affinity-routed through their matching encrypted reasoning state.
+- [x] Skip b.ai safely for mixed-provider or expired b.ai continuation histories instead of sending mismatched private reasoning, and translate b.ai-only forced tool_choice to automatic selection while retaining tools.
+- [x] Add affinity, fallback, mixed-history privacy, and b.ai tool-choice regressions; direct b.ai automatic-tool request returned HTTP 200; 78 focused gateway and Anthropic assertions pass; publish in the following release checkpoint.
