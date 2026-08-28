@@ -682,6 +682,18 @@ export function registerAnthropicMessagesGateway(app: Express) {
       finish();
     } catch {
       failed = true;
+      // Preserve a valid Anthropic SSE terminal sequence when the upstream
+      // connection ends unexpectedly after response headers were sent. Without
+      // this, Claude Code sees only an EOF and retries with a non-streaming
+      // request, which can surface a second misleading neutral 400.
+      if (!res.writableEnded && !res.destroyed) {
+        try {
+          writeSse(res, "error", { type: "error", error: { type: "api_error", message: publicProviderErrorMessage() } });
+          finish("end_turn");
+        } catch {
+          // The caller may have disconnected while the upstream was failing.
+        }
+      }
     } finally {
       clearTimeout(timeout);
       if (!failed && model === "glm-5.3" && glmStreamReasoning.trim()) {

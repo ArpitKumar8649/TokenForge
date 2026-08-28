@@ -545,3 +545,5 @@
 - [x] Reduce the future platform charge multiplier from 3.5× to 2.0×, preserve historical settled ledger rows, validate all pricing paths, and publish.
 - [x] Apply the confirmed platform charge multiplier change from 3.5× to 2.0× now, preserve historical settled ledger values, validate pricing paths, and publish.
 - [x] Update the public Models-page pricing projection for every model to the active 2.0× multiplier, add all-model consistency coverage, validate, and publish.
+- [ ] Diagnose and fix incomplete Claude Code-compatible streaming responses that trigger a non-stream retry and neutral 400, preserve redaction, add regression coverage, validate, and publish.
+- [ ] Push the complete latest TokenForge source to the selected GitHub repository, excluding secrets and transient generated artifacts.
