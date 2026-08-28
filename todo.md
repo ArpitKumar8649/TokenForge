@@ -544,3 +544,4 @@
 - [x] Research current payment providers that can accept international crypto payments without requiring a connected bank account, distinguish crypto receipt from card/fiat settlement, and provide sourced guidance without integrating anything.
 - [x] Reduce the future platform charge multiplier from 3.5× to 2.0×, preserve historical settled ledger rows, validate all pricing paths, and publish.
 - [x] Apply the confirmed platform charge multiplier change from 3.5× to 2.0× now, preserve historical settled ledger values, validate pricing paths, and publish.
+- [x] Update the public Models-page pricing projection for every model to the active 2.0× multiplier, add all-model consistency coverage, validate, and publish.
