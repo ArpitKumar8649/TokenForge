@@ -18,8 +18,10 @@ import {
   getQwen38MaxRuntimeConfig,
   getRenderNimProxyRuntimeConfig,
   getPlatformMaintenanceConfig,
+  getPlaygroundMaintenanceConfig,
   isManagedProviderCredentialEnabled,
   PLATFORM_MAINTENANCE_ERROR_MESSAGE,
+  PLAYGROUND_MAINTENANCE_ERROR_MESSAGE,
   getQuotaStatus,
   getModelAvailabilitySnapshot,
   isModelAvailable,
@@ -1986,6 +1988,9 @@ export async function runPlaygroundCompletion(input: {
   if ((await getPlatformMaintenanceConfig()).enabled) {
     throw new TokenForgePlaygroundError("platform_maintenance", PLATFORM_MAINTENANCE_ERROR_MESSAGE);
   }
+  if ((await getPlaygroundMaintenanceConfig()).enabled) {
+    throw new TokenForgePlaygroundError("platform_maintenance", PLAYGROUND_MAINTENANCE_ERROR_MESSAGE);
+  }
   if (!(await isModelAvailable(input.model))) {
     throw new TokenForgePlaygroundError("model_unavailable", "The requested model is currently unavailable in the active TokenForge catalogue.");
   }
@@ -2073,6 +2078,9 @@ async function streamPlaygroundCompletion(input: {
   const requestId = `tf_pg_${randomUUID().replaceAll("-", "")}`;
   if ((await getPlatformMaintenanceConfig()).enabled) {
     throw new TokenForgePlaygroundError("platform_maintenance", PLATFORM_MAINTENANCE_ERROR_MESSAGE);
+  }
+  if ((await getPlaygroundMaintenanceConfig()).enabled) {
+    throw new TokenForgePlaygroundError("platform_maintenance", PLAYGROUND_MAINTENANCE_ERROR_MESSAGE);
   }
   if (!(await isModelAvailable(input.model))) {
     throw new TokenForgePlaygroundError("model_unavailable", "The requested model is currently unavailable in the active TokenForge catalogue.");

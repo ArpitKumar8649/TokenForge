@@ -31,6 +31,7 @@ vi.mock("./db", () => ({
   countDiscordVerifiedAccounts: vi.fn(),
   getAuthSessionVersion: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
+  getPlaygroundMaintenanceConfig: vi.fn(),
   getMaintenanceCountdown: vi.fn(),
   countDiscordUnverifiedAccounts: vi.fn(),
   deleteDiscordUnverifiedAccounts: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("./db", () => ({
   setAccountControl: vi.fn(),
   setEmailAllowlistConfig: vi.fn(),
   setPlatformMaintenanceConfig: vi.fn(),
+  setPlaygroundMaintenanceConfig: vi.fn(),
   setMaintenanceCountdown: vi.fn(),
   setModelEnabled: vi.fn(),
   setProviderEnabled: vi.fn(),
@@ -87,6 +89,7 @@ import {
   countDiscordVerifiedAccounts,
   getAuthSessionVersion,
   getPlatformMaintenanceConfig,
+  getPlaygroundMaintenanceConfig,
   getMaintenanceCountdown,
   countDiscordUnverifiedAccounts,
   deleteDiscordUnverifiedAccounts,
@@ -97,6 +100,7 @@ import {
   getOrCreateAdminSessionPrincipal,
   setEmailAllowlistConfig,
   setPlatformMaintenanceConfig,
+  setPlaygroundMaintenanceConfig,
   setMaintenanceCountdown,
   setProviderEnabled,
   writeAuditEvent,
@@ -148,6 +152,8 @@ beforeEach(() => {
   vi.mocked(getAuthSessionVersion).mockResolvedValue(3);
   vi.mocked(getPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
   vi.mocked(setPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
+  vi.mocked(getPlaygroundMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
+  vi.mocked(setPlaygroundMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
   vi.mocked(getMaintenanceCountdown).mockResolvedValue(null);
   vi.mocked(setMaintenanceCountdown).mockResolvedValue(null);
   vi.mocked(countDiscordUnverifiedAccounts).mockResolvedValue(3);
@@ -388,6 +394,13 @@ describe("protected administrator account directory", () => {
     expect(resetDiscordVerification).toHaveBeenCalledWith(55);
     expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, targetUserId: 55, action: "account.discord_verification.reset", entityType: "account", entityId: "55", metadata: { verificationWasPresent: true } }));
     await expect(appRouter.createCaller(makeContext(admin).ctx).admin.resetDiscordVerification({ userId: admin.id, confirmation: `RESET DISCORD VERIFICATION ${admin.id}` })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("lets an administrator pause only the Playground and records the scoped action", async () => {
+    const admin = { ...localUser, id: 1, isAdminSession: true };
+    vi.mocked(setPlaygroundMaintenanceConfig).mockResolvedValueOnce({ enabled: true, updatedAt: new Date("2026-08-28T00:00:00.000Z"), updatedByUserId: 1 });
+    await expect(appRouter.createCaller(makeContext(admin).ctx).admin.setPlaygroundMaintenance({ enabled: true })).resolves.toMatchObject({ enabled: true });
+    expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 1, action: "playground.maintenance.enabled", entityType: "platform_setting", entityId: "playground_maintenance" }));
   });
 
   it("lets an administrator enable global inference maintenance and records the action", async () => {

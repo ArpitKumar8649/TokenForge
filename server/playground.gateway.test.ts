@@ -16,8 +16,10 @@ vi.mock("./db", () => ({
   getQwen38MaxRuntimeConfig: vi.fn(),
   getRenderNimProxyRuntimeConfig: vi.fn(),
   getPlatformMaintenanceConfig: vi.fn(),
+  getPlaygroundMaintenanceConfig: vi.fn(),
   isManagedProviderCredentialEnabled: vi.fn(() => true),
   PLATFORM_MAINTENANCE_ERROR_MESSAGE: "Site entered in maintainence mode due to massive request.",
+  PLAYGROUND_MAINTENANCE_ERROR_MESSAGE: "Playground is under maintenance because it is giving broken responses. Please try again shortly.",
   getQuotaStatus: vi.fn(),
   getModelAvailabilitySnapshot: vi.fn(),
   isModelAvailable: vi.fn(),
@@ -46,7 +48,7 @@ vi.mock("./db", () => ({
 vi.mock("node:https", () => ({ default: { request: vi.fn() } }));
 vi.mock("socks-proxy-agent", () => ({ SocksProxyAgent: vi.fn().mockImplementation((proxyUrl: URL) => ({ destroy: vi.fn(), proxyUrl })) }));
 
-import { getBailuWebshareProxyPoolRuntimeConfig, getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, getSonnet46RuntimeConfig, isBaiProviderCircuitEligible, isManagedProviderCredentialEnabled, isModelAvailable, loadBaiReasoningContinuation, loadOrcaRouterCredentialSlotCiphertexts, recordBaiProviderRateLimit, recordBaiProviderSuccess, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordSonnet46FailureLog, recordManagedProviderKeyOutcome, recordUsage, releaseBaiCredentialCapacityLease, releaseBailuWebshareProxySlot, reserveCredit, settleReservedCredit, storeBaiReasoningContinuation, tryAcquireBaiCredentialCapacityLease, tryAcquireBailuWebshareProxySlot } from "./db";
+import { getBailuWebshareProxyPoolRuntimeConfig, getClaudeFable5NvidiaRuntimeConfig, getClaudeOpus5RuntimeConfig, getDeepseekV4ProRuntimeConfig, getEligibleClaudeOpus5QwenModels, getGlm53RuntimeConfig, getPlatformMaintenanceConfig, getPlaygroundMaintenanceConfig, getQwen38MaxRuntimeConfig, getQuotaStatus, getRenderNimProxyRuntimeConfig, getSonnet46RuntimeConfig, isBaiProviderCircuitEligible, isManagedProviderCredentialEnabled, isModelAvailable, loadBaiReasoningContinuation, loadOrcaRouterCredentialSlotCiphertexts, recordBaiProviderRateLimit, recordBaiProviderSuccess, recordClaudeFable5FailureLog, recordClaudeOpus5FailureLog, recordClaudeOpus5QwenModelUsage, recordDeepseekV4ProFailureLog, recordGlm53FailureLog, recordQwen38MaxFailureLog, recordSonnet46FailureLog, recordManagedProviderKeyOutcome, recordUsage, releaseBaiCredentialCapacityLease, releaseBailuWebshareProxySlot, reserveCredit, settleReservedCredit, storeBaiReasoningContinuation, tryAcquireBaiCredentialCapacityLease, tryAcquireBailuWebshareProxySlot } from "./db";
 import { forwardProviderRequest, modelScopedGuidance, playgroundMessagesForModel, playgroundResponseGuidance, PUBLIC_PROVIDER_ERROR_MESSAGE, resetBailuWebshareProxyPool, resetClaudeFable5ProviderBalancing, resetClaudeOpus5ProviderBalancing, resetDeepseekV4ProProviderBalancing, resetQwen38MaxProviderBalancing, resetSonnet46ProviderBalancing, runPlaygroundCompletion, sanitizeModelResponsePayload, sanitizeModelSseData, TokenForgePlaygroundError, withModelScopedGuidance } from "./openaiGateway";
 import https from "node:https";
 import { SocksProxyAgent } from "socks-proxy-agent";
@@ -159,6 +161,7 @@ beforeEach(() => {
   process.env.TOKENROUTER_CLAUDE_OPUS5_MODEL = "upstream-claude-opus-5";
   process.env.TOKENROUTER_GLM53_MODEL = "upstream-glm-5.3-model";
   vi.mocked(getPlatformMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
+  vi.mocked(getPlaygroundMaintenanceConfig).mockResolvedValue({ enabled: false, updatedAt: null });
   vi.mocked(getClaudeFable5NvidiaRuntimeConfig).mockResolvedValue({ providers: [{ id: "primary", label: "Primary provider", enabled: true, baseUrl: "https://nvidia.example", model: "upstream-nvidia-claude-fable-5-model", apiKeys: ["server-only-nvidia-fable5-secret-1", "server-only-nvidia-fable5-secret-2", "server-only-nvidia-fable5-secret-3", "server-only-nvidia-fable5-secret-4", "server-only-nvidia-fable5-secret-5"] }] });
   vi.mocked(getClaudeOpus5RuntimeConfig).mockResolvedValue({
     providers: [{
@@ -273,6 +276,16 @@ describe("TokenForge Playground gateway", () => {
     const forwardedPayload = JSON.parse(vi.mocked(fetchMock).mock.calls[0][1].body as string);
     expect(forwardedPayload.messages).toHaveLength(301);
     expect(forwardedPayload.messages.at(-1)).toEqual({ role: "assistant", content: "turn-299" });
+  });
+
+  it("stops before model availability, credits, and provider work when Playground-only maintenance is active", async () => {
+    vi.mocked(getPlaygroundMaintenanceConfig).mockResolvedValueOnce({ enabled: true, updatedAt: new Date("2026-08-28T00:00:00.000Z"), updatedByUserId: 7 });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(runPlaygroundCompletion({ userId: 42, model: "glm-5.2", messages: [{ role: "user", content: "Hello" }], sourceIpHash: "playground-maintenance" })).rejects.toMatchObject<TokenForgePlaygroundError>({ code: "platform_maintenance", message: "Playground is under maintenance because it is giving broken responses. Please try again shortly." });
+    expect(isModelAvailable).not.toHaveBeenCalled();
+    expect(reserveCredit).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("stops before model availability, credits, and provider work when global maintenance is active", async () => {

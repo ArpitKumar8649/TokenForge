@@ -38,6 +38,8 @@ import {
   getAdminAuditExport,
   getAuthSessionVersion,
   getPlatformMaintenanceConfig,
+  getPlaygroundMaintenanceConfig,
+  setPlaygroundMaintenanceConfig,
   getMaintenanceCountdown,
   listAdminAuditEvents,
   countDiscordUnverifiedAccounts,
@@ -445,6 +447,12 @@ export const appRouter = router({
     activity: adminProcedure.input(z.object({ limit: z.number().int().min(1).max(100).default(40) }).optional()).query(({ input }) => listAdminAuditEvents(input?.limit ?? 40)),
     auditExport: adminProcedure.query(() => getAdminAuditExport()),
     platformMaintenance: adminProcedure.query(() => getPlatformMaintenanceConfig()),
+    playgroundMaintenance: adminProcedure.query(() => getPlaygroundMaintenanceConfig()),
+    setPlaygroundMaintenance: adminProcedure.input(z.object({ enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
+      const maintenance = await setPlaygroundMaintenanceConfig(input.enabled, ctx.user.id);
+      await writeAuditEvent({ actorUserId: ctx.user.id, action: input.enabled ? "playground.maintenance.enabled" : "playground.maintenance.disabled", entityType: "platform_setting", entityId: "playground_maintenance" });
+      return maintenance;
+    }),
     setPlatformMaintenance: adminProcedure.input(z.object({ enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
       const maintenance = await setPlatformMaintenanceConfig(input.enabled, ctx.user.id);
       await writeAuditEvent({ actorUserId: ctx.user.id, action: input.enabled ? "platform.maintenance.enabled" : "platform.maintenance.disabled", entityType: "platform_setting", entityId: "platform_maintenance" });

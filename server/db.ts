@@ -61,8 +61,10 @@ const EMAIL_ALLOWLIST_SETTING_KEY = "email_allowlist";
 const ANNOUNCEMENT_TEXT_SETTING_KEY = "announcement_text";
 const SESSION_VERSION_SETTING_KEY = "auth_session_version";
 const PLATFORM_MAINTENANCE_SETTING_KEY = "platform_maintenance";
+const PLAYGROUND_MAINTENANCE_SETTING_KEY = "playground_maintenance";
 const MAINTENANCE_COUNTDOWN_SETTING_KEY = "maintenance_countdown_v1";
 export const PLATFORM_MAINTENANCE_ERROR_MESSAGE = "Site entered in maintainence mode due to massive request.";
+export const PLAYGROUND_MAINTENANCE_ERROR_MESSAGE = "Playground is under maintenance because it is giving broken responses. Please try again shortly.";
 const CLAUDE_FABLE5_NVIDIA_RUNTIME_SETTING_KEY = "claude_fable5_nvidia_runtime_v1";
 const CLAUDE_OPUS5_TOKENREPLY_RUNTIME_SETTING_KEY = "claude_opus5_tokenreply_runtime_v1";
 const GLM53_RUNTIME_SETTING_KEY = "glm53_runtime_v1";
@@ -184,6 +186,24 @@ export async function getPlatformMaintenanceConfig(): Promise<PlatformMaintenanc
 }
 
 /** Persists the administrator-controlled global inference admission state. */
+export async function getPlaygroundMaintenanceConfig(): Promise<PlatformMaintenanceConfig> {
+  const db = await getDb();
+  if (!db) return { enabled: false, updatedAt: null, updatedByUserId: null };
+  const record = (await db.select().from(platformSettings).where(eq(platformSettings.settingKey, PLAYGROUND_MAINTENANCE_SETTING_KEY)).limit(1))[0];
+  return { enabled: record?.value === "enabled", updatedAt: record?.updatedAt ?? null, updatedByUserId: record?.updatedByUserId ?? null };
+}
+
+export async function setPlaygroundMaintenanceConfig(enabled: boolean, updatedByUserId: number): Promise<PlatformMaintenanceConfig> {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  await db.insert(platformSettings).values({
+    settingKey: PLAYGROUND_MAINTENANCE_SETTING_KEY,
+    value: enabled ? "enabled" : "disabled",
+    updatedByUserId,
+  }).onDuplicateKeyUpdate({ set: { value: enabled ? "enabled" : "disabled", updatedByUserId, updatedAt: new Date() } });
+  return getPlaygroundMaintenanceConfig();
+}
+
 export async function setPlatformMaintenanceConfig(enabled: boolean, updatedByUserId: number): Promise<PlatformMaintenanceConfig> {
   const db = await getDb();
   if (!db) throw new Error("TokenForge database is unavailable");
