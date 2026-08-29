@@ -809,7 +809,12 @@ export function publicApiKey(key: ApiKeyRecord) {
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      // TiDB Cloud and other MySQL providers require TLS; mysql2 ignores the
+      // `ssl-mode=REQUIRED` URL parameter, so pass the ssl object explicitly.
+      const requiresSsl = /tidbcloud\.com|aivencloud\.com/i.test(process.env.DATABASE_URL);
+      _db = requiresSsl
+        ? drizzle(process.env.DATABASE_URL, { ssl: { rejectUnauthorized: true } })
+        : drizzle(process.env.DATABASE_URL);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
