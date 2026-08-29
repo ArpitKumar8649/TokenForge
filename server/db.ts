@@ -814,7 +814,7 @@ export async function getDb() {
       // the `ssl-mode=REQUIRED` URL parameter entirely — TiDB Cloud/Aiven both
       // reject non-TLS connections. Build an explicit config object instead.
       const parsed = new URL(process.env.DATABASE_URL);
-      const config = {
+      const config: Record<string, unknown> = {
         host: parsed.hostname,
         port: parsed.port ? Number(parsed.port) : 3306,
         user: decodeURIComponent(parsed.username),
@@ -822,7 +822,7 @@ export async function getDb() {
         database: parsed.pathname.replace(/^\//, "").split("?")[0],
       };
       if (/tidbcloud\.com|aivencloud\.com/i.test(parsed.hostname)) config.ssl = { rejectUnauthorized: true };
-      _db = drizzle(mysql.createPool(config));
+      _db = drizzle(mysql.createPool(config as Parameters<typeof mysql.createPool>[0])) as unknown as ReturnType<typeof drizzle>;
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -3075,6 +3075,33 @@ export async function ensureAccountControl(userId: number) {
  * Records the successful guild-membership check without retaining a Discord
  * user ID, OAuth access token, refresh token, or profile data.
  */
+/**
+ * Binds a Discord identity to exactly one TokenForge account. The unique
+ * (provider, providerUserId) constraint rejects re-verification of the same
+ * Discord account by another TokenForge account; this returns null when the
+ * Discord user is already linked to a different account.
+ */
+export async function bindDiscordIdentity(userId: number, discordUserId: string) {
+  const db = await getDb();
+  if (!db) throw new Error("TokenForge database is unavailable");
+  if (!discordUserId.trim()) throw new Error("Discord identity is required");
+  const provider = "discord";
+  const prior = (await db.select({ userId: oauthIdentities.userId }).from(oauthIdentities)
+    .where(and(eq(oauthIdentities.provider, provider), eq(oauthIdentities.providerUserId, discordUserId))).limit(1))[0];
+  if (prior && prior.userId !== userId) return null;
+  try {
+    await db.insert(oauthIdentities).values({ userId, provider, providerUserId: discordUserId })
+      .onDuplicateKeyUpdate({ set: { providerUserId: discordUserId, updatedAt: new Date() } });
+    return true;
+  } catch (error: any) {
+    if (error?.code !== "ER_DUP_ENTRY") throw error;
+    const concurrent = (await db.select({ userId: oauthIdentities.userId }).from(oauthIdentities)
+      .where(and(eq(oauthIdentities.provider, provider), eq(oauthIdentities.providerUserId, discordUserId))).limit(1))[0];
+    if (concurrent && concurrent.userId !== userId) return null;
+    return true;
+  }
+}
+
 export async function markDiscordVerified(userId: number) {
   const db = await getDb();
   const controls = await ensureAccountControl(userId);

@@ -19,6 +19,10 @@ const ERROR_COPY: Record<string, { title: string; body: string }> = {
     title: "This verification link is no longer valid.",
     body: "For your protection, start the Discord verification step again from this page.",
   },
+  "already-linked": {
+    title: "This Discord account is already linked to another TokenForge account.",
+    body: "Each Discord account can be used to verify only one TokenForge account. If this Discord account previously verified a different TokenForge account, sign in to that account instead — or contact support for help.",
+  },
 };
 
 function SystemNotices() {

@@ -1,7 +1,7 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { parse as parseCookieHeader } from "cookie";
 import type { Express, Request, Response } from "express";
-import { markDiscordVerified, settleSpecialReferralBonusAfterDiscordVerification } from "./db";
+import { bindDiscordIdentity, markDiscordVerified, settleSpecialReferralBonusAfterDiscordVerification } from "./db";
 import { appOrigin } from "./githubOAuth";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { ENV } from "./_core/env";
@@ -103,7 +103,7 @@ export async function isDiscordGuildMember(input: {
   return true;
 }
 
-function redirectToVerificationError(res: Response, error: "not-member" | "failed" | "state-error") {
+function redirectToVerificationError(res: Response, error: "not-member" | "failed" | "state-error" | "already-linked") {
   res.redirect(302, `/verify-discord?error=${error}`);
 }
 
@@ -165,6 +165,11 @@ export function registerDiscordOAuthRoutes(app: Express) {
       });
       if (!member) {
         redirectToVerificationError(res, "not-member");
+        return;
+      }
+      const bound = await bindDiscordIdentity(user.id, identity.id);
+      if (bound === null) {
+        redirectToVerificationError(res, "already-linked");
         return;
       }
       await markDiscordVerified(user.id);
