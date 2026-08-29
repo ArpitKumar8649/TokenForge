@@ -42,7 +42,6 @@ vi.mock("./db", () => ({
   listApiKeys: vi.fn(),
   listOpenFlags: vi.fn(),
   recordFailedPasswordLogin: vi.fn(),
-  revokeAllTokenForgeSessions: vi.fn(),
   revokeApiKey: vi.fn(),
   resetDiscordVerification: vi.fn(),
   getOrCreateAdminSessionPrincipal: vi.fn(),
@@ -95,7 +94,6 @@ import {
   deleteDiscordUnverifiedAccounts,
   DiscordUnverifiedAccountDeletedError,
   recordFailedPasswordLogin,
-  revokeAllTokenForgeSessions,
   resetDiscordVerification,
   getOrCreateAdminSessionPrincipal,
   setEmailAllowlistConfig,
@@ -158,7 +156,7 @@ beforeEach(() => {
   vi.mocked(setMaintenanceCountdown).mockResolvedValue(null);
   vi.mocked(countDiscordUnverifiedAccounts).mockResolvedValue(3);
   vi.mocked(deleteDiscordUnverifiedAccounts).mockResolvedValue({ deletedCount: 3 });
-  vi.mocked(revokeAllTokenForgeSessions).mockResolvedValue(4);
+  vi.mocked(getAuthSessionVersion).mockResolvedValue(4);
   vi.mocked(resetDiscordVerification).mockResolvedValue({ reset: true });
   vi.mocked(getOrCreateAdminSessionPrincipal).mockResolvedValue({ ...localUser, id: 7, openId: "tf_internal_admin_control_plane", name: "TokenForge Administrator", email: null, loginMethod: "admin_passcode" });
   vi.mocked(verifyAdminPasscode).mockReturnValue(false);
@@ -197,7 +195,7 @@ describe("GitHub-only authentication and developer protections", () => {
 
     await expect(caller.admin.unlock({ passcode: "8649" })).resolves.toEqual({ unlocked: true, alreadyAdmin: false, sessionVersion: 4 });
     expect(clearLegacyAdministratorRoles).toHaveBeenCalledOnce();
-    expect(revokeAllTokenForgeSessions).toHaveBeenCalledOnce();
+    expect(getAuthSessionVersion).toHaveBeenCalled();
     expect(getOrCreateAdminSessionPrincipal).toHaveBeenCalledOnce();
     expect(clearFailedPasswordLogin).toHaveBeenCalledWith(expect.stringMatching(/^admin-unlock-ip-[a-f0-9]{64}@tokenforge\.internal$/));
     expect(writeAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: 7, action: "admin.passcode.unlocked", entityType: "administrator_session", metadata: { entry: "passcode_only" } }));
@@ -208,7 +206,7 @@ describe("GitHub-only authentication and developer protections", () => {
 
     await expect(caller.admin.unlock({ passcode: "0000" })).rejects.toMatchObject({ code: "UNAUTHORIZED", message: "Incorrect administrator passcode" });
     expect(recordFailedPasswordLogin).toHaveBeenCalledWith(expect.stringMatching(/^admin-unlock-ip-[a-f0-9]{64}@tokenforge\.internal$/));
-    expect(revokeAllTokenForgeSessions).not.toHaveBeenCalled();
+    expect(getAuthSessionVersion).not.toHaveBeenCalled();
   });
 
   it("allows the passcode-issued administrator session to be downgraded in the current browser", async () => {

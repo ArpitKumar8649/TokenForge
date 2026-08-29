@@ -44,7 +44,6 @@ import {
   listAdminAuditEvents,
   countDiscordUnverifiedAccounts,
   deleteDiscordUnverifiedAccounts,
-  revokeAllTokenForgeSessions,
   getAnnouncementText,
   setAnnouncementText,
   getReferralOverview,
@@ -90,7 +89,6 @@ import { configuredEmailAllowlist } from "./localAuth";
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, isTokenForgeModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG, type TokenForgeModelId } from "./modelCatalogue";
 import { PUBLIC_PROVIDER_ERROR_MESSAGE, runPlaygroundCompletion, TokenForgePlaygroundError, tokenForgeRequestIpHash } from "./openaiGateway";
 import { verifyAdminPasscode } from "./adminPasscode";
-import { probeProvider } from "./providerProbe";
 import { getOrcaRouterCredentialPoolStatus, getOrcaRouterSlotRequestCounts, invalidateOrcaRouterCredentialPool, ORCA_ROUTER_CREDENTIAL_POOL_SIZE, validateOrcaRouterCredential } from "./orcaRouterCredentials";
 import { buildSpecialReferralCampaignUrl } from "../shared/referrals";
 
@@ -415,7 +413,11 @@ export const appRouter = router({
       await clearFailedPasswordLogin(identifier);
       const administrator = await getOrCreateAdminSessionPrincipal();
       await clearLegacyAdministratorRoles();
-      const sessionVersion = await revokeAllTokenForgeSessions();
+      // Do NOT bump the global session version here: doing so would log out
+      // every ordinary user. The admin token carries isAdminSession, which is
+      // what gates the control plane; issue it at the current version so user
+      // sessions stay valid.
+      const sessionVersion = await getAuthSessionVersion();
       const token = await sdk.createSessionToken(administrator.openId, { expiresInMs: LOCAL_SESSION_MAX_AGE_MS, name: administrator.name ?? "TokenForge administrator", sessionVersion, isAdminSession: true });
       ctx.res.cookie(COOKIE_NAME, token, { ...getSessionCookieOptions(ctx.req), maxAge: LOCAL_SESSION_MAX_AGE_MS });
       await writeAuditEvent({ actorUserId: administrator.id, targetUserId: administrator.id, action: "admin.passcode.unlocked", entityType: "administrator_session", entityId: String(administrator.id), metadata: { entry: "passcode_only" } });
@@ -564,9 +566,6 @@ export const appRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "TokenForge could not save the email allowlist" });
         }
       }),
-    testProviderConnection: adminProcedure
-      .input(z.object({ baseUrl: z.string(), apiKey: z.string(), model: z.string(), anthropic: z.boolean().optional() }))
-      .mutation(async ({ input }) => probeProvider({ ...input, baseUrl: input.baseUrl.trim(), apiKey: input.apiKey.trim() })),
     orcaRouterCredentials: adminProcedure.query(() => getOrcaRouterCredentialPoolStatus()),
     orcaRouterSlotUsage: adminProcedure.query(() => getOrcaRouterSlotRequestCounts()),
     claudeFable5ProviderSettings: adminProcedure.query(() => getClaudeFable5NvidiaProviderSettings()),
