@@ -26,11 +26,11 @@ const discordSource = readFileSync(path.resolve(import.meta.dirname, "./discordO
 
 describe("TokenForge referrals", () => {
   it("uses the canonical hosted affiliate URL and an equal $10 reward for each eligible account", () => {
-    expect(TOKENFORGE_PUBLIC_ORIGIN).toBe("https://tokengate-cqt9ivzs.manus.space");
+    expect(TOKENFORGE_PUBLIC_ORIGIN).toBe("https://tokenforge.work.gd");
     expect(TOKENFORGE_REFERRAL_REWARD_USD).toBe(10);
     expect(TOKENFORGE_REFERRAL_REWARD_NANOS).toBe(10_000_000_000);
     expect(TOKENFORGE_AFFILIATE_CODE_LENGTH).toBe(4);
-    expect(buildReferralInviteUrl("a7xp")).toBe("https://tokengate-cqt9ivzs.manus.space/sign-up?aff=a7xp");
+    expect(buildReferralInviteUrl("a7xp")).toBe("https://tokenforge.work.gd/sign-up?aff=a7xp");
   });
 
   it("accepts only four-character alphanumeric affiliate codes", () => {
@@ -65,13 +65,14 @@ describe("TokenForge referrals", () => {
     expect(clientSource).not.toContain("register.mutateAsync({ email, password, name: name || undefined, referralCode })");
     expect(clientSource).toContain("window.location.assign(`/api/auth/github${referralQuery}`)");
 		expect(oauthSource).toContain("normalizeReferralCampaignCode(getQueryParam(req, \"aff\"))");
-    expect(appSource).toContain('<Route path={"/sign-up"}>{() => <LocalAuth mode="signup" />}</Route>');
+    expect(appSource).toContain('<Route path={"/sign-up"}>');
+    expect(appSource).toContain('<LocalAuth mode="signup" />');
 		expect(mainSource).toContain('window.location.pathname !== "/sign-up"');
 	});
 
 	it("builds a reusable special campaign link without treating it as a normal affiliate code", () => {
 		expect(SPECIAL_REFERRAL_CAMPAIGN_CODE).toBe("bonus150");
-		expect(buildSpecialReferralCampaignUrl()).toBe("https://tokengate-cqt9ivzs.manus.space/sign-up?aff=bonus150&via=AmirSNet");
+		expect(buildSpecialReferralCampaignUrl()).toBe("https://tokenforge.work.gd/sign-up?aff=bonus150&via=AmirSNet");
 		expect(isSpecialReferralCampaignCode(" BONUS150 ")).toBe(true);
 		expect(isSpecialReferralCampaignCode("bonus151")).toBe(false);
 		expect(normalizeReferralCode(SPECIAL_REFERRAL_CAMPAIGN_CODE)).toBeUndefined();

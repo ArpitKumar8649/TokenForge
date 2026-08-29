@@ -42,7 +42,10 @@ export function getSessionCookieOptions(
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
+    // sameSite=lax blocks cross-site cookie sends (CSRF hardening) while still
+    // allowing top-level navigation. OAuth flows that need cross-site sending
+    // opt into `none` explicitly (see OAuth cookie builders).
+    sameSite: "lax",
     secure: isSecureRequest(req),
   };
 }

@@ -1,4 +1,4 @@
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, PUBLIC_ORIGIN } from "@shared/const";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { parse as parseCookieHeader } from "cookie";
 import type { Express, Request, Response } from "express";
@@ -15,7 +15,6 @@ const GITHUB_STATE_COOKIE = "tf_github_oauth_state";
 const GITHUB_VERIFIER_COOKIE = "tf_github_oauth_verifier";
 const GITHUB_REFERRAL_COOKIE = "tf_github_oauth_ref";
 const LOCAL_SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-const TOKENFORGE_DEFAULT_PUBLIC_ORIGIN = "https://tokengate-cqt9ivzs.manus.space";
 export const MINIMUM_GITHUB_ACCOUNT_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 
 type GitHubEmail = { email: string; primary: boolean; verified: boolean };
@@ -28,16 +27,16 @@ function getQueryParam(req: Request, key: string): string | undefined {
 
 export function appOrigin(_req: Pick<Request, "protocol" | "hostname">) {
   const configuredOrigin = process.env.TOKENFORGE_PUBLIC_ORIGIN?.trim();
-  if (!configuredOrigin) return TOKENFORGE_DEFAULT_PUBLIC_ORIGIN;
+  if (!configuredOrigin) return PUBLIC_ORIGIN;
 
   try {
     const origin = new URL(configuredOrigin);
     if (origin.protocol !== "https:" || origin.pathname !== "/" || origin.search || origin.hash) {
-      return TOKENFORGE_DEFAULT_PUBLIC_ORIGIN;
+      return PUBLIC_ORIGIN;
     }
     return origin.origin;
   } catch {
-    return TOKENFORGE_DEFAULT_PUBLIC_ORIGIN;
+    return PUBLIC_ORIGIN;
   }
 }
 

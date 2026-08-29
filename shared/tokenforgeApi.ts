@@ -1,4 +1,5 @@
-export const TOKENFORGE_API_BASE_URL = "https://tokengate-cqt9ivzs.manus.space";
+import { PUBLIC_ORIGIN } from "./const";
+export const TOKENFORGE_API_BASE_URL = PUBLIC_ORIGIN;
 export const TOKENFORGE_CHAT_COMPLETIONS_URL = `${TOKENFORGE_API_BASE_URL}/v1/chat/completions`;
 export const TOKENFORGE_API_KEY_PLACEHOLDER = "tf_live_your_key";
 

@@ -58,7 +58,7 @@ describe("Claude Code CLI TokenForge gateway compatibility", () => {
     await ensureAccountControl(probeUserId);
     await ensureCreditAccount(probeUserId);
     const temporaryKey = await createApiKey(probeUserId, "ephemeral-claude-code-cli-probe");
-    const baseUrl = (process.env.TOKENFORGE_CLAUDE_CODE_PROBE_BASE_URL ?? "https://tokengate-cqt9ivzs.manus.space").replace(/\/$/, "");
+    const baseUrl = (process.env.TOKENFORGE_CLAUDE_CODE_PROBE_BASE_URL ?? "https://tokenforge.work.gd").replace(/\/$/, "");
     const model = process.env.TOKENFORGE_CLAUDE_CODE_PROBE_MODEL ?? "claude-opus-5";
     claudeConfigDir = `/tmp/tokenforge-claude-code-${randomUUID()}`;
 

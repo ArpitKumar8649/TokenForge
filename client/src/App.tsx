@@ -1,72 +1,124 @@
+import { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import Docs from "./pages/Docs";
-import DeveloperDashboard from "./pages/DeveloperDashboard";
-import AdminDashboard from "./pages/AdminDashboard";
-import Qwen38MaxProviderSettings from "./pages/Qwen38MaxProviderSettings";
-import AdminSettings from "./pages/AdminSettings";
-import DemoWorkspace from "./pages/DemoWorkspace";
-import Home from "./pages/Home";
-import Legal from "./pages/Legal";
-import Models from "./pages/Models";
-import Pricing from "./pages/Pricing";
-import LocalAuth from "./pages/LocalAuth";
-import DiscordVerify from "./pages/DiscordVerify";
 import { RouteLoader } from "./components/RouteLoader";
 import "./tokenforge-refresh.css";
 
-function Router() {
-  // make sure to consider if you need authentication for certain routes
+// Lazy-load pages so each route's JavaScript is fetched on demand rather than
+// bloating the initial bundle. A crash in one page is isolated by its own
+// error boundary (see RouteBoundary) instead of taking down the whole app.
+const Home = lazy(() => import("./pages/Home"));
+const Models = lazy(() => import("./pages/Models"));
+const Docs = lazy(() => import("./pages/Docs"));
+const DemoWorkspace = lazy(() => import("./pages/DemoWorkspace"));
+const Pricing = lazy(() => import("./pages/Pricing"));
+const LocalAuth = lazy(() => import("./pages/LocalAuth"));
+const DiscordVerify = lazy(() => import("./pages/DiscordVerify"));
+const DeveloperDashboard = lazy(() => import("./pages/DeveloperDashboard"));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const Qwen38MaxProviderSettings = lazy(() => import("./pages/Qwen38MaxProviderSettings"));
+const AdminSettings = lazy(() => import("./pages/AdminSettings"));
+const Legal = lazy(() => import("./pages/Legal"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+
+function RouteBoundary({ children }: { children: React.ReactNode }) {
   return (
-    <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/models"} component={Models} />
-      <Route path={"/docs"} component={Docs} />
-      <Route path={"/demo"} component={DemoWorkspace} />
-      <Route path={"/pricing"} component={Pricing} />
-      <Route path={"/signin"}>{() => <LocalAuth mode="signin" />}</Route>
-      <Route path={"/signup"}>{() => <LocalAuth mode="signup" />}</Route>
-      <Route path={"/sign-up"}>{() => <LocalAuth mode="signup" />}</Route>
-      <Route path={"/verify-discord"}>{() => <DiscordVerify />}</Route>
-      <Route path={"/dashboard"}>{() => <DeveloperDashboard section="overview" />}</Route>
-      <Route path={"/dashboard/playground"}>{() => <DeveloperDashboard section="playground" />}</Route>
-      <Route path={"/dashboard/models"}>{() => <DeveloperDashboard section="models" />}</Route>
-      <Route path={"/dashboard/models/:modelId"}>{params => <DeveloperDashboard section="model" modelId={params.modelId} />}</Route>
-      <Route path={"/dashboard/keys"}>{() => <DeveloperDashboard section="keys" />}</Route>
-      <Route path={"/dashboard/referrals"}>{() => <DeveloperDashboard section="referrals" />}</Route>
-      <Route path={"/dashboard/usage"}>{() => <DeveloperDashboard section="usage" />}</Route>
-      <Route path={"/dashboard/profile"}>{() => <DeveloperDashboard section="profile" />}</Route>
-      <Route path={"/admin/settings"} component={AdminSettings} />
-      <Route path={"/admin/qwen3.8-max"} component={Qwen38MaxProviderSettings} />
-      <Route path={"/admin/sonnet4.6"} component={AdminDashboard} />
-      <Route path={"/admin"} component={AdminDashboard} />
-      <Route path={"/legal/:page"} component={Legal} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
-      <Route component={NotFound} />
-    </Switch>
+    <ErrorBoundary>
+      <Suspense fallback={<RouteLoader />}>{children}</Suspense>
+    </ErrorBoundary>
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
+function Router() {
+  return (
+    <Switch>
+      <Route path={"/"}>
+        <RouteBoundary><Home /></RouteBoundary>
+      </Route>
+      <Route path={"/models"}>
+        <RouteBoundary><Models /></RouteBoundary>
+      </Route>
+      <Route path={"/docs"}>
+        <RouteBoundary><Docs /></RouteBoundary>
+      </Route>
+      <Route path={"/demo"}>
+        <RouteBoundary><DemoWorkspace /></RouteBoundary>
+      </Route>
+      <Route path={"/pricing"}>
+        <RouteBoundary><Pricing /></RouteBoundary>
+      </Route>
+      <Route path={"/signin"}>
+        <RouteBoundary><LocalAuth mode="signin" /></RouteBoundary>
+      </Route>
+      <Route path={"/signup"}>
+        <RouteBoundary><LocalAuth mode="signup" /></RouteBoundary>
+      </Route>
+      <Route path={"/sign-up"}>
+        <RouteBoundary><LocalAuth mode="signup" /></RouteBoundary>
+      </Route>
+      <Route path={"/verify-discord"}>
+        <RouteBoundary><DiscordVerify /></RouteBoundary>
+      </Route>
+      <Route path={"/dashboard"}>
+        <RouteBoundary><DeveloperDashboard section="overview" /></RouteBoundary>
+      </Route>
+      <Route path={"/dashboard/playground"}>
+        <RouteBoundary><DeveloperDashboard section="playground" /></RouteBoundary>
+      </Route>
+      <Route path={"/dashboard/models"}>
+        <RouteBoundary><DeveloperDashboard section="models" /></RouteBoundary>
+      </Route>
+      <Route path={"/dashboard/models/:modelId"}>
+        {params => <RouteBoundary><DeveloperDashboard section="model" modelId={params.modelId} /></RouteBoundary>}
+      </Route>
+      <Route path={"/dashboard/keys"}>
+        <RouteBoundary><DeveloperDashboard section="keys" /></RouteBoundary>
+      </Route>
+      <Route path={"/dashboard/referrals"}>
+        <RouteBoundary><DeveloperDashboard section="referrals" /></RouteBoundary>
+      </Route>
+      <Route path={"/dashboard/usage"}>
+        <RouteBoundary><DeveloperDashboard section="usage" /></RouteBoundary>
+      </Route>
+      <Route path={"/dashboard/profile"}>
+        <RouteBoundary><DeveloperDashboard section="profile" /></RouteBoundary>
+      </Route>
+      <Route path={"/admin/settings"}>
+        <RouteBoundary><AdminSettings /></RouteBoundary>
+      </Route>
+      <Route path={"/admin/qwen3.8-max"}>
+        <RouteBoundary><Qwen38MaxProviderSettings /></RouteBoundary>
+      </Route>
+      <Route path={"/admin/sonnet4.6"}>
+        <RouteBoundary><AdminDashboard /></RouteBoundary>
+      </Route>
+      <Route path={"/admin"}>
+        <RouteBoundary><AdminDashboard /></RouteBoundary>
+      </Route>
+      <Route path={"/legal/:page"}>
+        <RouteBoundary><Legal /></RouteBoundary>
+      </Route>
+      <Route path={"/404"}>
+        <RouteBoundary><NotFound /></RouteBoundary>
+      </Route>
+      <Route>
+        <RouteBoundary><NotFound /></RouteBoundary>
+      </Route>
+    </Switch>
+  );
+}
 
 function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider
         defaultTheme="dark"
-        // switchable
       >
         <TooltipProvider>
           <Toaster />
-          <RouteLoader />
           <Router />
         </TooltipProvider>
       </ThemeProvider>

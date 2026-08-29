@@ -1,3 +1,5 @@
+import { PRICING_URL } from "../shared/const";
+
 export const FXQIDIAN_PROVIDER_SLUG = "fxqidian" as const;
 export const CLUSTER_PROTOCOL_PROVIDER_SLUG = "cluster-protocol" as const;
 export const TOKENHARBOR_PROVIDER_SLUG = "tokenharbor" as const;
@@ -44,7 +46,7 @@ export const TOKENFORGE_MODEL_CATALOGUE = [
     inputUsdPerMillion: 1.4,
     outputUsdPerMillion: 4.4,
     pricingSource: "TokenForge provisional GLM 5.3 configured-route pricing",
-    pricingUrl: "https://tokengate-cqt9ivzs.manus.space/pricing",
+    pricingUrl: PRICING_URL,
   },
   {
     id: "glm-5.2",
@@ -106,7 +108,7 @@ export const TOKENFORGE_MODEL_CATALOGUE = [
     inputUsdPerMillion: 5,
     outputUsdPerMillion: 25,
     pricingSource: "TokenForge provisional configured-route pricing",
-    pricingUrl: "https://tokengate-cqt9ivzs.manus.space/pricing",
+    pricingUrl: PRICING_URL,
   },
   {
     id: "qwen3.8-27b",
@@ -144,7 +146,7 @@ export const TOKENFORGE_MODEL_CATALOGUE = [
     inputUsdPerMillion: 10,
     outputUsdPerMillion: 50,
     pricingSource: "TokenForge provisional configured-route pricing",
-    pricingUrl: "https://tokengate-cqt9ivzs.manus.space/pricing",
+    pricingUrl: PRICING_URL,
   },
   {
     id: "glm-5.1",

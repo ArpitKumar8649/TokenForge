@@ -1,6 +1,7 @@
 import { ArrowRight, Braces, CheckCircle2, ChevronLeft, CircleDollarSign, Cpu, ExternalLink, Play, Radio, Route } from "lucide-react";
 import { Link } from "wouter";
 import { useMemo, useState } from "react";
+import { PUBLIC_ORIGIN } from "@shared/const";
 import { formatTokenForgeCreditRatePerMillion, TOKENFORGE_MODELS, type CatalogueModel } from "@/lib/modelCatalogue";
 import { trpc } from "@/lib/trpc";
 import "./dashboard-models.css";
@@ -49,7 +50,7 @@ function Glm53ModelDetail({ model, available }: { model: CatalogueModel; availab
   const statusLabel = available === undefined ? "Checking" : available ? "Available" : "Temporarily unavailable";
   const offlineStyle = available === false ? { background: "rgba(250,169,92,.10)", color: "#ffc477" } : undefined;
   const offlineDotStyle = available === false ? { background: "#f2a45b", boxShadow: "0 0 0 5px rgba(242,164,91,.08)" } : undefined;
-  const baseUrl = "https://tokengate-cqt9ivzs.manus.space/v1/chat/completions";
+  const baseUrl = `${PUBLIC_ORIGIN}/v1/chat/completions`;
   const payload = JSON.stringify({ model: model.id, messages: [{ role: "user", content: activeExample.prompt }], stream: false }, null, 2);
   const snippets: Record<Glm53Snippet, string> = {
     curl: `curl ${baseUrl} \\\n+  -H "Authorization: Bearer $TOKENFORGE_API_KEY" \\\n+  -H "Content-Type: application/json" \\\n+  -d '${payload}'`,

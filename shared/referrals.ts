@@ -1,4 +1,5 @@
-export const TOKENFORGE_PUBLIC_ORIGIN = "https://tokengate-cqt9ivzs.manus.space";
+import { PUBLIC_ORIGIN } from "./const";
+export const TOKENFORGE_PUBLIC_ORIGIN = PUBLIC_ORIGIN;
 export const TOKENFORGE_REFERRAL_REWARD_USD = 10;
 export const TOKENFORGE_REFERRAL_REWARD_NANOS = TOKENFORGE_REFERRAL_REWARD_USD * 1_000_000_000;
 export const TOKENFORGE_AFFILIATE_CODE_LENGTH = 4;

@@ -1,5 +1,7 @@
 import "dotenv/config";
 import express from "express";
+import cors from "cors";
+import rateLimit from "express-rate-limit";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -47,6 +49,25 @@ async function startServer() {
     if (!isRequestPayloadTooLarge(error)) return next(error);
     return res.status(413).json(requestPayloadTooLargeResponse(req.path));
   });
+  // Allow browser SDK consumers to call the OpenAI-compatible endpoints from
+  // any origin (they authenticate with a Bearer key, not cookies). Same-origin
+  // requests are unaffected. Cookie-authenticated routes (/api/*) stay
+  // same-origin only.
+  app.use("/v1", cors({ origin: true, credentials: false }));
+
+  // IP throttling for unauthenticated auth flows: OAuth starts, admin passcode
+  // attempts, and model discovery. Protects against credential stuffing and
+  // scraping since these endpoints have no per-account rate limit of their own.
+  const authRateLimit = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 300,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { error: "Too many requests from this IP. Please try again later." },
+  });
+  app.use("/api/auth", authRateLimit);
+  app.use("/v1/models", authRateLimit);
+
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   registerGitHubOAuthRoutes(app);

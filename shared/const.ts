@@ -4,6 +4,17 @@ export const AXIOS_TIMEOUT_MS = 30_000;
 export const UNAUTHED_ERR_MSG = 'Please login (10001)';
 export const NOT_ADMIN_ERR_MSG = 'You do not have required permission (10002)';
 
+/**
+ * Single source of truth for the public origin. The server resolves it from
+ * TOKENFORGE_PUBLIC_ORIGIN (its OAuth callback builder already does this);
+ * the client reads VITE_PUBLIC_ORIGIN. Falls back to the deployed origin.
+ */
+export const PUBLIC_ORIGIN =
+  (typeof process !== "undefined" && process.env?.VITE_PUBLIC_ORIGIN) ||
+  "https://tokenforge.work.gd";
+
+export const PRICING_URL = `${PUBLIC_ORIGIN}/pricing`;
+
 // One-time nonce cookie that binds an OAuth login to the browser that started
 // it. The `__Host-` prefix forces the cookie host-only (Secure, Path=/, no
 // Domain), so a sibling *.manus.space site cannot plant a matching value in a
