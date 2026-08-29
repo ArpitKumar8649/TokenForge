@@ -217,9 +217,11 @@ class SDKServer {
       });
       const { openId, appId, name, sessionVersion, isAdminSession } = payload as Record<string, unknown>;
 
+      // appId is a legacy Manus identifier and is empty in first-party deployments;
+      // only openId and name are required to identify a session.
       if (
         !isNonEmptyString(openId) ||
-        !isNonEmptyString(appId) ||
+        typeof appId !== "string" ||
         !isNonEmptyString(name)
       ) {
         console.warn("[Auth] Session payload missing required fields");
