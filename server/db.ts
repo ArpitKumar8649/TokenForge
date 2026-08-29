@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, lt, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import mysql from "mysql2/promise";
 import { createHmac, randomBytes, randomInt } from "node:crypto";
 import {
   accountControls,
@@ -809,12 +810,19 @@ export function publicApiKey(key: ApiKeyRecord) {
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      // TiDB Cloud and other MySQL providers require TLS; mysql2 ignores the
-      // `ssl-mode=REQUIRED` URL parameter, so pass the ssl object explicitly.
-      const requiresSsl = /tidbcloud\.com|aivencloud\.com/i.test(process.env.DATABASE_URL);
-      _db = requiresSsl
-        ? drizzle(process.env.DATABASE_URL, { ssl: { rejectUnauthorized: true } })
-        : drizzle(process.env.DATABASE_URL);
+      // mysql2 ignores extra options when given a URI string, and it ignores
+      // the `ssl-mode=REQUIRED` URL parameter entirely — TiDB Cloud/Aiven both
+      // reject non-TLS connections. Build an explicit config object instead.
+      const parsed = new URL(process.env.DATABASE_URL);
+      const config = {
+        host: parsed.hostname,
+        port: parsed.port ? Number(parsed.port) : 3306,
+        user: decodeURIComponent(parsed.username),
+        password: decodeURIComponent(parsed.password),
+        database: parsed.pathname.replace(/^\//, "").split("?")[0],
+      };
+      if (/tidbcloud\.com|aivencloud\.com/i.test(parsed.hostname)) config.ssl = { rejectUnauthorized: true };
+      _db = drizzle(mysql.createPool(config));
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
