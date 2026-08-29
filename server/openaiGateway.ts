@@ -283,6 +283,22 @@ function retryableProviderStatus(status: number) {
   return status === 401 || status === 403 || status === 408 || status === 429 || status >= 500;
 }
 
+/** Upstream idle thresholds (ms). */
+const SSE_IDLE_TIMEOUT_MS = 120_000;
+
+/** Races a stream read against an idle timer so stalled upstreams can't hang a response forever. */
+function readWithIdleTimeout(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  return new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Upstream stream was idle for ${Math.round(SSE_IDLE_TIMEOUT_MS / 1000)} seconds`));
+    }, SSE_IDLE_TIMEOUT_MS);
+    reader.read().then(
+      result => { clearTimeout(timer); resolve(result); },
+      error => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 async function forwardWithCredentialFailover(providerSlug: CredentialTelemetryProvider, input: ChatInput, signal: AbortSignal, selectCredential: () => CredentialSelection | null | Promise<CredentialSelection | null>, request: (credential: string) => Promise<globalThis.Response>) {
   const first = await selectCredential();
   if (!first) throw new Error("TokenForge inference is not configured");
@@ -2135,7 +2151,7 @@ async function streamPlaygroundCompletion(input: {
     input.req.on("close", () => aborter.abort());
     try {
       while (true) {
-        const chunk = await reader.read();
+        const chunk = await readWithIdleTimeout(reader);
         if (chunk.done) break;
         const value = decoder.decode(chunk.value, { stream: true });
         buffer += value;

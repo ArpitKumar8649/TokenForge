@@ -33,6 +33,20 @@ import { CLUSTER_PROTOCOL_PROVIDER_SLUG, getTokenForgeProviderSlug, isTokenForge
 /** Applies only until upstream response headers arrive; successful bodies and SSE streams may continue within the hosting request ceiling. */
 const PROVIDER_TIMEOUT_MS = 120_000;
 export const CLAUDE_OPUS5_RESPONSE_START_TIMEOUT_MS = PROVIDER_TIMEOUT_MS;
+const SSE_IDLE_TIMEOUT_MS = 120_000;
+
+/** Races a stream read against an idle timer so a stalled upstream can't hang a response forever. */
+function readWithIdleTimeout(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  return new Promise<ReadableStreamReadResult<Uint8Array>>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`Upstream stream was idle for ${Math.round(SSE_IDLE_TIMEOUT_MS / 1000)} seconds`));
+    }, SSE_IDLE_TIMEOUT_MS);
+    reader.read().then(
+      result => { clearTimeout(timer); resolve(result); },
+      error => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
 
 export function providerResponseStartTimeoutMs(model: TokenForgeModelId) {
   return model === "claude-opus-5"
@@ -457,7 +471,7 @@ async function handleNativeTokenRouterMessagesRequest(req: Request, res: Respons
   res.on("close", () => { if (!res.writableEnded) aborter.abort(); });
   try {
     while (true) {
-      const next = await reader.read();
+      const next = await readWithIdleTimeout(reader);
       if (next.done) break;
       buffer += decoder.decode(next.value, { stream: true });
       const lines = buffer.split("\n");
@@ -626,7 +640,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
     res.on("close", () => { if (!res.writableEnded) aborter.abort(); });
     try {
       while (true) {
-        const next = await reader.read();
+        const next = await readWithIdleTimeout(reader);
         if (next.done) break;
         buffer += decoder.decode(next.value, { stream: true });
         const lines = buffer.split("\n");
