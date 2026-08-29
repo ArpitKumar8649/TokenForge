@@ -1,14 +1,12 @@
 FROM node:20-slim
 
-RUN npm install -g pnpm@10.4.1
-
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY package.json package-lock.json ./
+RUN npm install --legacy-peer-deps
 
 COPY . .
-RUN pnpm run build
+RUN npm run build
 
 EXPOSE 3000
-CMD ["pnpm", "run", "start"]
+CMD ["npm", "run", "start"]
