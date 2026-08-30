@@ -206,11 +206,11 @@ function ClaudeOpus5ProviderBalancerPanel({ providerName = "Claude Opus 5", draf
 
 type ClaudeOpus5QwenModelDraft = { id: string; model: string; enabled: boolean; quotaTokens: number; totalTokens: number; requestCount: number; retired: boolean; retiredAt: Date | null; lastUsedAt: Date | null };
 
-function ClaudeOpus5ModelPoolPanel({ providerLabel = "qwen" }: { providerLabel?: string }) {
+function ClaudeOpus5ModelPoolPanel() {
   const utils = trpc.useUtils();
   const settings = trpc.admin.claudeOpus5ProviderSettings.useQuery(undefined, { refetchInterval: 5_000, refetchIntervalInBackground: false });
-  const label = providerLabel;
-  const isQwen = label.trim().toLowerCase() === "qwen";
+  const label = "qwen";
+  const isQwen = true;
   const [initialized, setInitialized] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [maxOutputTokens, setMaxOutputTokens] = useState(32_768);
@@ -502,7 +502,7 @@ function BaiProviderCircuitPanel() {
 function RenderNimProxySwarmPanel(props: Parameters<typeof RenderNimProxySwarmCore>[0]) {
   void props;
   const failureLogs = trpc.admin.claudeOpus5FailureLogs.useQuery(undefined, { refetchInterval: 5_000, refetchIntervalInBackground: false });
-  return <><BailuWebshareProxyUrlImporter /><BailuWebshareProxyPool /><BaiProviderCircuitPanel /><ClaudeOpus5ModelPoolPanel providerLabel="qwen" /><ClaudeOpus5ModelPoolPanel providerLabel="Kira" /><ClaudeOpus5QwenFailureHistory /><ClaudeOpus5FailureHistory logs={failureLogs.data as ClaudeOpus5FailureLog[] | undefined} loading={failureLogs.isLoading} /></>;
+  return <><BailuWebshareProxyUrlImporter /><BailuWebshareProxyPool /><BaiProviderCircuitPanel /><ClaudeOpus5ModelPoolPanel /><ClaudeOpus5QwenFailureHistory /><ClaudeOpus5FailureHistory logs={failureLogs.data as ClaudeOpus5FailureLog[] | undefined} loading={failureLogs.isLoading} /></>;
 }
 
 function BailuWebshareProxyPoolPanel({ enabled, drafts, settings, loading, saving, onEnabledChange, onDraftsChange, onSave }: { enabled: boolean; drafts: BailuWebshareProxyDraft[]; settings?: BailuWebshareProxySettingsData; loading: boolean; saving: boolean; onEnabledChange: (value: boolean) => void; onDraftsChange: (next: BailuWebshareProxyDraft[]) => void; onSave: () => void }) {

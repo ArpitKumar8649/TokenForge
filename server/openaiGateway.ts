@@ -834,11 +834,6 @@ function isQwenClaudeOpus5Provider(provider: { label: string }) {
   return provider.label.trim().toLowerCase() === "qwen";
 }
 
-/** A provider is pool-backed when it carries a non-empty model list (e.g. Qwen, Kira). */
-function hasClaudeOpus5ModelPool(provider: { modelPool?: { id: string; model: string; enabled: boolean; quotaTokens: number }[] }) {
-  return (provider.modelPool?.length ?? 0) > 0;
-}
-
 const QWEN_POOL_MAX_TOKENS = 32_768;
 
 function qwenPoolMaxOutputTokens(provider: { maxOutputTokens?: number }) {
@@ -1275,18 +1270,15 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
     const configuredBase = provider.baseUrl.replace(/\/$/, "");
     const url = configuredBase?.endsWith("/chat/completions") ? configuredBase : configuredBase ? `${configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase}/v1`}/chat/completions` : null;
     if (!url || !provider.model) continue;
-    const poolModel = hasClaudeOpus5ModelPool(provider)
-      ? (isQwenClaudeOpus5Provider(provider)
-          ? selectNextClaudeOpus5QwenModel(provider.id, await getEligibleClaudeOpus5QwenModels(provider))
-          : selectNextClaudeOpus5QwenModel(provider.id, (provider.modelPool ?? []).filter(entry => entry.enabled)))
+    const qwenModel = isQwenClaudeOpus5Provider(provider)
+      ? selectNextClaudeOpus5QwenModel(provider.id, await getEligibleClaudeOpus5QwenModels(provider))
       : null;
-    if (hasClaudeOpus5ModelPool(provider) && !poolModel) {
-      lastError = new Error(isQwenClaudeOpus5Provider(provider) ? "Every active Qwen model entry has reached its configured token quota or is disabled." : "Every active model entry for this provider is disabled.");
+    if (isQwenClaudeOpus5Provider(provider) && !qwenModel) {
+      lastError = new Error("Every active Qwen model entry has reached its configured token quota or is disabled.");
       lastFailureStatus = 503;
       continue;
     }
-    const upstreamModel = poolModel?.model ?? provider.model;
-    const qwenModel = isQwenClaudeOpus5Provider(provider) ? poolModel : null;
+    const upstreamModel = qwenModel?.model ?? provider.model;
     const qwenFailureSource = qwenModel ? { sourceId: `${provider.id}:${qwenModel.id}`, sourceLabel: `Qwen · ${qwenModel.model}` } : undefined;
     const recordQwenModelUsage = (usage: Usage) => {
       if (!qwenModel) return;
