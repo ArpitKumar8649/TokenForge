@@ -11,7 +11,7 @@ export const NOT_ADMIN_ERR_MSG = 'You do not have required permission (10002)';
  */
 export const PUBLIC_ORIGIN =
   (typeof process !== "undefined" && process.env?.VITE_PUBLIC_ORIGIN) ||
-  "https://tokenforge.work.gd";
+  "https://tokenforge-api-0mrs.onrender.com";
 
 export const PRICING_URL = `${PUBLIC_ORIGIN}/pricing`;
 

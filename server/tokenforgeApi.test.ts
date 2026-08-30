@@ -9,7 +9,7 @@ import {
 
 describe("TokenForge hosted API guidance", () => {
   it("uses the assigned hosted production domain rather than the unbound custom hostname", () => {
-    expect(TOKENFORGE_API_BASE_URL).toBe("https://tokenforge.work.gd");
+    expect(TOKENFORGE_API_BASE_URL).toBe("https://tokenforge-api-0mrs.onrender.com");
     expect(buildTokenForgeCurl()).toContain(`${TOKENFORGE_API_BASE_URL}/v1/chat/completions`);
     expect(buildTokenForgeCurl()).toContain(`Authorization: Bearer ${TOKENFORGE_API_KEY_PLACEHOLDER}`);
   });

@@ -5,7 +5,7 @@ describe("GitHub OAuth flow primitives", () => {
   it("creates a PKCE authorization request without exposing a client secret", () => {
     const authorizationUrl = buildGitHubAuthorizationUrl({
       clientId: "client-id",
-      redirectUri: "https://tokenforge.work.gd/api/auth/github/callback",
+      redirectUri: "https://tokenforge-api-0mrs.onrender.com/api/auth/github/callback",
       state: "csrf-state",
       verifier: "verifier-for-tokenforge-tests",
     });
@@ -20,7 +20,7 @@ describe("GitHub OAuth flow primitives", () => {
 
   it("uses TokenForge's stable public origin instead of the internal deployment hostname", () => {
     expect(appOrigin({ protocol: "https", hostname: "oqxlgfryso-ilvd6ib5ma-uk.a.run.app" })).toBe(
-      "https://tokenforge.work.gd",
+      "https://tokenforge-api-0mrs.onrender.com",
     );
   });
 

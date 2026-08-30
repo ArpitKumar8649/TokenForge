@@ -5,13 +5,13 @@ describe("Discord OAuth membership verification", () => {
   it("builds an identify-only authorization request bound to the caller state", () => {
     const url = new URL(buildDiscordAuthorizationUrl({
       clientId: "discord-client-id",
-      redirectUri: "https://tokenforge.work.gd/api/auth/discord/callback",
+      redirectUri: "https://tokenforge-api-0mrs.onrender.com/api/auth/discord/callback",
       state: "csrf-bound-state",
     }));
 
     expect(url.origin + url.pathname).toBe("https://discord.com/oauth2/authorize");
     expect(url.searchParams.get("client_id")).toBe("discord-client-id");
-    expect(url.searchParams.get("redirect_uri")).toBe("https://tokenforge.work.gd/api/auth/discord/callback");
+    expect(url.searchParams.get("redirect_uri")).toBe("https://tokenforge-api-0mrs.onrender.com/api/auth/discord/callback");
     expect(url.searchParams.get("scope")).toBe("identify");
     expect(url.searchParams.get("state")).toBe("csrf-bound-state");
   });
