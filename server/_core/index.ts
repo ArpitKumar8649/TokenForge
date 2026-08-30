@@ -10,6 +10,7 @@ import { registerGitHubOAuthRoutes } from "../githubOAuth";
 import { registerDiscordOAuthRoutes } from "../discordOAuth";
 import { registerStorageProxy } from "./storageProxy";
 import { registerOpenAiGateway, registerPlaygroundGateway } from "../openaiGateway";
+import { registerLiveRequestRoutes } from "./liveRequests";
 import { registerAnthropicMessagesGateway } from "../anthropicGateway";
 import { registerManagedFailureLogRetention } from "../managedFailureLogRetention";
 import { isRequestPayloadTooLarge, requestPayloadTooLargeResponse, TOKENFORGE_JSON_BODY_LIMIT } from "../requestPayload";
@@ -72,6 +73,7 @@ async function startServer() {
   registerOAuthRoutes(app);
   registerGitHubOAuthRoutes(app);
   registerDiscordOAuthRoutes(app);
+  registerLiveRequestRoutes(app);
   registerOpenAiGateway(app);
   registerAnthropicMessagesGateway(app);
   registerPlaygroundGateway(app);

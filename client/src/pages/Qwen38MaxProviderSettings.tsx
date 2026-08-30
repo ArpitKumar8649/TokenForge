@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import "../dashboard.css";
 import DashboardLayout from "@/components/DashboardLayout";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";

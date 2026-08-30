@@ -97,7 +97,7 @@ type ChatMessage = TokenForgeChatMessage;
 export type TokenForgeChatInput = { model?: string; messages?: ChatMessage[]; stream?: boolean; max_tokens?: number; [key: string]: unknown };
 type ChatInput = TokenForgeChatInput;
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number; reasoning_tokens?: number; cached_tokens?: number; cache_read_input_tokens?: number; totalTokens?: number };
-type ProviderRequestContext = { userId: number };
+type ProviderRequestContext = { userId: number; providerLabel?: string };
 
 export function modelScopedGuidance(model: TokenForgeModelId): TokenForgeChatMessage {
   if (model === "claude-opus-5") {
@@ -425,6 +425,7 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
   const preparedInput = isBai ? normalizeBaiToolChoice(baiPreparation.input) : input;
   const requestBody = { ...normalizeBaiMaxTokens(preparedInput, isBai), model: runtime.model };
   const provider = { id: "glm53-primary", label: "GLM 5.3 provider" };
+  if (context) context.providerLabel = provider.label;
   let lastError: unknown = null;
   let lastStatus: number | null = null;
   for (let attempt = 0; attempt < runtime.apiKeys.length; attempt += 1) {
@@ -520,13 +521,14 @@ function selectNextDeepseekV4ProCredential(provider: { id: string; apiKeys: stri
 }
 
 /** DeepSeek V4 Pro uses equal-share encrypted provider groups, each with an independent key pool and retry failover. */
-async function forwardDedicatedDeepseekV4ProRequest(input: ChatInput, signal: AbortSignal) {
+async function forwardDedicatedDeepseekV4ProRequest(input: ChatInput, signal: AbortSignal, context?: ProviderRequestContext) {
   const runtime = await getDeepseekV4ProRuntimeConfig();
   const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(deepseekV4ProProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.some((_, index) => isManagedProviderCredentialEnabled(provider, index)));
   deepseekV4ProProviderCursor = runtime.providers.length ? (deepseekV4ProProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
   let lastResponse: globalThis.Response | null = null;
   for (const provider of orderedProviders) {
+    if (context) context.providerLabel = provider.label;
     const url = openAiChatCompletionsUrl(provider.baseUrl);
     if (!url || !provider.model) continue;
     for (let attempt = 0; attempt < provider.apiKeys.length; attempt += 1) {
@@ -624,13 +626,14 @@ function selectNextSonnet46Credential(provider: { id: string; apiKeys: string[];
 }
 
 /** Claude Sonnet 4.6 uses equal-share encrypted provider groups with isolated key pools and retry failover. */
-async function forwardDedicatedSonnet46Request(input: ChatInput, signal: AbortSignal) {
+async function forwardDedicatedSonnet46Request(input: ChatInput, signal: AbortSignal, context?: ProviderRequestContext) {
   const runtime = await getSonnet46RuntimeConfig();
   const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(sonnet46ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.some((_, index) => isManagedProviderCredentialEnabled(provider, index)));
   sonnet46ProviderCursor = runtime.providers.length ? (sonnet46ProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
   let lastResponse: globalThis.Response | null = null;
   for (const provider of orderedProviders) {
+    if (context) context.providerLabel = provider.label;
     const url = openAiChatCompletionsUrl(provider.baseUrl);
     if (!url || !provider.model) continue;
     for (let attempt = 0; attempt < provider.apiKeys.length; attempt += 1) {
@@ -1263,6 +1266,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
   let lastError: unknown = null;
   let lastFailureStatus: number | null = null;
   for (const provider of orderedProviders) {
+    if (context) context.providerLabel = provider.label;
     const configuredBase = provider.baseUrl.replace(/\/$/, "");
     const url = configuredBase?.endsWith("/chat/completions") ? configuredBase : configuredBase ? `${configuredBase.endsWith("/v1") ? configuredBase : `${configuredBase}/v1`}/chat/completions` : null;
     if (!url || !provider.model) continue;
@@ -1446,13 +1450,14 @@ function selectNextClaudeFable5Credential(provider: { id: string; apiKeys: strin
 }
 
 /** Claude Fable 5 balances calls evenly across enabled provider groups and then keys, never the shared TokenRouter pool. */
-async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: AbortSignal) {
+async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: AbortSignal, context?: ProviderRequestContext) {
   const runtime = await getClaudeFable5NvidiaRuntimeConfig();
   const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(claudeFable5ProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.some((_, index) => isManagedProviderCredentialEnabled(provider, index)));
   claudeFable5ProviderCursor = runtime.providers.length ? (claudeFable5ProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
   let lastStatus: number | null = null;
   for (const provider of orderedProviders) {
+    if (context) context.providerLabel = provider.label;
     const url = openAiChatCompletionsUrl(provider.baseUrl);
     if (!url || !provider.model) continue;
     for (let attempt = 0; attempt < provider.apiKeys.length; attempt += 1) {
@@ -1526,13 +1531,14 @@ function selectNextQwen38MaxCredential(provider: { id: string; apiKeys: string[]
   return null;
 }
 
-async function forwardDedicatedQwen38MaxRequest(input: ChatInput, signal: AbortSignal) {
+async function forwardDedicatedQwen38MaxRequest(input: ChatInput, signal: AbortSignal, context?: ProviderRequestContext) {
   const runtime = await getQwen38MaxRuntimeConfig();
   const orderedProviders = runtime.providers.map((_, offset) => runtime.providers[(qwen38MaxProviderCursor + offset) % runtime.providers.length]!).filter(provider => provider.enabled !== false && provider.apiKeys.some((_, index) => isManagedProviderCredentialEnabled(provider, index)));
   qwen38MaxProviderCursor = runtime.providers.length ? (qwen38MaxProviderCursor + 1) % runtime.providers.length : 0;
   let lastError: unknown = null;
   let lastStatus: number | null = null;
   for (const provider of orderedProviders) {
+    if (context) context.providerLabel = provider.label;
     const url = openAiChatCompletionsUrl(provider.baseUrl);
     if (!url || !provider.model) continue;
     for (let attempt = 0; attempt < provider.apiKeys.length; attempt += 1) {
@@ -1583,10 +1589,11 @@ async function forwardDedicatedQwen38MaxRequest(input: ChatInput, signal: AbortS
 }
 
 /** OrcaRouter remains only for the separately configured Qwen3.8 27B route. */
-async function forwardOrcaRouterRequest(input: ChatInput, signal: AbortSignal) {
+async function forwardOrcaRouterRequest(input: ChatInput, signal: AbortSignal, context?: ProviderRequestContext) {
   const base = process.env.CLAUDE_OPUS5_BASE_URL?.replace(/\/$/, "");
   const upstreamModel = typeof input.model === "string" ? getTokenForgeUpstreamModelId(input.model) : undefined;
   if (!base || !upstreamModel) throw new Error("TokenForge OrcaRouter inference is not configured");
+  if (context) context.providerLabel = "OrcaRouter";
   const requestBody = { ...input, model: upstreamModel };
   return forwardWithCredentialFailover(CLAUDE_OPUS5_PROVIDER_SLUG, input, signal, selectNextOrcaRouterCredentialWithSlot, credential =>
     fetch(`${base}/v1/chat/completions`, {
@@ -1600,10 +1607,11 @@ async function forwardOrcaRouterRequest(input: ChatInput, signal: AbortSignal) {
 
 async function forwardTokenRouterRequest(input: ChatInput, signal: AbortSignal, context?: ProviderRequestContext) {
   if (input.model === "claude-opus-5") return forwardDedicatedClaudeOpus5Request(input, signal, context);
-  if (input.model === "claude-fable-5") return forwardDedicatedClaudeFable5Request(input, signal);
+  if (input.model === "claude-fable-5") return forwardDedicatedClaudeFable5Request(input, signal, context);
   if (input.model === "glm-5.3") return forwardDedicatedGlm53Request(input, signal, context);
-  if (input.model === "claude-sonnet-4.6") return forwardDedicatedSonnet46Request(input, signal);
-  if (input.model === "qwen3.8-max") return forwardDedicatedQwen38MaxRequest(input, signal);
+  if (input.model === "claude-sonnet-4.6") return forwardDedicatedSonnet46Request(input, signal, context);
+  if (input.model === "qwen3.8-max") return forwardDedicatedQwen38MaxRequest(input, signal, context);
+  if (context) context.providerLabel = "TokenRouter";
   const base = process.env.TOKENROUTER_BASE_URL?.replace(/\/$/, "");
   const configuredModel = process.env.TOKENROUTER_MODEL?.trim();
   const upstreamModel = getTokenForgeUpstreamModelId(String(input.model));
@@ -1629,7 +1637,7 @@ export async function forwardTokenRouterAnthropicMessagesRequest(input: { model:
   const upstreamModel = input.model === "claude-opus-5" ? configuredClaudeOpus5Model : configuredClaudeFable5Model;
   if (!base || !upstreamModel) throw new Error("TokenForge native TokenRouter Messages inference is not configured");
   const requestBody = { ...input, model: upstreamModel };
-  return forwardWithCredentialFailover(TOKENROUTER_PROVIDER_SLUG, input, signal, selectNextTokenRouterCredentialWithSlot, credential =>
+  const response = await forwardWithCredentialFailover(TOKENROUTER_PROVIDER_SLUG, input, signal, selectNextTokenRouterCredentialWithSlot, credential =>
     fetch(`${base}/v1/messages`, {
       method: "POST",
       headers: {
@@ -1643,6 +1651,7 @@ export async function forwardTokenRouterAnthropicMessagesRequest(input: { model:
       signal,
     }),
   );
+  return { response, providerLabel: "TokenRouter" };
 }
 
 function lastUserText(messages: TokenForgeChatMessage[] | undefined) {
@@ -1743,7 +1752,7 @@ export async function forwardProviderRequest(model: TokenForgeModelId, input: To
   if (provider === FXQIDIAN_PROVIDER_SLUG) return forwardFxqidianRequest(input, signal);
   if (provider === CLUSTER_PROTOCOL_PROVIDER_SLUG) return forwardClusterRequest(input, signal);
   if (provider === TOKENHARBOR_PROVIDER_SLUG) return forwardTokenHarborRequest(input, signal);
-  if (provider === CLAUDE_OPUS5_PROVIDER_SLUG) return forwardOrcaRouterRequest(input, signal);
+  if (provider === CLAUDE_OPUS5_PROVIDER_SLUG) return forwardOrcaRouterRequest(input, signal, context);
   if (provider === TOKENROUTER_PROVIDER_SLUG) return forwardTokenRouterRequest(input, signal, context);
   throw new Error("TokenForge inference routing is not configured for this model");
 }
@@ -2030,29 +2039,33 @@ export async function runPlaygroundCompletion(input: {
 
   const aborter = new AbortController();
   const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
+  const startedAt = Date.now();
+  const providerContext = { userId: input.userId, providerLabel: undefined as string | undefined };
   try {
-    const upstream = await forwardProviderRequest(input.model, upstreamInput, aborter.signal, { userId: input.userId });
+    const upstream = await forwardProviderRequest(input.model, upstreamInput, aborter.signal, providerContext);
     // Headers arrived; the remaining body may complete within the managed hosting request ceiling.
     clearTimeout(timeout);
     if (!upstream.ok) {
       const payload = await upstream.json().catch(() => null);
+      const message = publicProviderErrorMessage(upstream.status);
       await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request was not completed" });
-      await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "provider_error", sourceIpHash: input.sourceIpHash });
-      throw new TokenForgePlaygroundError("provider_unavailable", publicProviderErrorMessage(upstream.status));
+      await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "provider_error", sourceIpHash: input.sourceIpHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
+      throw new TokenForgePlaygroundError("provider_unavailable", message);
     }
     const payload = await upstream.json().catch(() => null);
     const publicPayload = sanitizeModelResponsePayload(input.model, payload);
     const content = textContentFrom(publicPayload);
     if (!payload || isManagedProviderFailurePayload(payload) || !content || (input.model === "claude-opus-5" && isClaudeOpus5ZeroOutputFailure(payload))) {
+      const message = publicProviderErrorMessage();
       await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider response was invalid" });
-      await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "provider_error", sourceIpHash: input.sourceIpHash });
-      throw new TokenForgePlaygroundError("provider_unavailable", publicProviderErrorMessage());
+      await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "provider_error", sourceIpHash: input.sourceIpHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
+      throw new TokenForgePlaygroundError("provider_unavailable", message);
     }
     const thinking = input.model === "qwen3.8-max" || input.model === "claude-fable-5" ? reasoningContentFrom(publicPayload) : null;
     const tokens = normalizedTokens(usageFrom(payload), estimatedInputTokens);
     const chargeNanos = calculateCreditChargeNanos(input.model, tokens.inputTokens, tokens.outputTokens);
     const settlement = await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos });
-    await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: input.sourceIpHash });
+    await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: input.sourceIpHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt });
     return {
       requestId,
       model: input.model,
@@ -2063,9 +2076,10 @@ export async function runPlaygroundCompletion(input: {
     };
   } catch (error) {
     if (error instanceof TokenForgePlaygroundError) throw error;
+    const message = publicProviderErrorMessage();
     await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request did not complete" });
-    await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "provider_error", sourceIpHash: input.sourceIpHash });
-    throw new TokenForgePlaygroundError("provider_unavailable", publicProviderErrorMessage());
+    await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: false, status: "provider_error", sourceIpHash: input.sourceIpHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
+    throw new TokenForgePlaygroundError("provider_unavailable", message);
   } finally {
     clearTimeout(timeout);
   }
@@ -2120,20 +2134,24 @@ async function streamPlaygroundCompletion(input: {
 
   const aborter = new AbortController();
   const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
+  const startedAt = Date.now();
+  const providerContext = { userId: input.userId, providerLabel: undefined as string | undefined };
   try {
-    const upstream = await forwardProviderRequest(input.model, upstreamInput, aborter.signal, { userId: input.userId });
+    const upstream = await forwardProviderRequest(input.model, upstreamInput, aborter.signal, providerContext);
     // Do not let the response-start timer interrupt an SSE body after upstream headers arrive.
     clearTimeout(timeout);
     if (!upstream.ok) {
       const payload = await upstream.json().catch(() => null);
+      const message = publicProviderErrorMessage(upstream.status);
       await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request was not completed" });
-      await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: "provider_error", sourceIpHash: input.sourceIpHash });
-      throw new TokenForgePlaygroundError("provider_unavailable", publicProviderErrorMessage(upstream.status));
+      await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: "provider_error", sourceIpHash: input.sourceIpHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
+      throw new TokenForgePlaygroundError("provider_unavailable", message);
     }
     const reader = upstream.body?.getReader();
     if (!reader) {
+      const message = publicProviderErrorMessage();
       await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider returned an empty stream" });
-      await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: "provider_error", sourceIpHash: input.sourceIpHash });
+      await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: "provider_error", sourceIpHash: input.sourceIpHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
       throw new TokenForgePlaygroundError("provider_unavailable", publicProviderErrorMessage());
     }
 
@@ -2148,6 +2166,7 @@ async function streamPlaygroundCompletion(input: {
     let buffer = "";
     let finalUsage: Usage = {};
     let streamFailed = false;
+    let streamFailedMessage: string | undefined;
     input.req.on("close", () => aborter.abort());
     try {
       while (true) {
@@ -2172,20 +2191,22 @@ async function streamPlaygroundCompletion(input: {
       }
     } catch {
       streamFailed = true;
+      streamFailedMessage = "The selected provider stream did not complete.";
     } finally {
       clearTimeout(timeout);
       const tokens = normalizedTokens(finalUsage, estimatedInputTokens);
       const chargeNanos = streamFailed ? 0 : calculateCreditChargeNanos(input.model, tokens.inputTokens, tokens.outputTokens);
       const settlement = await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos, releaseReason: streamFailed ? "Playground streaming request was cancelled" : undefined });
-      await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: streamFailed ? "cancelled" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: input.sourceIpHash });
+      await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: streamFailed ? "cancelled" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: input.sourceIpHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: streamFailed ? (streamFailedMessage ?? "The selected provider stream was cancelled.") : undefined });
       input.res.write(`event: tokenforge:usage\ndata: ${JSON.stringify({ requestId, model: input.model, usage: { promptTokens: tokens.inputTokens, completionTokens: tokens.outputTokens, totalTokens: tokens.inputTokens + tokens.outputTokens }, credit: { balanceNanos: settlement.balanceNanos, chargeNanos: settlement.chargedNanos } })}\n\n`);
       input.res.end();
     }
   } catch (error) {
     clearTimeout(timeout);
     if (error instanceof TokenForgePlaygroundError) throw error;
+    const message = publicProviderErrorMessage();
     await settleReservedCredit({ userId: input.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Playground streaming request did not complete" });
-    await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: "provider_error", sourceIpHash: input.sourceIpHash });
+    await recordUsage({ requestId, userId: input.userId, modelId: input.model, source: "playground", stream: true, status: "provider_error", sourceIpHash: input.sourceIpHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
     throw new TokenForgePlaygroundError("provider_unavailable", publicProviderErrorMessage());
   }
 }
@@ -2269,14 +2290,17 @@ export function registerOpenAiGateway(app: Express) {
 
     const aborter = new AbortController();
     const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
+    const startedAt = Date.now();
     let upstream: globalThis.Response;
+    const providerContext = { userId: key.userId, providerLabel: undefined as string | undefined };
     try {
-      upstream = await forwardProviderRequest(model, upstreamInput, aborter.signal, { userId: key.userId });
+      upstream = await forwardProviderRequest(model, upstreamInput, aborter.signal, providerContext);
     } catch (error) {
       clearTimeout(timeout);
+      const message = publicProviderErrorMessage();
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request did not complete" });
-      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
-      return errorResponse(res, requestId, 503, publicProviderErrorMessage(), "provider_unavailable");
+      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
+      return errorResponse(res, requestId, 503, message, "provider_unavailable");
     }
 
     // The timer bounded response start only. Once headers arrive, a streamed body may finish within hosting limits.
@@ -2284,10 +2308,11 @@ export function registerOpenAiGateway(app: Express) {
 
     if (!upstream.ok) {
       const payload = await upstream.json().catch(() => null);
+      const message = publicProviderErrorMessage(upstream.status);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider request was not completed" });
-      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
+      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
       const status = publicProviderFailureStatus(upstream.status);
-      return errorResponse(res, requestId, status, publicProviderErrorMessage(upstream.status), "provider_unavailable");
+      return errorResponse(res, requestId, status, message, "provider_unavailable");
     }
 
     await touchApiKey(key.id);
@@ -2295,14 +2320,15 @@ export function registerOpenAiGateway(app: Express) {
       clearTimeout(timeout);
       const payload = await upstream.json().catch(() => null);
       if (!payload || isManagedProviderFailurePayload(payload) || (input.model === "claude-opus-5" && isClaudeOpus5ZeroOutputFailure(payload))) {
+        const message = publicProviderErrorMessage();
         await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider response was invalid" });
-        await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash });
-        return errorResponse(res, requestId, 503, publicProviderErrorMessage(), "provider_unavailable");
+        await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
+        return errorResponse(res, requestId, 503, message, "provider_unavailable");
       }
       const tokens = normalizedTokens(usageFrom(payload), estimatedInputTokens);
       const chargeNanos = calculateCreditChargeNanos(input.model as TokenForgeModelId, tokens.inputTokens, tokens.outputTokens);
       const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos });
-      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: false, status: "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
+      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: false, status: "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt });
       res.setHeader("x-request-id", requestId);
       res.setHeader("x-tokenforge-credit-balance", String(settlement.balanceNanos));
       res.setHeader("x-tokenforge-credit-charge", String(settlement.chargedNanos));
@@ -2327,6 +2353,7 @@ export function registerOpenAiGateway(app: Express) {
     let buffer = "";
     let finalUsage: Usage = {};
     let streamFailed = false;
+    let streamFailedMessage: string | undefined;
     req.on("close", () => aborter.abort());
     try {
       while (true) {
@@ -2351,12 +2378,13 @@ export function registerOpenAiGateway(app: Express) {
       }
     } catch {
       streamFailed = true;
+      streamFailedMessage = "The selected provider stream did not complete.";
     } finally {
       clearTimeout(timeout);
       const tokens = normalizedTokens(finalUsage, estimatedInputTokens);
       const chargeNanos = streamFailed ? 0 : calculateCreditChargeNanos(input.model as TokenForgeModelId, tokens.inputTokens, tokens.outputTokens);
       const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos, releaseReason: streamFailed ? "Streaming request was cancelled" : undefined });
-      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: true, status: streamFailed ? "cancelled" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
+      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: true, status: streamFailed ? "cancelled" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: streamFailed ? (streamFailedMessage ?? "The selected provider stream was cancelled.") : undefined });
       res.end();
     }
   });

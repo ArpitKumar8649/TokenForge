@@ -215,6 +215,12 @@ export const usageEvents = mysqlTable(
     totalTokens: int("totalTokens").default(0).notNull(),
     chargeNanos: bigint("chargeNanos", { mode: "number" }).default(0).notNull(),
     sourceIpHash: varchar("sourceIpHash", { length: 128 }),
+    /** Request round-trip latency in milliseconds, recorded when the request settles. */
+    latencyMs: int("latencyMs"),
+    /** Neutral caller-visible error message when the request failed; null on success. */
+    errorMessage: text("errorMessage"),
+    /** Provider group label that served the request (e.g. "Kktoken", "B.ai"); null when unknown. */
+    provider: varchar("provider", { length: 96 }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => [

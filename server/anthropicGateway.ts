@@ -410,23 +410,28 @@ async function handleNativeTokenRouterMessagesRequest(req: Request, res: Respons
 
   const aborter = new AbortController();
   const timeout = setTimeout(() => aborter.abort(), providerResponseStartTimeoutMs(model));
+  const startedAt = Date.now();
   let upstream: globalThis.Response;
+  let providerLabel: string | undefined;
   try {
-    upstream = await forwardTokenRouterAnthropicMessagesRequest(input, aborter.signal, req.header("anthropic-beta")?.trim());
+    const forwarded = await forwardTokenRouterAnthropicMessagesRequest(input, aborter.signal, req.header("anthropic-beta")?.trim());
+    upstream = forwarded.response;
+    providerLabel = forwarded.providerLabel;
   } catch (error) {
     clearTimeout(timeout);
+    const message = error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.";
     await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Native TokenRouter Messages provider request did not complete" });
-    await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
-    return respondError(res, requestId, 503, "api_error", error instanceof Error && error.name === "AbortError" ? "The selected provider timed out. Retry this request." : "The selected provider is temporarily unavailable.");
+    await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash, provider: providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
+    return respondError(res, requestId, 503, "api_error", message);
   }
   if (!upstream.ok) {
     clearTimeout(timeout);
-    await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Native TokenRouter Messages provider returned an error" });
-    await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
-    const status = publicProviderFailureStatus(upstream.status);
-    const message = status === 503 && (upstream.status === 401 || upstream.status === 403)
+    const message = publicProviderFailureStatus(upstream.status) === 503 && (upstream.status === 401 || upstream.status === 403)
       ? "The selected provider temporarily denied this request after secure credential failover. Retry shortly or choose another model."
       : "The selected provider could not process this request.";
+    await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Native TokenRouter Messages provider returned an error" });
+    await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash, provider: providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
+    const status = publicProviderFailureStatus(upstream.status);
     return respondError(res, requestId, status, "api_error", message);
   }
   await touchApiKey(key.id);
@@ -436,14 +441,15 @@ async function handleNativeTokenRouterMessagesRequest(req: Request, res: Respons
     const payload = await upstream.json().catch(() => null);
     const response = nativeTokenRouterResponse(model, payload);
     if (!response) {
+      const message = "The selected provider returned an invalid response.";
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Native TokenRouter Messages provider returned an invalid response" });
-      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash });
-      return respondError(res, requestId, 503, "api_error", "The selected provider returned an invalid response.");
+      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash, provider: providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
+      return respondError(res, requestId, 503, "api_error", message);
     }
     const tokens = normalizedTokens(usageFrom(response), estimatedInputTokens);
     const chargeNanos = calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
     const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos });
-    await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
+    await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash, provider: providerLabel, latencyMs: Date.now() - startedAt });
     res.setHeader("request-id", requestId);
     res.setHeader("x-request-id", requestId);
     res.setHeader("x-tokenforge-credit-balance", String(settlement.balanceNanos));
@@ -468,6 +474,7 @@ async function handleNativeTokenRouterMessagesRequest(req: Request, res: Respons
   let buffer = "";
   let usage: Usage = {};
   let failed = false;
+  let failedMessage: string | undefined;
   res.on("close", () => { if (!res.writableEnded) aborter.abort(); });
   try {
     while (true) {
@@ -488,7 +495,7 @@ async function handleNativeTokenRouterMessagesRequest(req: Request, res: Respons
         }
         try {
           const event = JSON.parse(serialized) as { type?: unknown; message?: { model?: unknown; usage?: Usage }; usage?: Usage };
-          if (event.type === "error") failed = true;
+          if (event.type === "error") { failed = true; failedMessage = "Upstream stream reported an error."; }
           usage = { ...usage, ...(event.message?.usage ?? {}), ...(event.usage ?? {}) };
           if (event.type === "message_start" && event.message) event.message.model = model;
           res.write(`data: ${JSON.stringify(event)}\n`);
@@ -505,7 +512,7 @@ async function handleNativeTokenRouterMessagesRequest(req: Request, res: Respons
     const tokens = normalizedTokens(usage, estimatedInputTokens);
     const chargeNanos = failed ? 0 : calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
     const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos, ...(failed ? { releaseReason: "Native TokenRouter Messages stream did not complete" } : {}) });
-    await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: true, status: failed ? "provider_error" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
+    await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: true, status: failed ? "provider_error" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash, provider: providerLabel, latencyMs: Date.now() - startedAt, errorMessage: failed ? (failedMessage ?? "The selected provider stream did not complete.") : undefined });
     res.end();
   }
 }
@@ -553,23 +560,27 @@ export function registerAnthropicMessagesGateway(app: Express) {
 
     const aborter = new AbortController();
     const timeout = setTimeout(() => aborter.abort(), providerResponseStartTimeoutMs(model));
+    const startedAt = Date.now();
     let upstream: globalThis.Response;
+    const providerContext = { userId: key.userId, providerLabel: undefined as string | undefined };
     try {
-      upstream = await forwardProviderRequest(model, upstreamInput, aborter.signal, { userId: key.userId });
+      upstream = await forwardProviderRequest(model, upstreamInput, aborter.signal, providerContext);
     } catch (error) {
       clearTimeout(timeout);
+      const message = publicProviderErrorMessage();
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages provider request did not complete" });
-      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
-      return respondError(res, requestId, 503, "api_error", publicProviderErrorMessage());
+      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
+      return respondError(res, requestId, 503, "api_error", message);
     }
     // The upstream accepted the request and returned headers; retain only the hosting request ceiling for body/SSE completion.
     clearTimeout(timeout);
     if (!upstream.ok) {
       const payload = await upstream.json().catch(() => null);
+      const message = publicProviderErrorMessage(upstream.status);
       await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages provider returned an error" });
-      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash });
+      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: Boolean(input.stream), status: "provider_error", sourceIpHash: ipHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
       const status = publicProviderFailureStatus(upstream.status);
-      return respondError(res, requestId, status, "api_error", publicProviderErrorMessage(upstream.status));
+      return respondError(res, requestId, status, "api_error", message);
     }
     await touchApiKey(key.id);
 
@@ -577,9 +588,10 @@ export function registerAnthropicMessagesGateway(app: Express) {
       clearTimeout(timeout);
       const payload = await upstream.json().catch(() => null);
       if (!payload || (model === "claude-opus-5" && isClaudeOpus5ZeroOutputFailure(payload))) {
+        const message = publicProviderErrorMessage();
         await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages provider returned an invalid response" });
-        await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash });
-        return respondError(res, requestId, 503, "api_error", publicProviderErrorMessage());
+        await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
+        return respondError(res, requestId, 503, "api_error", message);
       }
       try {
         const response = translateOpenAiMessageResponse(model, sanitizeModelResponsePayload(model, payload));
@@ -589,16 +601,17 @@ export function registerAnthropicMessagesGateway(app: Express) {
         const tokens = normalizedTokens(usageFrom(payload), estimatedInputTokens);
         const chargeNanos = calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
         const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos });
-        await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
+        await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt });
         res.setHeader("request-id", requestId);
         res.setHeader("x-request-id", requestId);
         res.setHeader("x-tokenforge-credit-balance", String(settlement.balanceNanos));
         res.setHeader("x-tokenforge-credit-charge", String(settlement.chargedNanos));
         return res.status(200).json(response);
       } catch (error) {
+        const message = publicProviderErrorMessage();
         await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Anthropic Messages response translation failed" });
-        await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash });
-        return respondError(res, requestId, 503, "api_error", publicProviderErrorMessage());
+        await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
+        return respondError(res, requestId, 503, "api_error", message);
       }
     }
 
@@ -622,6 +635,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
     let buffer = "";
     let usage: Usage = {};
     let failed = false;
+    let failedMessage: string | undefined;
     let stopped = false;
     let textIndex: number | null = null;
     let nextIndex = 0;
@@ -696,6 +710,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
       finish();
     } catch {
       failed = true;
+      failedMessage = "The selected provider stream did not complete.";
       // Preserve a valid Anthropic SSE terminal sequence when the upstream
       // connection ends unexpectedly after response headers were sent. Without
       // this, Claude Code sees only an EOF and retries with a non-streaming
@@ -725,7 +740,7 @@ export function registerAnthropicMessagesGateway(app: Express) {
       const tokens = normalizedTokens(usage, estimatedInputTokens);
       const chargeNanos = failed ? 0 : calculateCreditChargeNanos(model, tokens.inputTokens, tokens.outputTokens);
       const settlement = await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: chargeNanos, releaseReason: failed ? "Anthropic Messages stream was cancelled" : undefined });
-      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: true, status: failed ? "cancelled" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash });
+      await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: model, source: "api", stream: true, status: failed ? "cancelled" : "success", ...tokens, chargeNanos: settlement.chargedNanos, sourceIpHash: ipHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: failed ? (failedMessage ?? "The selected provider stream was cancelled.") : undefined });
       res.end();
     }
   });

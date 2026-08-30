@@ -46,6 +46,7 @@ import { getClusterProtocolCredentialPool } from "./clusterProtocolCredentials";
 import { getFxqidianCredentialPool } from "./fxqidianCredentials";
 import { getTokenRouterCredentialPool } from "./tokenRouterCredentials";
 import { clearProviderCredentialTelemetryGroup, getCredentialSlotTelemetry, getProviderCredentialTelemetry, type CredentialTelemetryProvider } from "./providerCredentialTelemetry";
+import { publishLiveRequest } from "./liveRequestBus";
 import { encryptOrcaRouterCredential } from "./orcaRouterCredentialVault";
 import { decryptBaiReasoningContinuation, encryptBaiReasoningContinuation } from "./baiReasoningContinuationVault";
 import { decryptGlmToolContinuation, encryptGlmToolContinuation, type GlmPrivateToolContinuation } from "./glmToolContinuationVault";
@@ -1093,6 +1094,15 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     updateSet.role = user.role;
   }
   await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
+}
+
+/** Resolves a user's display name for live request telemetry; returns null when unavailable. */
+export async function lookupUserName(userId: number): Promise<string | null> {
+  if (!Number.isInteger(userId) || userId <= 0) return null;
+  const db = await getDb();
+  if (!db) return null;
+  const row = (await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1))[0];
+  return row?.name ?? null;
 }
 
 export async function getUserByOpenId(openId: string) {
@@ -3285,6 +3295,9 @@ export async function recordUsage(input: {
   outputTokens?: number;
   chargeNanos?: number;
   sourceIpHash?: string;
+  latencyMs?: number;
+  errorMessage?: string;
+  provider?: string;
 }) {
   const db = await getDb();
   if (!db) return;
@@ -3306,6 +3319,26 @@ export async function recordUsage(input: {
         updatedAt: new Date(),
       },
     });
+  const userName = input.userId ? await lookupUserName(input.userId) : null;
+  publishLiveRequest({
+    requestId: input.requestId,
+    userId: input.userId,
+    apiKeyId: input.apiKeyId,
+    modelId: input.modelId,
+    status: input.status,
+    source: input.source ?? "api",
+    stream: input.stream ?? false,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    chargeNanos,
+    sourceIpHash: input.sourceIpHash,
+    latencyMs: input.latencyMs,
+    errorMessage: input.errorMessage,
+    provider: input.provider,
+    createdAt: new Date(),
+    userName,
+  });
 }
 
 export async function getUsageLogs(input: { userId: number; modelId?: string; source?: "api" | "playground"; from?: Date; to?: Date; limit?: number }) {
