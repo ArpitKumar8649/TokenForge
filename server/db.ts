@@ -2412,6 +2412,8 @@ export async function getClaudeOpus5ProviderSettings() {
         apiKeyMasks: providerApiKeyMasks(provider.apiKeys, provider.apiKeyEnabled).map((mask, index) => capacity ? { ...mask, ...capacity[index] } : mask),
         ...(isClaudeOpus5QwenProvider(provider.label) ? {
           maxOutputTokens: provider.maxOutputTokens ?? CLAUDE_OPUS5_QWEN_MAX_OUTPUT_TOKENS,
+        } : {}),
+        ...((provider.modelPool?.length ?? 0) > 0 ? {
           modelPool: (provider.modelPool ?? []).map(entry => {
             const totals = usage?.get(entry.id);
             const totalTokens = totals?.totalTokens ?? 0;
