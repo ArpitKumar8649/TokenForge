@@ -2481,7 +2481,7 @@ export async function updateClaudeOpus5ProviderSettings(input: { providers: Arra
   });
   const submittedProviderIds = new Set(nextProviders.map(provider => provider.id));
   for (const provider of current.providers) {
-    if (!submittedProviderIds.has(provider.id) && (provider.modelPool?.length ?? 0) > 0) nextProviders.push(provider);
+    if (isClaudeOpus5QwenProvider(provider.label) && !submittedProviderIds.has(provider.id)) nextProviders.push(provider);
   }
   const ids = new Set(nextProviders.map(provider => provider.id));
   if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length || (isClaudeOpus5QwenProvider(provider.label) && provider.apiKeys.length < 2))) {
