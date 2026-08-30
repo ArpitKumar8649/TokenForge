@@ -2,6 +2,7 @@ import { ArrowRight, Braces, CheckCircle2, ChevronLeft, CircleDollarSign, Cpu, E
 import { Link } from "wouter";
 import { useMemo, useState } from "react";
 import { PUBLIC_ORIGIN } from "@shared/const";
+import { ProviderMark } from "@/components/ProviderMark";
 import { formatTokenForgeCreditRatePerMillion, TOKENFORGE_MODELS, type CatalogueModel } from "@/lib/modelCatalogue";
 import { trpc } from "@/lib/trpc";
 import "./dashboard-models.css";
@@ -22,7 +23,7 @@ function ModelList({ availabilityByModelId }: { availabilityByModelId: Map<strin
     const label = available === undefined ? "Checking" : available ? "Available" : "Temporarily unavailable";
     const offlineStyle = available === false ? { background: "rgba(250,169,92,.10)", color: "#ffc477" } : undefined;
     const offlineDotStyle = available === false ? { background: "#f2a45b", boxShadow: "0 0 0 5px rgba(242,164,91,.08)" } : undefined;
-    return <Link key={model.id} href={`/dashboard/models/${model.id}`} className="dashboard-model-row"><div className="dashboard-model-row__main"><div><p>{model.eyebrow}</p><h2>{model.name}</h2></div><span className="dashboard-model-state" style={offlineStyle}><i style={offlineDotStyle} /> {label}</span><p>{model.description}</p><div className="dashboard-model-tags">{model.capabilities.map(capability => <span key={capability}>{capability}</span>)}</div></div><dl><div><dt>Input</dt><dd>{formatTokenForgeCreditRatePerMillion(model.inputUsdPerMillion)}<small>/ 1M</small></dd></div><div><dt>Output</dt><dd>{formatTokenForgeCreditRatePerMillion(model.outputUsdPerMillion)}<small>/ 1M</small></dd></div></dl><span className="dashboard-model-row__action">View model <ArrowRight size={14} /></span></Link>;
+    return <Link key={model.id} href={`/dashboard/models/${model.id}`} className="dashboard-model-row"><span className={`dashboard-model-mark dashboard-model-mark--${model.tone}`}><ProviderMark provider={model.provider} fallback={model.providerMark} size={28} /></span><div className="dashboard-model-row__main"><div><p>{model.eyebrow}</p><h2>{model.name}</h2></div><span className="dashboard-model-state" style={offlineStyle}><i style={offlineDotStyle} /> {label}</span><p>{model.description}</p><div className="dashboard-model-tags">{model.capabilities.map(capability => <span key={capability}>{capability}</span>)}</div></div><dl><div><dt>Input</dt><dd>{formatTokenForgeCreditRatePerMillion(model.inputUsdPerMillion)}<small>/ 1M</small></dd></div><div><dt>Output</dt><dd>{formatTokenForgeCreditRatePerMillion(model.outputUsdPerMillion)}<small>/ 1M</small></dd></div></dl><span className="dashboard-model-row__action">View model <ArrowRight size={14} /></span></Link>;
   })}</div></section>;
 }
 

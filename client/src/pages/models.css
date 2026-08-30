@@ -87,6 +87,8 @@
 .model-detail-card__body { padding: 15px 16px 16px; }
 .model-detail-card .model-eyebrow { margin: 0; color: #befe6c; font-size: 9px; }
 .model-detail-card h2 { margin: 6px 0 0; color: #f1f5ef; font-size: clamp(21px, 2.1vw, 27px); line-height: 1.05; }
+.model-detail-card__title { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.model-detail-card__title h2 { margin: 0; }
 .model-detail-card .model-description { margin: 9px 0 0; color: #aab3a6; font-size: 12px; line-height: 1.55; }
 .model-detail-card .capability-row { margin: 13px 0 0; }
 .model-detail-card .capability-row span { border-color: rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.025); color: #c7cfc3; }

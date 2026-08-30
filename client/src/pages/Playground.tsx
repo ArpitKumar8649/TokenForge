@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { AIChatBox, type Message } from "@/components/AIChatBox";
+import { ProviderMark } from "@/components/ProviderMark";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -182,7 +183,7 @@ export default function Playground() {
                 <div className="playground-model-menu__options" role="listbox" aria-label="Available text models">
                   {visibleModelOptions.length ? visibleModelOptions.map((candidate, index) => {
                     const isAvailable = availabilityByModelId.get(candidate.id) ?? false;
-                    return <button type="button" role="option" aria-selected={candidate.id === model} key={candidate.id} className={`playground-model-menu__option${candidate.id === model ? " playground-model-menu__option--active" : ""}`} onClick={() => { if (!isAvailable) return; setModel(candidate.id); setIsModelMenuOpen(false); setModelSearch(""); }} disabled={!isAvailable}><span className="sr-only" aria-hidden="true" /><span><b>{candidate.name}</b><small>{candidate.eyebrow}</small></span><i className={isAvailable ? "playground-model-status playground-model-status--online" : "playground-model-status"}><em />{modelAvailability.isLoading ? "Checking" : isAvailable ? "Live" : "Unavailable"}</i>{PLAYGROUND_FEATURED_MODEL_IDS.includes(candidate.id as (typeof PLAYGROUND_FEATURED_MODEL_IDS)[number]) && !normalizedSearch ? <strong>Featured</strong> : null}</button>;
+                    return <button type="button" role="option" aria-selected={candidate.id === model} key={candidate.id} className={`playground-model-menu__option${candidate.id === model ? " playground-model-menu__option--active" : ""}`} onClick={() => { if (!isAvailable) return; setModel(candidate.id); setIsModelMenuOpen(false); setModelSearch(""); }} disabled={!isAvailable}><ProviderMark provider={candidate.provider} fallback={candidate.providerMark} size={20} /><span><b>{candidate.name}</b><small>{candidate.eyebrow}</small></span><i className={isAvailable ? "playground-model-status playground-model-status--online" : "playground-model-status"}><em />{modelAvailability.isLoading ? "Checking" : isAvailable ? "Live" : "Unavailable"}</i>{PLAYGROUND_FEATURED_MODEL_IDS.includes(candidate.id as (typeof PLAYGROUND_FEATURED_MODEL_IDS)[number]) && !normalizedSearch ? <strong>Featured</strong> : null}</button>;
                   }) : <div className="playground-model-menu__empty"><Search size={16} /><b>No model found</b><span>Try a provider name or model ID.</span></div>}
                 </div>
               </div> : null}

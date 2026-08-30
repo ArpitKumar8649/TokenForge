@@ -1,5 +1,6 @@
 import { PublicNav } from "@/components/PublicNav";
 import { TokenForgeGlyph } from "@/components/TokenForgeGlyph";
+import { ProviderMark } from "@/components/ProviderMark";
 import { Badge } from "@/components/ui/badge";
 import { formatTokenForgeCreditRatePerMillion, TOKENFORGE_MODELS } from "@/lib/modelCatalogue";
 import { Braces, ExternalLink, Gauge, MessageCircle } from "lucide-react";
@@ -33,7 +34,7 @@ export default function Models() {
 
               <div className="model-detail-card__body">
                 <p className="model-eyebrow">{model.eyebrow}</p>
-                <h2>{model.name}</h2>
+                <span className="model-detail-card__title"><ProviderMark provider={model.provider} fallback={model.providerMark} size={26} /><h2>{model.name}</h2></span>
                 <p className="model-description">{model.description}</p>
                 <div className="capability-row" aria-label={`${model.name} capabilities`}>
                   {model.capabilities.map((capability) => <span key={capability}>{capability}</span>)}

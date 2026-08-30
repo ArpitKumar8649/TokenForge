@@ -6,16 +6,15 @@ type ProviderMarkProps = {
 };
 
 const OFFICIAL_MARKS: Partial<Record<string, string>> = {
-  OpenAI: "/manus-storage/openai-mark_75ae0d97.png",
-  xAI: "/manus-storage/xai-mark_e34ac3e4.svg",
-  "Alibaba Cloud": "/manus-storage/qwen-official-mark_6d32eee6.png",
-  "Moonshot AI": "/manus-storage/kimi-official-mark_f3ab99a3.png",
-  Anthropic: "/manus-storage/anthropic_21a2c9bb.svg",
-  Claude: "/manus-storage/anthropic_21a2c9bb.svg",
-  Google: "/manus-storage/google_8bc26cff.svg",
-  DeepSeek: "/manus-storage/deepseek_3213d99a.svg",
-  "Mistral AI": "/manus-storage/mistralai_7d87454b.svg",
-  MiniMax: "/manus-storage/minimax_7e07512b.svg",
+  OpenAI: "/marks/openai.svg",
+  "Alibaba Cloud": "/marks/alibabacloud.svg",
+  Qwen: "/marks/alibabacloud.svg",
+  Anthropic: "/marks/anthropic.svg",
+  Claude: "/marks/anthropic.svg",
+  Google: "/marks/google.svg",
+  "Z.AI": "/marks/zai.svg",
+  "Mistral AI": "/marks/mistralai.svg",
+  xAI: "/marks/xai.png",
 };
 
 const PROVIDER_MONOGRAMS: Record<string, string> = {
