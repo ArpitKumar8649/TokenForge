@@ -29,7 +29,7 @@ export default function LocalAuth({ mode }: LocalAuthProps) {
     <section className="local-auth-showcase" aria-label="TokenForge workspace introduction">
       <Link href="/" className="local-auth-brand"><TokenForgeGlyph className="local-auth-brand__glyph" /><span>Token<span>Forge</span></span></Link>
       <div className="local-auth-showcase__center">
-        <div className="local-auth-artwork-wrap"><div className="local-auth-artwork__glow" aria-hidden="true" /><img src="/auth/login-artwork.png" alt="TokenForge artwork, forging a clearer path" className="local-auth-artwork" /></div>
+        <div className="local-auth-artwork-wrap"><div className="local-auth-artwork__glow" aria-hidden="true" /><img src="/favicon/apple-touch-icon.png" alt="TokenForge artwork, forging a clearer path" className="local-auth-artwork" /></div>
         <div className="local-auth-intro__copy"><p className="demo-kicker"><span /> GITHUB-VERIFIED ACCESS</p><h1>One trusted path to <em>your workspace.</em></h1><p>Continue securely with GitHub to manage keys, track credits, and work with TokenForge’s verified text-chat models.</p></div>
       </div>
       <div className="local-auth-promises"><div><ShieldCheck size={18} /><span><b>GitHub identity verification</b><small>TokenForge uses GitHub’s verified identity and email signals; repository access is never requested.</small></span></div><div><KeyRound size={18} /><span><b>Key secrecy by design</b><small>New API keys are shown once, then retained as hashes only.</small></span></div></div>
