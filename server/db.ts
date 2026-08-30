@@ -3774,7 +3774,13 @@ export async function getModelAvailabilitySnapshot() {
   return normalizeModelAvailability(rows);
 }
 
+const ADMIN_OVERVIEW_CACHE_TTL_MS = 10_000;
+let adminOverviewCache: { at: number; value: unknown } | null = null;
+
 export async function getAdminOverview() {
+  if (adminOverviewCache && Date.now() - adminOverviewCache.at < ADMIN_OVERVIEW_CACHE_TTL_MS) {
+    return adminOverviewCache.value;
+  }
   await ensureCatalogue();
   const db = await getDb();
   if (!db) return { models: [], providers: [], accounts: [], usage: [], emailProviders: [], allAccountModelUsage: [], totals: { totalTokens: 0, totalRequests: 0 }, providerTelemetry: getProviderCredentialTelemetry({}), managedProviderKeyMetrics: [] };
@@ -3787,7 +3793,7 @@ export async function getAdminOverview() {
     db.select({ id: users.id, name: users.name, email: users.email, createdAt: users.createdAt, lastSignedIn: users.lastSignedIn, suspended: accountControls.isSuspended, suspicious: accountControls.isSuspicious, requestLimit: accountControls.dailyRequestLimit, tokenLimit: accountControls.dailyTokenLimit, balanceNanos: creditAccounts.balanceNanos, discordVerifiedAt: accountControls.discordVerifiedAt }).from(users).leftJoin(accountControls, eq(users.id, accountControls.userId)).leftJoin(creditAccounts, eq(users.id, creditAccounts.userId)).orderBy(desc(users.lastSignedIn)).limit(100),
     db.select({ day: dailyUsage.usageDate, requests: sql<number>`coalesce(sum(${dailyUsage.requestCount}), 0)`, tokens: sql<number>`coalesce(sum(${dailyUsage.totalTokens}), 0)` }).from(dailyUsage).where(gte(dailyUsage.usageDate, utcUsageDate(new Date(Date.now() - 13 * 86_400_000)))).groupBy(dailyUsage.usageDate).orderBy(dailyUsage.usageDate),
     db.select({ userId: usageEvents.userId, requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, lastActivityAt: sql<Date | null>`max(${usageEvents.createdAt})` }).from(usageEvents).groupBy(usageEvents.userId),
-    db.select({ totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)`, totalRequests: sql<number>`coalesce(count(${usageEvents.id}), 0)` }).from(usageEvents),
+    db.select({ totalTokens: sql<number>`coalesce(sum(${dailyUsage.totalTokens}), 0)`, totalRequests: sql<number>`coalesce(sum(${dailyUsage.requestCount}), 0)` }).from(dailyUsage),
     db.select({ provider: emailProvider, accountCount: sql<number>`count(id)` }).from(users).where(sql`${users.email} is not null and ${users.email} like '%@%'`).groupBy(emailProvider).orderBy(desc(sql`count(id)`), emailProvider),
     db.select({ modelId: usageEvents.modelId, accountCount: sql<number>`count(distinct ${usageEvents.userId})`, requestCount: sql<number>`coalesce(count(${usageEvents.id}), 0)`, totalTokens: sql<number>`coalesce(sum(${usageEvents.totalTokens}), 0)` }).from(usageEvents).where(eq(usageEvents.status, "success")).groupBy(usageEvents.modelId).orderBy(desc(sql`count(${usageEvents.id})`), desc(sql`sum(${usageEvents.totalTokens})`), usageEvents.modelId),
   ]);
@@ -3799,7 +3805,9 @@ export async function getAdminOverview() {
     [TOKENROUTER_PROVIDER_SLUG]: getTokenRouterCredentialPool().length,
   });
   const managedProviderKeyMetrics = await getManagedProviderKeyMetrics();
-  return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })), emailProviders: normalizeAdminEmailProviderCounts(emailProviderRows), allAccountModelUsage: normalizeAdminGlobalModelUsage(allAccountModelUsageRows), totals: { totalTokens: TOKENFORGE_TOKEN_BASELINE + Math.max(0, Number(totals[0]?.totalTokens ?? 0) - TOKENFORGE_TOKEN_HISTORICAL), totalRequests: Number(totals[0]?.totalRequests ?? 0) }, providerTelemetry, managedProviderKeyMetrics };
+  const value = { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })), emailProviders: normalizeAdminEmailProviderCounts(emailProviderRows), allAccountModelUsage: normalizeAdminGlobalModelUsage(allAccountModelUsageRows), totals: { totalTokens: TOKENFORGE_TOKEN_BASELINE + Math.max(0, Number(totals[0]?.totalTokens ?? 0) - TOKENFORGE_TOKEN_HISTORICAL), totalRequests: Number(totals[0]?.totalRequests ?? 0) }, providerTelemetry, managedProviderKeyMetrics };
+  adminOverviewCache = { at: Date.now(), value };
+  return value;
 }
 
 /** Deletes a user and every account-owned TokenForge record, retaining only non-reversible hashed identity tombstones. */
