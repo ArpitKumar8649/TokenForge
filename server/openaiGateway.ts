@@ -97,7 +97,7 @@ type ChatMessage = TokenForgeChatMessage;
 export type TokenForgeChatInput = { model?: string; messages?: ChatMessage[]; stream?: boolean; max_tokens?: number; [key: string]: unknown };
 type ChatInput = TokenForgeChatInput;
 type Usage = { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; input_tokens?: number; output_tokens?: number; reasoning_tokens?: number; cached_tokens?: number; cache_read_input_tokens?: number; totalTokens?: number };
-type ProviderRequestContext = { userId: number; providerLabel?: string };
+type ProviderRequestContext = { userId: number; providerLabel?: string; credentialSlot?: number };
 
 export function modelScopedGuidance(model: TokenForgeModelId): TokenForgeChatMessage {
   if (model === "claude-opus-5") {
@@ -1311,6 +1311,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
       const selectedCredential = selectNextClaudeOpus5Credential(provider);
       if (!selectedCredential) break;
       activeCredentialSlot = selectedCredential.slot + 1;
+      if (context) context.credentialSlot = selectedCredential.slot + 1;
       const isBai = isBaiProviderLabel(provider.label);
       const baiCapacityLease = isBai ? await tryAcquireBaiCredentialCapacityLease("claude-opus-5", provider.id, selectedCredential.credential) : null;
       if (isBai && !baiCapacityLease) {
@@ -2299,7 +2300,7 @@ export function registerOpenAiGateway(app: Express) {
     const timeout = setTimeout(() => aborter.abort(), PROVIDER_TIMEOUT_MS);
     const startedAt = Date.now();
     let upstream: globalThis.Response;
-    const providerContext = { userId: key.userId, providerLabel: undefined as string | undefined };
+    const providerContext = { userId: key.userId, providerLabel: undefined as string | undefined, credentialSlot: undefined as number | undefined };
     try {
       upstream = await forwardProviderRequest(model, upstreamInput, aborter.signal, providerContext);
     } catch (error) {
@@ -2330,6 +2331,21 @@ export function registerOpenAiGateway(app: Express) {
         const message = publicProviderErrorMessage();
         await settleReservedCredit({ userId: key.userId, requestId, reservedNanos, finalChargeNanos: 0, releaseReason: "Provider response was invalid" });
         await recordUsage({ requestId, userId: key.userId, apiKeyId: key.id, modelId: input.model, source: "api", stream: false, status: "provider_error", sourceIpHash: ipHash, provider: providerContext.providerLabel, latencyMs: Date.now() - startedAt, errorMessage: message });
+        if (input.model === "claude-opus-5" && providerContext.providerLabel) {
+          const diagnostic = isClaudeOpus5ZeroOutputFailure(payload)
+            ? "The provider returned a successful response with zero output tokens or no assistant output."
+            : "The provider returned an invalid or failure-envelope response.";
+          void recordClaudeOpus5FailureLog({
+            sourceType: "provider",
+            sourceId: providerContext.providerLabel,
+            sourceLabel: providerContext.providerLabel,
+            credentialSlot: providerContext.credentialSlot,
+            httpStatus: upstream.status,
+            failureKind: isClaudeOpus5ZeroOutputFailure(payload) ? "empty_output" : "http",
+            retryable: true,
+            callerMessage: diagnostic,
+          }).catch(() => undefined);
+        }
         return errorResponse(res, requestId, 503, message, "provider_unavailable");
       }
       const tokens = normalizedTokens(usageFrom(payload), estimatedInputTokens);
