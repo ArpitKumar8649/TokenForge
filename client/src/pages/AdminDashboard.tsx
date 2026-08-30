@@ -233,8 +233,12 @@ function ClaudeOpus5ModelPoolPanel({ providerLabel = "qwen" }: { providerLabel?:
   const pendingQwenKeyDeletionSlots = useRef<number[]>([]);
   const provider = (settings.data?.providers as ClaudeOpus5ProviderSettingsData[] | undefined)?.find(item => item.label.trim().toLowerCase() === label);
   useEffect(() => {
-    if (!settings.data || initialized) return;
+    if (!settings.data) return;
     const current = (settings.data.providers as ClaudeOpus5ProviderSettingsData[]).find(item => item.label.trim().toLowerCase() === label);
+    const hasPool = (current?.modelPool?.length ?? 0) > 0;
+    // Initialize once, but re-seed if we've never loaded a pool and the provider
+    // now carries one (e.g. a pool saved by another panel before this mounted).
+    if (initialized && (models.length > 0 || !hasPool)) return;
     setBaseUrl(current?.baseUrl ?? "");
     setMaxOutputTokens(current?.maxOutputTokens ?? 32_768);
     setApiKeys(current?.apiKeyMasks.length ? current.apiKeyMasks.map(() => "") : ["", ""]);
