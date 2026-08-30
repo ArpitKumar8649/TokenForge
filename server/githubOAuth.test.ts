@@ -24,6 +24,25 @@ describe("GitHub OAuth flow primitives", () => {
     );
   });
 
+  it("derives the OAuth callback origin from X-Forwarded-Host when a proxy fronts the app", () => {
+    // A Render custom domain (tokenforge.work.gd) puts the app behind a proxy that
+    // forwards the original Host. The callback must land on the proxy host so the
+    // browser still sends the state/verifier cookies it received on that host.
+    expect(appOrigin({
+      protocol: "https",
+      hostname: "tokenforge-api-0mrs.onrender.com",
+      headers: { "x-forwarded-host": "tokenforge.work.gd", "x-forwarded-proto": "https" },
+    })).toBe("https://tokenforge.work.gd");
+  });
+
+  it("prefers the first host in a comma-separated X-Forwarded-Host list", () => {
+    expect(appOrigin({
+      protocol: "https",
+      hostname: "internal-upstream",
+      headers: { "x-forwarded-host": "tokenforge.work.gd, tokenforge.work.gd", "x-forwarded-proto": "https" },
+    })).toBe("https://tokenforge.work.gd");
+  });
+
   it("prefers GitHub's verified primary address and never accepts an unverified address", () => {
     expect(selectVerifiedGitHubEmail("profile@example.com", [
       { email: "secondary@example.com", primary: false, verified: true },

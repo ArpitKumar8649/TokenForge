@@ -25,19 +25,38 @@ function getQueryParam(req: Request, key: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-export function appOrigin(_req: Pick<Request, "protocol" | "hostname">) {
-  const configuredOrigin = process.env.TOKENFORGE_PUBLIC_ORIGIN?.trim();
-  if (!configuredOrigin) return PUBLIC_ORIGIN;
+export function appOrigin(req: Pick<Request, "protocol" | "hostname" | "headers">) {
+  // The OAuth callback must land on the same host that set the state/verifier
+  // cookies. Render custom domains and proxies forward the browser's original
+  // Host in X-Forwarded-Host; deriving the origin from those headers keeps
+  // multi-host deployments (custom domain + onrender.com) working. Never trust
+  // req.hostname/req.protocol directly — behind a proxy they can be the internal
+  // upstream name, which the browser cannot reach.
+  const hostHeader = req.headers?.["x-forwarded-host"];
+  const host = (Array.isArray(hostHeader) ? hostHeader[0] : hostHeader)?.split(",")[0]?.trim();
+  const protoHeader = req.headers?.["x-forwarded-proto"];
+  const protocol = (Array.isArray(protoHeader) ? protoHeader[0] : protoHeader)?.split(",")[0]?.trim();
+  if (host && (protocol || req.protocol === "https")) {
+    try {
+      return new URL(`${protocol ?? "https"}://${host}`).origin;
+    } catch {
+      // Fall through to the configured origin below.
+    }
+  }
 
-  try {
-    const origin = new URL(configuredOrigin);
-    if (origin.protocol !== "https:" || origin.pathname !== "/" || origin.search || origin.hash) {
+  const configuredOrigin = process.env.TOKENFORGE_PUBLIC_ORIGIN?.trim();
+  if (configuredOrigin) {
+    try {
+      const origin = new URL(configuredOrigin);
+      if (origin.protocol !== "https:" || origin.pathname !== "/" || origin.search || origin.hash) {
+        return PUBLIC_ORIGIN;
+      }
+      return origin.origin;
+    } catch {
       return PUBLIC_ORIGIN;
     }
-    return origin.origin;
-  } catch {
-    return PUBLIC_ORIGIN;
   }
+  return PUBLIC_ORIGIN;
 }
 
 function callbackUrl(req: Request) {
