@@ -1,0 +1,1 @@
+ALTER TABLE `claude_opus5_failure_logs` ADD `credentialSlot` int;

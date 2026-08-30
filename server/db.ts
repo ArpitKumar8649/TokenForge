@@ -2071,6 +2071,7 @@ export type ManagedProviderFailureLogInput = {
   sourceType: "provider" | "render";
   sourceId: string;
   sourceLabel: string;
+  credentialSlot?: number;
   httpStatus?: number;
   failureKind: "http" | "timeout" | "network" | "stream" | "empty_output";
   retryable: boolean;
@@ -2094,6 +2095,7 @@ async function recordManagedProviderFailureLog(modelId: ManagedProviderFailureLo
     sourceType: input.sourceType,
     sourceId: input.sourceId.trim().slice(0, 96) || "unknown",
     sourceLabel: sanitizeRenderNimProxyFailureMessage(input.sourceLabel).slice(0, 128),
+    credentialSlot: Number.isInteger(input.credentialSlot) && input.credentialSlot! > 0 ? input.credentialSlot! : null,
     httpStatus,
     failureKind: input.failureKind,
     retryable: input.retryable,

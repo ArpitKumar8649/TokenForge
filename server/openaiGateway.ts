@@ -993,7 +993,7 @@ function wrapBaiResponseWithCapacityLease(response: globalThis.Response, lease: 
 }
 
 /** Record a provider stream failure after headers without treating a client cancellation as an upstream outage. */
-function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal, onCompleteUsage?: (usage: Usage) => void, onQwenZeroOutput?: (usage: Usage) => void, failureSource?: { sourceId: string; sourceLabel: string }, onBaiReasoningComplete?: (payload: unknown) => void) {
+function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Response, provider: { id: string; label: string }, clientSignal: AbortSignal, credentialSlot?: number, onCompleteUsage?: (usage: Usage) => void, onQwenZeroOutput?: (usage: Usage) => void, failureSource?: { sourceId: string; sourceLabel: string }, onBaiReasoningComplete?: (payload: unknown) => void) {
   if (!response.body || response.body.locked || !response.headers.get("content-type")?.includes("text/event-stream")) return response;
   const reader = response.body.getReader();
   let recorded = false;
@@ -1015,6 +1015,7 @@ function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Resp
       sourceType: "provider",
       sourceId: failureSource?.sourceId ?? provider.id,
       sourceLabel: failureSource?.sourceLabel ?? provider.label,
+      credentialSlot: credentialSlot ? credentialSlot + 1 : undefined,
       failureKind: "stream",
       retryable: false,
       callerMessage: typeof error === "string" ? error : error instanceof Error ? error.message : "Claude Opus 5 provider stream failed after response start.",
@@ -1280,6 +1281,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
     }
     const upstreamModel = qwenModel?.model ?? provider.model;
     const qwenFailureSource = qwenModel ? { sourceId: `${provider.id}:${qwenModel.id}`, sourceLabel: `Qwen · ${qwenModel.model}` } : undefined;
+    let activeCredentialSlot: number | undefined;
     const recordQwenModelUsage = (usage: Usage) => {
       if (!qwenModel) return;
       const tokens = managedProviderBillableTokens(usage, estimateInputTokens(input.messages ?? []));
@@ -1299,6 +1301,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
         sourceType: "provider",
         sourceId: qwenFailureSource?.sourceId ?? provider.id,
         sourceLabel: qwenFailureSource?.sourceLabel ?? provider.label,
+        credentialSlot: activeCredentialSlot,
         failureKind: "empty_output",
         retryable,
         callerMessage: `Qwen returned a successful upstream response with zero output tokens or no usable assistant output for model ${qwenModel.model}.`,
@@ -1307,6 +1310,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
     for (let attempt = 0; attempt < provider.apiKeys.length; attempt += 1) {
       const selectedCredential = selectNextClaudeOpus5Credential(provider);
       if (!selectedCredential) break;
+      activeCredentialSlot = selectedCredential.slot + 1;
       const isBai = isBaiProviderLabel(provider.label);
       const baiCapacityLease = isBai ? await tryAcquireBaiCredentialCapacityLease("claude-opus-5", provider.id, selectedCredential.credential) : null;
       if (isBai && !baiCapacityLease) {
@@ -1367,6 +1371,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
             response,
             provider,
             signal,
+            selectedCredential.slot,
             qwenModel ? recordQwenModelUsage : undefined,
             qwenModel ? usage => recordQwenZeroOutput(usage, false) : undefined,
             qwenFailureSource,
@@ -1381,6 +1386,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
           sourceType: "provider",
           sourceId: qwenFailureSource?.sourceId ?? provider.id,
           sourceLabel: qwenFailureSource?.sourceLabel ?? provider.label,
+          credentialSlot: selectedCredential.slot + 1,
           httpStatus: response.status,
           failureKind: "http",
           retryable,
@@ -1414,6 +1420,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
           sourceType: "provider",
           sourceId: qwenFailureSource?.sourceId ?? provider.id,
           sourceLabel: qwenFailureSource?.sourceLabel ?? provider.label,
+          credentialSlot: selectedCredential.slot + 1,
           failureKind: timeout ? "timeout" : "network",
           retryable: true,
           callerMessage: timeout ? `Claude Opus 5 provider response did not start within ${Math.round(PROVIDER_RESPONSE_START_TIMEOUT_MS / 1_000)} seconds.` : error instanceof Error ? error.message : "Claude Opus 5 provider network request failed.",

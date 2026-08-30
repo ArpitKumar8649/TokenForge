@@ -555,6 +555,8 @@ export const claudeOpus5FailureLogs = mysqlTable(
     sourceType: mysqlEnum("sourceType", ["provider", "render"]).notNull(),
     sourceId: varchar("sourceId", { length: 96 }).notNull(),
     sourceLabel: varchar("sourceLabel", { length: 128 }).notNull(),
+    /** Which credential/key slot served the failing request (1-based), for targeted diagnosis. */
+    credentialSlot: int("credentialSlot"),
     httpStatus: int("httpStatus"),
     failureKind: varchar("failureKind", { length: 32 }).notNull(),
     retryable: boolean("retryable").default(false).notNull(),
