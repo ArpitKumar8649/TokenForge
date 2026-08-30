@@ -11,7 +11,7 @@ export const TOKENFORGE_PLATFORM_CHARGE_MULTIPLIER = 2.0;
  * is the SUM(usage_events.totalTokens) at the moment this baseline was set, so
  * the pre-existing total is treated as already counted and not shown again.
  */
-export const TOKENFORGE_TOKEN_BASELINE = 5_000_000_000;
+export const TOKENFORGE_TOKEN_BASELINE = 6_500_000_000;
 export const TOKENFORGE_TOKEN_HISTORICAL = 4_226_341_496;
 
 function platformCreditRate(upstreamUsdPerMillion: number) {

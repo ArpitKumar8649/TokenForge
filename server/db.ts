@@ -1647,7 +1647,7 @@ export type ClaudeOpus5QwenModelRuntime = {
 };
 
 export type ClaudeOpus5RuntimePayload = { providers: ClaudeOpus5ProviderRuntime[] };
-const MAX_CLAUDE_OPUS5_PROVIDERS = 12;
+const MAX_CLAUDE_OPUS5_PROVIDERS = 100;
 export const CLAUDE_OPUS5_QWEN_DEFAULT_MODEL_TOKEN_QUOTA = 1_000_000;
 const MAX_CLAUDE_OPUS5_QWEN_MODELS = 50;
 export const CLAUDE_OPUS5_QWEN_MAX_OUTPUT_TOKENS = 32_768;
