@@ -2217,7 +2217,7 @@ function normalizeClaudeOpus5Providers(value: unknown, fallback: ClaudeOpus5Prov
     const baseUrl = typeof raw.baseUrl === "string" ? raw.baseUrl.trim() : "";
     const label = typeof raw.label === "string" && raw.label.trim() ? raw.label.trim().slice(0, 80) : `Provider ${index + 1}`;
     const isQwenProvider = isClaudeOpus5QwenProvider(label);
-    const modelPool = isQwenProvider ? normalizeClaudeOpus5QwenModelPool(raw.modelPool) : [];
+    const modelPool = normalizeClaudeOpus5QwenModelPool(raw.modelPool);
     const maxOutputTokens = isQwenProvider ? normalizeClaudeOpus5QwenMaxOutputTokens(raw.maxOutputTokens) : undefined;
     const model = (typeof raw.model === "string" ? raw.model.trim() : "") || modelPool[0]?.model || "";
     if (!baseUrl || !model || !apiKeys.length) return [];
@@ -2460,9 +2460,11 @@ export async function updateClaudeOpus5ProviderSettings(input: { providers: Arra
     const id = normalizeClaudeOpus5ProviderId(submitted.id, `provider-${index + 1}`);
     const label = submitted.label.trim() || `Provider ${index + 1}`;
     const submittedPool = submitted.modelPool === undefined ? existing?.modelPool : submitted.modelPool;
-    const qwenPool = isClaudeOpus5QwenProvider(label)
-      ? normalizeClaudeOpus5QwenModelPool(submittedPool?.length ? submittedPool : [{ id: "qwen-model-1", model: submitted.model, enabled: true, quotaTokens: CLAUDE_OPUS5_QWEN_DEFAULT_MODEL_TOKEN_QUOTA }])
-      : [];
+    const pool = normalizeClaudeOpus5QwenModelPool(
+      submittedPool?.length
+        ? submittedPool
+        : [...(existing?.modelPool ?? []), { id: "opus-model-1", model: submitted.model, enabled: true, quotaTokens: CLAUDE_OPUS5_QWEN_DEFAULT_MODEL_TOKEN_QUOTA }],
+    );
     const maxOutputTokens = isClaudeOpus5QwenProvider(label)
       ? normalizeClaudeOpus5QwenMaxOutputTokens(submitted.maxOutputTokens ?? existing?.maxOutputTokens)
       : undefined;
@@ -2471,15 +2473,15 @@ export async function updateClaudeOpus5ProviderSettings(input: { providers: Arra
       label,
       enabled: submitted.enabled !== false,
       baseUrl: submitted.baseUrl.trim(),
-      model: submitted.model.trim() || qwenPool[0]?.model || "",
+      model: submitted.model.trim() || pool[0]?.model || "",
       ...keys,
-      ...(qwenPool.length ? { modelPool: qwenPool } : {}),
+      ...(pool.length ? { modelPool: pool } : {}),
       ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
     };
   });
   const submittedProviderIds = new Set(nextProviders.map(provider => provider.id));
   for (const provider of current.providers) {
-    if (isClaudeOpus5QwenProvider(provider.label) && !submittedProviderIds.has(provider.id)) nextProviders.push(provider);
+    if (!submittedProviderIds.has(provider.id) && (provider.modelPool?.length ?? 0) > 0) nextProviders.push(provider);
   }
   const ids = new Set(nextProviders.map(provider => provider.id));
   if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length || (isClaudeOpus5QwenProvider(provider.label) && provider.apiKeys.length < 2))) {
