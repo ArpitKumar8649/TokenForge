@@ -223,6 +223,16 @@ export function publicProviderFailureStatus(status: number) {
   return status === 401 || status === 403 || status >= 500 ? 503 : status;
 }
 
+/** undici reconstructs Responses through its WebIDL ByteString converter, which rejects any statusText char above 255. Some upstream providers return a non-ASCII Reason-Phrase (e.g. a bullet); strip it so re-wrapping an upstream Response never throws. Status text is cosmetic. */
+function asciiStatusText(statusText: string) {
+  let result = "";
+  for (let index = 0; index < statusText.length; index += 1) {
+    const code = statusText.charCodeAt(index);
+    result += code >= 0x20 && code <= 0x7e ? statusText[index] : "";
+  }
+  return result;
+}
+
 function estimateInputTokens(messages: ChatMessage[]) {
   return messages.reduce((total, message) => {
     const content = typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? "");
@@ -578,7 +588,7 @@ async function forwardDedicatedDeepseekV4ProRequest(input: ChatInput, signal: Ab
         if (!retryable) {
           return publicManagedProviderFailureResponse(response.status);
         }
-        lastResponse = new Response(rawBody, { status: response.status, statusText: response.statusText, headers: { "content-type": response.headers.get("content-type") ?? "application/json; charset=utf-8" } });
+        lastResponse = new Response(rawBody, { status: response.status, statusText: asciiStatusText(response.statusText), headers: { "content-type": response.headers.get("content-type") ?? "application/json; charset=utf-8" } });
         lastError = new Error(diagnostic);
       } catch (error) {
         responseStart.clear();
@@ -673,7 +683,7 @@ async function forwardDedicatedSonnet46Request(input: ChatInput, signal: AbortSi
         recordCredentialFailure(selectedCredential.telemetryProvider, selectedCredential.slot);
         void recordManagedProviderKeyOutcome("claude-sonnet-4.6", selectedCredential.credential, false, new Date(), true, provider.id).catch(() => undefined);
         if (!retryable) return publicManagedProviderFailureResponse(response.status);
-        lastResponse = new Response(rawBody, { status: response.status, statusText: response.statusText, headers: { "content-type": response.headers.get("content-type") ?? "application/json; charset=utf-8" } });
+        lastResponse = new Response(rawBody, { status: response.status, statusText: asciiStatusText(response.statusText), headers: { "content-type": response.headers.get("content-type") ?? "application/json; charset=utf-8" } });
         lastError = new Error(diagnostic);
       } catch (error) {
         responseStart.clear();
@@ -944,7 +954,7 @@ function wrapRenderResponseWithLease(response: globalThis.Response, endpointId: 
       }
     },
   });
-  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+  return new Response(body, { status: response.status, statusText: asciiStatusText(response.statusText), headers: response.headers });
 }
 
 /** Keeps a b.ai credential-capacity lease until the exact response body has completed or the caller ends it. */
@@ -989,7 +999,7 @@ function wrapBaiResponseWithCapacityLease(response: globalThis.Response, lease: 
       }
     },
   });
-  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+  return new Response(body, { status: response.status, statusText: asciiStatusText(response.statusText), headers: response.headers });
 }
 
 /** Record a provider stream failure after headers without treating a client cancellation as an upstream outage. */
@@ -1086,7 +1096,7 @@ function wrapClaudeOpus5ProviderResponseWithFailureLog(response: globalThis.Resp
       await reader.cancel(reason);
     },
   });
-  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+  return new Response(body, { status: response.status, statusText: asciiStatusText(response.statusText), headers: response.headers });
 }
 
 type ManagedFailureLogger = (input: { sourceType: "provider"; sourceId: string; sourceLabel: string; failureKind: "stream"; retryable: boolean; callerMessage: string }) => Promise<void>;
@@ -1177,7 +1187,7 @@ function wrapManagedProviderResponseWithFailureLog(response: globalThis.Response
       await reader.cancel(reason);
     },
   });
-  return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+  return new Response(body, { status: response.status, statusText: asciiStatusText(response.statusText), headers: response.headers });
 }
 
 /** Record a DeepSeek provider stream failure after headers without treating a client cancellation as an upstream outage. */
