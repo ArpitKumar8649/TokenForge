@@ -46,7 +46,7 @@ import { getClusterProtocolCredentialPool } from "./clusterProtocolCredentials";
 import { getFxqidianCredentialPool } from "./fxqidianCredentials";
 import { getTokenRouterCredentialPool } from "./tokenRouterCredentials";
 import { clearProviderCredentialTelemetryGroup, getCredentialSlotTelemetry, getProviderCredentialTelemetry, type CredentialTelemetryProvider } from "./providerCredentialTelemetry";
-import { publishLiveRequest } from "./liveRequestBus";
+import { publishLiveRequest, type LiveRequestEvent } from "./liveRequestBus";
 import { encryptOrcaRouterCredential } from "./orcaRouterCredentialVault";
 import { decryptBaiReasoningContinuation, encryptBaiReasoningContinuation } from "./baiReasoningContinuationVault";
 import { decryptGlmToolContinuation, encryptGlmToolContinuation, type GlmPrivateToolContinuation } from "./glmToolContinuationVault";
@@ -3339,6 +3339,56 @@ export async function recordUsage(input: {
     createdAt: new Date(),
     userName,
   });
+}
+
+/** Returns the most recent usage events for the admin live request log snapshot. */
+export async function getRecentLiveRequests(limit = 25): Promise<LiveRequestEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const bounded = Math.min(Math.max(Math.floor(limit), 1), 100);
+  const rows = await db
+    .select({
+      requestId: usageEvents.requestId,
+      userId: usageEvents.userId,
+      apiKeyId: usageEvents.apiKeyId,
+      modelId: usageEvents.modelId,
+      status: usageEvents.status,
+      source: usageEvents.source,
+      stream: usageEvents.stream,
+      inputTokens: usageEvents.inputTokens,
+      outputTokens: usageEvents.outputTokens,
+      totalTokens: usageEvents.totalTokens,
+      chargeNanos: usageEvents.chargeNanos,
+      sourceIpHash: usageEvents.sourceIpHash,
+      latencyMs: usageEvents.latencyMs,
+      errorMessage: usageEvents.errorMessage,
+      provider: usageEvents.provider,
+      createdAt: usageEvents.createdAt,
+      userName: users.name,
+    })
+    .from(usageEvents)
+    .leftJoin(users, eq(usageEvents.userId, users.id))
+    .orderBy(desc(usageEvents.createdAt))
+    .limit(bounded);
+  return rows.map(row => ({
+    requestId: row.requestId,
+    userId: row.userId,
+    apiKeyId: row.apiKeyId ?? undefined,
+    modelId: row.modelId,
+    status: row.status,
+    source: row.source,
+    stream: row.stream,
+    inputTokens: row.inputTokens,
+    outputTokens: row.outputTokens,
+    totalTokens: row.totalTokens,
+    chargeNanos: row.chargeNanos,
+    sourceIpHash: row.sourceIpHash ?? undefined,
+    latencyMs: row.latencyMs ?? undefined,
+    errorMessage: row.errorMessage ?? undefined,
+    provider: row.provider ?? undefined,
+    createdAt: row.createdAt,
+    userName: row.userName,
+  }));
 }
 
 export async function getUsageLogs(input: { userId: number; modelId?: string; source?: "api" | "playground"; from?: Date; to?: Date; limit?: number }) {

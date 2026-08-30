@@ -1,8 +1,10 @@
 import type { Express, Request, Response } from "express";
 import { subscribeLiveRequests, type LiveRequestEvent } from "../liveRequestBus";
+import { getRecentLiveRequests } from "../db";
 import { sdk } from "./sdk";
 
 const NOT_ADMIN_MSG = "You do not have required permission (10002)";
+const SNAPSHOT_LIMIT = 25;
 
 /** Forwards live usage events to the admin panel as a Server-Sent Events stream. */
 export function registerLiveRequestRoutes(app: Express) {
@@ -47,5 +49,13 @@ export function registerLiveRequestRoutes(app: Express) {
 
     // Initial readiness so the client knows the stream is open.
     res.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`);
+
+    // Rehydrate the most recent rows so the panel isn't empty on (re)load.
+    try {
+      const snapshot = await getRecentLiveRequests(SNAPSHOT_LIMIT);
+      for (const event of snapshot) send(event);
+    } catch {
+      // Snapshot is best-effort; live events continue regardless.
+    }
   });
 }

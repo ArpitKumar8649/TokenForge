@@ -17,11 +17,11 @@ type LiveRequest = {
   createdAt: string;
 };
 
-const STATUS_LABEL: Record<LiveRequest["status"], { text: string; cls: string }> = {
-  success: { text: "Success", cls: "text-[#c9ff73] bg-[#c9ff73]/10 border-[#c9ff73]/25" },
-  provider_error: { text: "Provider error", cls: "text-red-300 bg-red-400/10 border-red-300/25" },
-  rejected: { text: "Rejected", cls: "text-amber-200 bg-amber-300/10 border-amber-300/25" },
-  cancelled: { text: "Cancelled", cls: "text-[#a9aab8] bg-white/6 border-white/12" },
+const STATUS_LABEL: Record<LiveRequest["status"], { text: string; cls: string; dot: string }> = {
+  success: { text: "Success", cls: "text-[#c9ff73] bg-[#c9ff73]/10 border-[#c9ff73]/25", dot: "bg-[#4ade80]" },
+  provider_error: { text: "Provider error", cls: "text-red-300 bg-red-400/10 border-red-300/25", dot: "bg-red-500" },
+  rejected: { text: "Rejected", cls: "text-amber-200 bg-amber-300/10 border-amber-300/25", dot: "bg-amber-400" },
+  cancelled: { text: "Cancelled", cls: "text-[#a9aab8] bg-white/6 border-white/12", dot: "bg-[#a9aab8]" },
 };
 
 const MAX_ROWS = 300;
@@ -79,6 +79,7 @@ export default function LiveRequestLog() {
         <table className="w-full min-w-[900px] border-collapse text-left text-[11px]">
           <thead className="sticky top-0 z-10 bg-[#171a18]">
             <tr className="text-[9px] uppercase tracking-[.1em] text-[#858697]">
+              <th className="px-3 py-2 w-8">Status</th>
               <th className="px-3 py-2">Time</th>
               <th className="px-3 py-2">User</th>
               <th className="px-3 py-2">Model</th>
@@ -93,7 +94,7 @@ export default function LiveRequestLog() {
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-10 text-center text-[#858697]">
+                <td colSpan={10} className="px-3 py-10 text-center text-[#858697]">
                   <div className="mx-auto flex w-max items-center gap-2">
                     <Loader2 className="animate-spin" size={14} /> Waiting for requests…
                   </div>
@@ -103,6 +104,10 @@ export default function LiveRequestLog() {
               const status = STATUS_LABEL[row.status] ?? STATUS_LABEL.cancelled;
               return (
                 <tr key={row.requestId} className="border-t border-white/6 hover:bg-white/[.02]">
+                  <td className="px-3 py-2">
+                    <span className="live-dot" style={{ background: status.dot }} aria-hidden="true" />
+                    <span className="sr-only">{status.text}</span>
+                  </td>
                   <td className="whitespace-nowrap px-3 py-2 font-mono text-[10px] text-[#a9aab8]">{new Date(row.createdAt).toLocaleTimeString()}</td>
                   <td className="max-w-[10rem] truncate px-3 py-2 text-[#e6e6ee]">{row.userName ?? `user:${row.userId}`}</td>
                   <td className="max-w-[11rem] truncate px-3 py-2 font-mono text-[#e6e6ee]">{row.modelId}</td>
