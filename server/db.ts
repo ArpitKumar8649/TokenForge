@@ -40,7 +40,7 @@ import {
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { hashPassword, isPermanentEmailAddress, normalizeEmail, nextFailedLoginState, normalizeEmailAllowlistEntries, retryAfterSeconds, verifyPassword } from "./localAuth";
-import { DAILY_CHECKIN_CREDIT_NANOS, INTRODUCTORY_CREDIT_NANOS, NANODOLLARS_PER_DOLLAR } from "./creditPricing";
+import { DAILY_CHECKIN_CREDIT_NANOS, INTRODUCTORY_CREDIT_NANOS, NANODOLLARS_PER_DOLLAR, TOKENFORGE_TOKEN_BASELINE, TOKENFORGE_TOKEN_HISTORICAL } from "./creditPricing";
 import { CLAUDE_OPUS5_PROVIDER_SLUG, CLUSTER_PROTOCOL_PROVIDER_SLUG, FXQIDIAN_PROVIDER_SLUG, getTokenForgeUpstreamModelId, TOKENHARBOR_PROVIDER_SLUG, TOKENROUTER_PROVIDER_SLUG, TOKENFORGE_MODEL_CATALOGUE, TOKENFORGE_MODEL_IDS, type TokenForgeModelId } from "./modelCatalogue";
 import { getClusterProtocolCredentialPool } from "./clusterProtocolCredentials";
 import { getFxqidianCredentialPool } from "./fxqidianCredentials";
@@ -3280,7 +3280,7 @@ export async function getPublicModelTokenMetrics() {
   for (const row of rows) {
     if (TOKENFORGE_MODEL_IDS.includes(row.modelId as TokenForgeModelId)) byModel[row.modelId as TokenForgeModelId] = Number(row.totalTokens ?? 0);
   }
-  return { totalTokens: Object.values(byModel).reduce((total, amount) => total + amount, 0), byModel };
+  return { totalTokens: TOKENFORGE_TOKEN_BASELINE + Math.max(0, Object.values(byModel).reduce((total, amount) => total + amount, 0) - TOKENFORGE_TOKEN_HISTORICAL), byModel };
 }
 
 export async function recordUsage(input: {
@@ -3797,7 +3797,7 @@ export async function getAdminOverview() {
     [TOKENROUTER_PROVIDER_SLUG]: getTokenRouterCredentialPool().length,
   });
   const managedProviderKeyMetrics = await getManagedProviderKeyMetrics();
-  return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })), emailProviders: normalizeAdminEmailProviderCounts(emailProviderRows), allAccountModelUsage: normalizeAdminGlobalModelUsage(allAccountModelUsageRows), totals: { totalTokens: Number(totals[0]?.totalTokens ?? 0), totalRequests: Number(totals[0]?.totalRequests ?? 0) }, providerTelemetry, managedProviderKeyMetrics };
+  return { models, providers, accounts: composeAdminAccountOverview(accounts, accountUsage), usage: usage.map(row => ({ day: new Date(row.day).toISOString().slice(0, 10), requests: Number(row.requests), tokens: Number(row.tokens) })), emailProviders: normalizeAdminEmailProviderCounts(emailProviderRows), allAccountModelUsage: normalizeAdminGlobalModelUsage(allAccountModelUsageRows), totals: { totalTokens: TOKENFORGE_TOKEN_BASELINE + Math.max(0, Number(totals[0]?.totalTokens ?? 0) - TOKENFORGE_TOKEN_HISTORICAL), totalRequests: Number(totals[0]?.totalRequests ?? 0) }, providerTelemetry, managedProviderKeyMetrics };
 }
 
 /** Deletes a user and every account-owned TokenForge record, retaining only non-reversible hashed identity tombstones. */
