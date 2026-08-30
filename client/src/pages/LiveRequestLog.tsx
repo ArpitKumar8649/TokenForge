@@ -34,7 +34,15 @@ export default function LiveRequestLog() {
 
   useEffect(() => {
     const source = new EventSource("/api/admin/live-requests");
-    source.onopen = () => setConnected(true);
+    let snapshotActive = false;
+    // On each (re)connect, EventSource sends the recent snapshot first. Clear the
+    // current rows so a reconnect shows fresh data instead of a stale list, then
+    // allow the snapshot to repopulate.
+    source.onopen = () => {
+      setConnected(true);
+      setRows([]);
+      snapshotActive = true;
+    };
     source.onerror = () => setConnected(false);
     source.addEventListener("request", event => {
       try {
