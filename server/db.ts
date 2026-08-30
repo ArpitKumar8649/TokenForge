@@ -2481,7 +2481,10 @@ export async function updateClaudeOpus5ProviderSettings(input: { providers: Arra
   });
   const submittedProviderIds = new Set(nextProviders.map(provider => provider.id));
   for (const provider of current.providers) {
-    if (isClaudeOpus5QwenProvider(provider.label) && !submittedProviderIds.has(provider.id)) nextProviders.push(provider);
+    // Pool-managed providers (Qwen, Kira) are edited by their dedicated model-pool
+    // panels, not the load-balancer panel. Preserve them across balancer saves
+    // so the balancer never drops their model pool.
+    if ((provider.modelPool?.length ?? 0) > 0 && !submittedProviderIds.has(provider.id)) nextProviders.push(provider);
   }
   const ids = new Set(nextProviders.map(provider => provider.id));
   if (!nextProviders.length || nextProviders.length > MAX_CLAUDE_OPUS5_PROVIDERS || ids.size !== nextProviders.length || nextProviders.some(provider => !provider.baseUrl || !provider.model || !provider.apiKeys.length || (isClaudeOpus5QwenProvider(provider.label) && provider.apiKeys.length < 2))) {

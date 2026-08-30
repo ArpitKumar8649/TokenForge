@@ -977,7 +977,7 @@ export default function AdminDashboard() {
   useEffect(() => { if (fableSettings.data) { const legacy = fableSettings.data as any; setFableProviderDrafts(fableSettings.data.providers.map(provider => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], removedSlots: [] }))); setFableBaseUrl(legacy.baseUrl ?? fableSettings.data.providers[0]?.baseUrl ?? ""); setFableModel(legacy.model ?? fableSettings.data.providers[0]?.model ?? ""); setFableApiKeys((legacy.apiKeyMasks ?? fableSettings.data.providers[0]?.apiKeyMasks ?? []).length ? (legacy.apiKeyMasks ?? fableSettings.data.providers[0]?.apiKeyMasks ?? []).map(() => "") : [""]); setFableRemovedSlots([]); } }, [fableSettings.data]);
   useEffect(() => {
     if (!opusSettings.data) return;
-    const liveProviders = opusSettings.data.providers.filter(provider => provider.label.trim().toLowerCase() !== "qwen");
+    const liveProviders = opusSettings.data.providers.filter(provider => { const pl = provider.label.trim().toLowerCase(); return pl !== "qwen" && pl !== "kira"; });
     const fromLive = (provider: ClaudeOpus5ProviderSettingsData): ClaudeOpus5ProviderDraft => ({ id: provider.id, label: provider.label, enabled: provider.enabled, baseUrl: provider.baseUrl, model: provider.model, apiKeys: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(() => "") : [""], apiKeyEnabled: provider.apiKeyMasks.length ? provider.apiKeyMasks.map(item => item.enabled !== false) : [true], removedSlots: [] });
     setOpusProviderDrafts(previous => {
       // Only initialize from live providers on first load. Do NOT re-merge on
