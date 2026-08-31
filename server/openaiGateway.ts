@@ -276,9 +276,13 @@ async function safeFetch(input: string | URL, init: RequestInit & { signal?: Abo
         path: `${target.pathname}${target.search}`,
         headers,
       }, response => {
+        // Some proxy providers echo request headers (e.g. Authorization) back in
+        // the response, which violates HTTP specs and causes Node to reject them
+        // with "Invalid character in header content". Strip the most common ones.
+        const sensitiveHeaders = new Set(["authorization", "proxy-authorization", "cookie", "set-cookie", "set-cookie2"]);
         const responseHeaders = new Headers();
         for (const [key, value] of Object.entries(response.headers)) {
-          if (value === undefined) continue;
+          if (value === undefined || sensitiveHeaders.has(key.toLowerCase())) continue;
           responseHeaders.set(key, Array.isArray(value) ? value.join(", ") : String(value));
         }
         resolve(new globalThis.Response(Readable.toWeb(response) as ReadableStream, { status: response.statusCode ?? 502, headers: responseHeaders }));
