@@ -233,6 +233,68 @@ function asciiStatusText(statusText: string) {
   return result;
 }
 
+function isUpstreamByteStringError(error: unknown): boolean {
+  if (!error) return false;
+  const message = error instanceof Error ? error.message : String(error);
+  return /ByteString/i.test(message) || (/character at index \d+ has a value of \d+ which is greater than 255/.test(message));
+}
+
+/**
+ * Like globalThis.fetch, but if undici throws because the upstream Reason-Phrase
+ * contains a non-ASCII character (e.g. a bullet), transparently retries the
+ * request using node:https and reconstructs the Response without a statusText.
+ * This prevents the whole provider call from failing on a cosmetic header.
+ */
+async function safeFetch(input: string | URL, init: RequestInit & { signal?: AbortSignal } = {}): Promise<globalThis.Response> {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    if (!isUpstreamByteStringError(error)) throw error;
+    return new Promise<globalThis.Response>((resolve, reject) => {
+      const target = typeof input === "string" ? new URL(input) : input;
+      if (target.protocol !== "https:") {
+        reject(error);
+        return;
+      }
+      const body = init.body ? (typeof init.body === "string" ? init.body : init.body instanceof URLSearchParams ? init.body.toString() : init.body instanceof ArrayBuffer ? Buffer.from(init.body) : Buffer.from(init.body as Uint8Array)) : undefined;
+      const headers: Record<string, string> = {};
+      if (init.headers) {
+        const h = init.headers;
+        if (h instanceof Headers) {
+          h.forEach((value, key) => { headers[key] = value; });
+        } else if (Array.isArray(h)) {
+          for (const [key, value] of h) headers[key] = value;
+        } else {
+          for (const [key, value] of Object.entries(h as Record<string, string>)) headers[key] = value;
+        }
+      }
+      if (body && !headers["Content-Length"]) headers["Content-Length"] = String(Buffer.byteLength(body));
+      const request = https.request({
+        method: init.method ?? "POST",
+        hostname: target.hostname,
+        port: target.port || 443,
+        path: `${target.pathname}${target.search}`,
+        headers,
+      }, response => {
+        const responseHeaders = new Headers();
+        for (const [key, value] of Object.entries(response.headers)) {
+          if (value === undefined) continue;
+          responseHeaders.set(key, Array.isArray(value) ? value.join(", ") : String(value));
+        }
+        resolve(new globalThis.Response(Readable.toWeb(response) as ReadableStream, { status: response.statusCode ?? 502, headers: responseHeaders }));
+      });
+      request.once("error", reject);
+      if (init.signal) {
+        const onAbort = () => { request.destroy(new Error("aborted")); reject(new Error("aborted")); };
+        if (init.signal.aborted) onAbort();
+        else init.signal.addEventListener("abort", onAbort, { once: true });
+      }
+      if (body) request.write(body);
+      request.end();
+    });
+  }
+}
+
 function estimateInputTokens(messages: ChatMessage[]) {
   return messages.reduce((total, message) => {
     const content = typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? "");
@@ -377,7 +439,7 @@ async function forwardTokenHarborRequest(input: ChatInput, signal: AbortSignal) 
   const upstreamModel = typeof input.model === "string" ? getTokenForgeUpstreamModelId(input.model) : undefined;
   const requestBody = upstreamModel ? { ...input, model: upstreamModel } : input;
   try {
-    const response = await fetch(`${base}/v1/chat/completions`, {
+    const response = await safeFetch(`${base}/v1/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
     body: JSON.stringify(requestBody),
@@ -448,7 +510,7 @@ async function forwardDedicatedGlm53Request(input: ChatInput, signal: AbortSigna
     }
     const responseStart = createResponseStartDeadline(signal);
     try {
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         method: "POST",
         headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
         body: JSON.stringify(requestBody),
@@ -546,7 +608,7 @@ async function forwardDedicatedDeepseekV4ProRequest(input: ChatInput, signal: Ab
       if (!selectedCredential) break;
       const responseStart = createResponseStartDeadline(signal);
       try {
-        const response = await fetch(url, {
+        const response = await safeFetch(url, {
           method: "POST",
           headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
           body: JSON.stringify({ ...input, model: provider.model }),
@@ -651,7 +713,7 @@ async function forwardDedicatedSonnet46Request(input: ChatInput, signal: AbortSi
       if (!selectedCredential) break;
       const responseStart = createResponseStartDeadline(signal);
       try {
-        const response = await fetch(url, {
+        const response = await safeFetch(url, {
           method: "POST",
           headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" },
           body: JSON.stringify({ ...input, model: provider.model }),
@@ -1218,7 +1280,7 @@ async function tryForwardClaudeOpus5ThroughRenderSwarm(input: ChatInput, signal:
     const responseStartTimer = setTimeout(() => responseStartAborter.abort(), RENDER_NIM_PROXY_RESPONSE_START_TIMEOUT_MS);
     const requestSignal = AbortSignal.any([signal, responseStartAborter.signal]);
     try {
-      const response = await fetch(targetUrl, {
+      const response = await safeFetch(targetUrl, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${runtime.apiKey}`,
@@ -1336,7 +1398,7 @@ async function forwardDedicatedClaudeOpus5Request(input: ChatInput, signal: Abor
           : normalizeBaiMaxTokens(preparedInput, isBai);
         const response = isBailuClaudeOpus5Provider(provider)
           ? await forwardBailuRequestWithWebshareFailover(url, providerInput, upstreamModel, selectedCredential.credential, responseStart.signal, responseStart.timedOut)
-          : await fetch(url, {
+          : await safeFetch(url, {
             method: "POST",
             headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: providerInput.stream ? "text/event-stream" : "application/json" },
             body: JSON.stringify({ ...providerInput, model: upstreamModel }),
@@ -1483,7 +1545,7 @@ async function forwardDedicatedClaudeFable5Request(input: ChatInput, signal: Abo
       if (!selectedCredential) break;
       const responseStart = createResponseStartDeadline(signal);
       try {
-        const response = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" }, body: JSON.stringify({ ...input, model: provider.model }), signal: responseStart.signal });
+        const response = await safeFetch(url, { method: "POST", headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" }, body: JSON.stringify({ ...input, model: provider.model }), signal: responseStart.signal });
         responseStart.clear();
         if (response.ok) {
           if (!input.stream) {
@@ -1564,7 +1626,7 @@ async function forwardDedicatedQwen38MaxRequest(input: ChatInput, signal: AbortS
       if (!selectedCredential) break;
       const responseStart = createResponseStartDeadline(signal);
       try {
-        const response = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" }, body: JSON.stringify({ ...input, model: provider.model }), signal: responseStart.signal });
+        const response = await safeFetch(url, { method: "POST", headers: { Authorization: `Bearer ${selectedCredential.credential}`, "Content-Type": "application/json", Accept: input.stream ? "text/event-stream" : "application/json" }, body: JSON.stringify({ ...input, model: provider.model }), signal: responseStart.signal });
         responseStart.clear();
         if (response.ok) {
           if (!input.stream && isClaudeOpus5ZeroOutputFailure(await response.clone().json().catch(() => null))) {
