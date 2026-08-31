@@ -275,7 +275,12 @@ async function safeFetch(input: string | URL, init: RequestInit & { signal?: Abo
         port: target.port || 443,
         path: `${target.pathname}${target.search}`,
         headers,
-      }, response => {
+        // Tolerate non-compliant upstream response headers (proxies that echo
+        // the Authorization header, or send binary characters in status text).
+        // The safeFetch caller is responsible for sanitising anything that
+        // reaches the Web Response constructor afterwards.
+        insecureHTTPParser: true,
+      } as https.RequestOptions, response => {
         try {
           // Some proxy providers echo request headers (e.g. Authorization) back in
           // the response, which violates HTTP specs and causes Node to reject them
@@ -293,7 +298,16 @@ async function safeFetch(input: string | URL, init: RequestInit & { signal?: Abo
           resolve(new globalThis.Response(JSON.stringify({ error: { message: "Upstream provider returned a malformed HTTP response.", code: "upstream_invalid_response" } }), { status: 502, headers: { "content-type": "application/json" } }));
         }
       });
-      request.once("error", reject);
+      request.once("error", error => {
+        // Convert any non-compliant response from the upstream into a 502 so
+        // the gateway can fail over to the next provider group instead of
+        // recording a network failure.
+        if (error && typeof error === "object" && "code" in error) {
+          reject(error);
+          return;
+        }
+        resolve(new globalThis.Response(JSON.stringify({ error: { message: "Upstream provider returned a malformed HTTP response.", code: "upstream_invalid_response" } }), { status: 502, headers: { "content-type": "application/json" } }));
+      });
       if (init.signal) {
         const onAbort = () => { request.destroy(new Error("aborted")); reject(new Error("aborted")); };
         if (init.signal.aborted) onAbort();
