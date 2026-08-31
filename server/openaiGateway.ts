@@ -236,7 +236,9 @@ function asciiStatusText(statusText: string) {
 function isUpstreamByteStringError(error: unknown): boolean {
   if (!error) return false;
   const message = error instanceof Error ? error.message : String(error);
-  return /ByteString/i.test(message) || (/character at index \d+ has a value of \d+ which is greater than 255/.test(message));
+  return /ByteString/i.test(message)
+    || /character at index \d+ has a value of \d+ which is greater than 255/.test(message)
+    || /Invalid character in header content/.test(message);
 }
 
 /**
