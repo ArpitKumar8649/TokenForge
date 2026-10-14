@@ -1,0 +1,25 @@
+{
+  "id": "/",
+  "name": "TokenForge Admin",
+  "short_name": "TokenForge",
+  "description": "TokenForge Live Request Monitoring & Failure Alerts",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0d0e14",
+  "theme_color": "#0d0e14",
+  "icons": [
+    {
+      "src": "/favicon/favicon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon/apple-touch-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+import { describe, expect, it } from "vitest";
+import { appOrigin, buildGitHubAuthorizationUrl, isGitHubAccountOldEnough, mayBypassGitHubAccountAge, MINIMUM_GITHUB_ACCOUNT_AGE_MS, selectVerifiedGitHubEmail } from "./githubOAuth";
+
+describe("GitHub OAuth flow primitives", () => {
+  it("creates a PKCE authorization request without exposing a client secret", () => {
+    const authorizationUrl = buildGitHubAuthorizationUrl({
+      clientId: "client-id",
+      redirectUri: "https://tokenforge.ai.studio/api/auth/github/callback",
+      state: "csrf-state",
+      verifier: "verifier-for-tokenforge-tests",
+    });
+    const url = new URL(authorizationUrl);
+
+    expect(url.origin).toBe("https://github.com");
+    expect(url.searchParams.get("scope")).toBe("read:user user:email");
+    expect(url.searchParams.get("state")).toBe("csrf-state");
+    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(authorizationUrl).not.toContain("client_secret");
+  });
+
+  it("uses the requesting deployment hostname when available", () => {
+    expect(appOrigin({ protocol: "https", hostname: "tokenforge-284248573760.asia-southeast1.run.app" })).toBe(
+      "https://tokenforge-284248573760.asia-southeast1.run.app",
+    );
+  });
+
+  it("derives the OAuth callback origin from X-Forwarded-Host when a proxy fronts the app", () => {
+    // A Render custom domain (tokenforge.work.gd) puts the app behind a proxy that
+    // forwards the original Host. The callback must land on the proxy host so the
+    // browser still sends the state/verifier cookies it received on that host.
+    expect(appOrigin({
+      protocol: "https",
+      hostname: "tokenforge-api-0mrs.onrender.com",
+      headers: { "x-forwarded-host": "tokenforge.work.gd", "x-forwarded-proto": "https" },
+    })).toBe("https://tokenforge.work.gd");
+  });
+
+  it("prefers the first host in a comma-separated X-Forwarded-Host list", () => {
+    expect(appOrigin({
+      protocol: "https",
+      hostname: "internal-upstream",
+      headers: { "x-forwarded-host": "tokenforge.work.gd, tokenforge.work.gd", "x-forwarded-proto": "https" },
+    })).toBe("https://tokenforge.work.gd");
+  });
+
+  it("prefers GitHub's verified primary address and never accepts an unverified address", () => {
+    expect(selectVerifiedGitHubEmail("profile@example.com", [
+      { email: "secondary@example.com", primary: false, verified: true },
+      { email: "primary@example.com", primary: true, verified: true },
+    ])).toBe("primary@example.com");
+    expect(selectVerifiedGitHubEmail(null, [{ email: "unverified@example.com", primary: true, verified: false }])).toBeNull();
+    expect(selectVerifiedGitHubEmail("profile-only@example.com", [])).toBeNull();
+  });
+
+  it("requires a GitHub account to be at least fourteen days old", () => {
+    const now = Date.parse("2026-08-18T00:00:00.000Z");
+    expect(isGitHubAccountOldEnough(new Date(now - MINIMUM_GITHUB_ACCOUNT_AGE_MS).toISOString(), now)).toBe(true);
+    expect(isGitHubAccountOldEnough(new Date(now - MINIMUM_GITHUB_ACCOUNT_AGE_MS + 1).toISOString(), now)).toBe(false);
+    expect(isGitHubAccountOldEnough("not-a-date", now)).toBe(false);
+    expect(isGitHubAccountOldEnough(null, now)).toBe(false);
+  });
+
+  it("waives GitHub account age only for a matching verified-email pre-provisioned reservation", () => {
+    expect(mayBypassGitHubAccountAge({ verifiedEmail: "reserved@example.com", hasPreProvisionedReservation: true })).toBe(true);
+    expect(mayBypassGitHubAccountAge({ verifiedEmail: "", hasPreProvisionedReservation: true })).toBe(false);
+    expect(mayBypassGitHubAccountAge({ verifiedEmail: "ordinary@example.com", hasPreProvisionedReservation: false })).toBe(false);
+  });
+});

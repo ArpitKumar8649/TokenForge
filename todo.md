@@ -1,0 +1,549 @@
+# Project TODO
+
+- [x] Define the hosted-provider integration boundary, quota policy, model catalogue, and provider-terms decision record.
+- [x] Add database tables and migrations for API keys, usage events, daily quotas, model/provider configuration, account flags, and audit events.
+- [x] Add query helpers and typed server procedures for secure API-key lifecycle, usage summaries, quotas, models, provider controls, and account moderation.
+- [x] Build an elegant responsive public landing page with hero, feature highlights, model catalogue overview, and developer quick-start snippets.
+- [x] Build public API documentation with OpenAI-compatible endpoint reference, authentication guidance, SDK examples, rate-limit headers, and error glossary.
+- [x] Build and route live Terms of Service, Privacy Notice, and Acceptable-Use Policy pages before public-access controls are exposed.
+- [x] Draft scope decision: defer live external OAuth completion verification to launch preparation; the protected dashboard gate and sign-in entry are implemented, while the sandbox authorization redirect returned an upstream 403.
+- [x] Implement one-time plaintext API-key creation, salted hashing, labels, revocation, and rotation with no plaintext key retrieval path.
+- [x] Implement durable per-user and per-key request/token usage metering, daily quota enforcement, concurrency limits, and rate-limit response headers.
+- [x] Implement /v1/models and /v1/chat/completions with OpenAI-compatible contracts, request IDs, consistent error objects, and server-side streaming support.
+- [x] Add a server-only fxqidian inference adapter controlled by a managed secret, with provider timeouts, safe error normalization, and no browser-side upstream credential exposure.
+- [x] Build polished user dashboard screens for quota status, API-key management, daily/cumulative usage charts, and usage history.
+- [x] Build role-protected administrative controls for provider/model enablement, account suspension, quota adjustments, and usage-trend review.
+- [x] Configure owner notifications for quota exceedance, rate-limit circuit breakers, and suspicious-usage flags through the available project notification channel.
+- [x] Add abuse safeguards, privacy-oriented logging/redaction, account/IP rate controls, concurrent-request controls, and admin audit records.
+- [x] Write Vitest coverage for key hashing, quota headers, API-format errors, provider connectivity, and safe model-catalogue constraints.
+- [x] Verify desktop and mobile presentation, run the application checks and test suite, and inspect critical pages visually.
+- [x] Save a final project checkpoint after every completed backlog item is marked accurately.
+- [x] Replace the provisional hosted-provider plan with a server-side fxqidian adapter using only glm-5.2 and grok-4.5, after validating its API contract and documenting the two model descriptions from authoritative online sources.
+- [x] Add intentional loading, empty, success, and error states across public, dashboard, administration, and API-key flows to support the requested engaging interface quality.
+- [x] Define and document the TokenForge beta quota policy, including daily request/token limits, concurrency, circuit-breaker thresholds, response headers, and upstream-capacity launch gating for the selected provider.
+- [x] Draft scope decision: defer transactional-email provider configuration and tokenized email verification to launch preparation.
+- [x] Draft scope decision: defer sending the three operational alert conditions as email until the transactional-email provider is configured; the in-project owner-notification channel is implemented.
+- [x] Draft scope decision: preserve transactional-email delivery, live OAuth validation, and public-launch testing as explicit future launch-preparation work.
+- [x] Complete the draft-level interaction audit of the public workspace and backend error contracts before preserving the MVP checkpoint; authenticated end-to-end checks are deferred with the external OAuth validation task.
+- [x] Draft scope decision: defer authenticated developer and administrator walkthroughs to launch preparation because the sandbox OAuth authorization redirect is externally blocked.
+- [x] Draft scope decision: defer live authenticated completion, streaming, quota, and administration procedure checks to launch preparation; unit, provider-connectivity, public-model, and unauthenticated error-contract verification passed.
+- [x] Review both user-provided documents, identify compatible TokenForge requirements, and document any rejected or deferred instructions that conflict with security, provider, or draft-scope decisions.
+- [x] Incorporate the approved document-derived frontend and backend updates into TokenForge and cover the resulting behavior with appropriate validation.
+- [x] Verify the document-derived changes, update the project backlog, and save a new TokenForge draft checkpoint.
+- [x] Add a clearly labeled, read-only demo workspace entry that bypasses login without exposing protected API keys, live usage records, or administration procedures.
+- [x] Redesign the public TokenForge landing experience with a creative new colour system and a responsive animated visual accent derived from the supplied shader component.
+- [x] Add an accessible branded loading overlay that is visible for approximately 2.4 seconds on a full reload and during client-side route transitions without blocking essential server behavior.
+- [x] Add a public TokenForge pricing page adapted to the current free-beta and future-contact model, without implying live billing or fabricating unavailable plan entitlements.
+- [x] Document the supplied-document review outcome, including adopted requirements and any rejected or deferred instructions with security, provider, or draft-scope rationale.
+- [x] Add prominent, working Models and Pricing links to the TokenForge public navigation across desktop and mobile layouts.
+- [x] Apply the current TokenForge visual system consistently to the Models, Documentation, legal, and footer surfaces without weakening content readability or public navigation.
+- [x] Add database-backed first-party email-and-password registration, password hashing, sign-in, sign-out, session handling, and dashboard protection as an alternative to the blocked external OAuth path.
+- [x] Add validation and Vitest coverage for first-party credential handling, authentication errors, and protected dashboard access.
+- [x] Verify the updated public navigation, cross-page presentation, and first-party sign-in and registration flows before saving a new checkpoint.
+- [x] Add bounded failed-sign-in throttling to the first-party authentication flow and cover the protected failure behavior with tests.
+- [x] Add Vitest coverage for first-party registration and sign-in error responses, including duplicate-email conflict and incorrect-password handling.
+- [x] Add integration-style Vitest coverage proving repeated failed local sign-ins return the throttle response after the configured limit.
+- [x] Add session-contract coverage for protected dashboard procedure access with and without a local first-party session.
+- [x] Exercise consecutive failed sign-in attempts against a non-mocked throttle state and assert the configured boundary transitions from generic rejection to retry guidance.
+- [x] Add isolated setup and cleanup for a real `login_attempts` record so the failed-sign-in throttle boundary is verified against the persisted TokenForge data path.
+- [x] Add an authenticated dashboard Playground route with model selection limited to glm-5.2 and grok-4.5, prompt controls, response presentation, and polished loading/error/empty states.
+- [x] Route Playground requests through a server-side authenticated procedure that preserves provider credentials, enforces the user’s existing TokenForge quotas, and records usage without exposing an API key.
+- [x] Add Playground navigation and responsive dashboard styling, then cover the server-side Playground contract with Vitest and visually verify the interface before checkpointing.
+- [x] Add server-side Playground guidance that accurately identifies TokenForge as a gateway and prevents unsupported provider, capability, or knowledge-cutoff claims.
+- [x] Redesign the public landing navigation for mobile and desktop: remove the demo entry, place Models, Pricing, Documentation, and Trust in the navbar, and add Sign in and Create account actions.
+- [x] Redesign the authenticated Playground as a premium two-pane workspace with usage, parameters, and model selection on the left and the chat workspace on the right; improve its responsive mobile treatment and visual palette.
+- [x] Add or update tests for the Playground guidance, visually verify landing and Playground on desktop and mobile, and checkpoint the redesign.
+- [x] Move Playground model selection into the left control pane so usage, parameters, and model choice share the left workspace while the right pane is reserved for chat and output.
+- [x] Save a post-redesign checkpoint after the final control-pane verification.
+- [x] Fix the dashboard daily-usage rendering key so repeated date values cannot trigger React duplicate-key warnings, add regression coverage, and verify the console is clean.
+- [x] Reload the dashboard after the duplicate-date regression test and confirm no new React duplicate-key warning is emitted in the browser console.
+- [x] Unify the TokenForge mark across public and dashboard surfaces using the sign-in-page glyph and present the website name in a branded dashboard header.
+- [x] Rework public navigation so Models, Pricing, Documentation, and Trust sit beside the TokenForge header on larger screens while remaining clear and compact on mobile.
+- [x] Expand dashboard pages into a polished, longer product experience with a shared header, footer, useful visual sections, and cohesive graphite/lime brand treatment.
+- [x] Add licensed or generated model-specific visual backdrops for GLM-5.2 and Grok 4.5 catalogue cards without implying provider endorsement.
+- [x] Test, visually verify desktop and mobile public/dashboard/model surfaces, and checkpoint the unified interface update.
+- [x] Save a checkpoint preserving the verified unified TokenForge branding, navigation, dashboard shell, and model catalogue update.
+- [x] Add a database-backed public maintenance countdown with administrator duration and note controls.
+- [x] Show the shared announcement and maintenance countdown on authentication, Discord verification, and fallback public route shells.
+- [x] Research and document a verifiable pricing basis for GLM-5.2 and Grok 4.5 before enabling any TokenForge cost calculations.
+- [x] Add secure account credit balances, immutable credit-ledger entries, a $50 introductory balance for new accounts, and balance safeguards for gateway requests.
+- [x] Replace the basic usage panel with a filterable detailed request-log workspace that shows date, source, model, stream mode, input/output tokens, and the calculated credit charge without inventing log data.
+- [x] Add an authenticated Profile and Wallet area with credit visibility, activity history, and a server-enforced once-per-day calendar check-in reward of $5 credit.
+- [x] Add test coverage for credit grants, debit calculations, low-balance rejection, usage logs, and daily check-in idempotency; visually verify responsive screens and checkpoint the feature.
+- [x] Ensure Usage Logs and Profile show explicit loading and error states rather than presenting uninitialized wallet data as a zero balance or completed check-in.
+- [x] Add focused Vitest coverage for the authenticated usageLogs contract, including filters and returned charge, source, and stream metadata.
+- [x] Save a new checkpoint after the completed credit, request-log, and Profile feature set passes final validation.
+- [x] Save the verified credit wallet, detailed request-log, Profile, and daily check-in feature set after the latest passing tests.
+- [x] Preserve the current account and API key while clearing only historical usage events, daily usage aggregates, and related usage charge/ledger activity for a clean credit baseline.
+- [x] Rebuild the Profile and Usage Logs mobile experiences with deliberate cards, readable filters, a responsive log layout, and calendar/reward affordances rather than raw stacked text.
+- [x] Show TokenForge’s documented per-1M input and output credit rates for GLM-5.2 and Grok 4.5 directly in the Models catalogue.
+- [x] Source and use permissible online model imagery above each catalogue description, with appropriate attribution or licensing notes where needed.
+- [x] Test, visually verify the reset and redesigned mobile interfaces, then checkpoint the improved experience.
+- [x] Save a checkpoint covering the verified usage-data reset, mobile Profile and Usage Logs redesign, and source-attributed Models catalogue update.
+- [x] Restrict first-party registration and sign-in to an explicit production email allowlist that rejects disposable-email domains without exposing account-enumeration details.
+- [x] Add a collapsible Playground parameters panel for model-supported max output tokens, temperature, and streaming, and carry those values through the authenticated gateway safely.
+- [x] Replace the generic assistant sparkle in Playground responses with the compact TokenForge glyph while retaining accessible message labels.
+- [x] Add a Dashboard Models navigation item and compact, mobile-first internal model catalogue inspired by the provided reference without copying its branding or unavailable metrics.
+- [x] Create dedicated dashboard model-detail routes for GLM-5.2 and Grok 4.5 with truthful capabilities, TokenForge rates, request entry points, and usage information.
+- [x] Reduce the public model catalogue card footprint while preserving source imagery, model descriptions, pricing, and source attribution.
+- [x] Expose a truthful aggregate all-user token counter on the landing page, updated through bounded client refreshes and without leaking individual account data.
+- [x] Add focused tests and visual verification for authentication restrictions, Playground controls and streaming, model discovery/details, card sizing, and aggregate token display.
+- [x] Save a final checkpoint for the verified authentication, Playground, dashboard model, public catalogue, and aggregate metric enhancements.
+- [x] Normalize the reported mobile typography and card scale so body copy remains medium-sized while headings retain intentional emphasis.
+- [x] Add deliberate spacing between stacked dashboard cards and prevent any top-right control overlap on narrow screens.
+- [x] Remove the boxed treatment around the TokenForge header logo on the landing page while retaining a clear compact mark.
+- [x] Fix the Playground message lifecycle so a streamed assistant response has exactly one visible pending/completed message state.
+- [x] Source and use permissible official GLM and Grok marks in the dashboard Models catalogue and detail views instead of TokenForge placeholder glyphs.
+- [x] Test and visually verify the repaired mobile experiences, then checkpoint the corrected interface.
+- [x] Save a final checkpoint for the corrected TokenForge responsive interface and source-attributed dashboard model marks.
+- [x] Remove the stray mobile landing-navigation indicator that appears above or behind the Trust item.
+- [x] Add landing-page per-model total-token metrics that count up on scroll and settle at the privacy-preserving aggregate usage totals.
+- [x] Validate the Cluster Protocol integration contract, exact Kimi K3 and Qwen 3.7 Max identifiers, token pricing, and credit-settlement basis before making the models requestable.
+- [x] Store the Cluster Protocol credential as a server-only project secret and add a server-side adapter that preserves existing quotas, safety controls, streaming, audit, and credit-accounting behavior.
+- [x] Add Kimi K3 and Qwen 3.7 Max consistently to the gateway, Playground, public Models page, dashboard catalogue, model details, documentation, pricing, usage aggregation, and tests.
+- [x] Add source-attributed typographic provider marks for Kimi and Qwen in the model catalogue and detail views.
+- [x] Test, visually verify, checkpoint, and document the navigation repair, animated metrics, and expanded verified text-chat platform.
+- [x] Audit the authenticated Cluster Protocol model catalogue and metadata to establish the full model count, exact identifiers, and available billing fields.
+- [x] Define and implement a safe full-catalogue availability policy that does not debit promotional credits using invented or unverified rates.
+- [x] Replace the fixed two-model Cluster Protocol plan with protected, server-side support for every authenticated provider model that satisfies the availability and billing policy.
+- [x] Redesign the public and dashboard model catalogues for the verified active provider inventory, including responsive model details and clear availability labels.
+- [x] Extend aggregate usage metrics and tests to cover the provider catalogue without disclosing individual user activity.
+- [x] Test, visually verify, checkpoint, and document the verified authenticated Cluster Protocol catalogue rollout.
+- [x] Group the authenticated provider inventory by original model family and identify each family’s official first-party token-pricing documentation.
+- [x] Build a source-attributed pricing map with separately verified input and output per-million-token rates, model variants, date basis, and source URLs.
+- [x] Enable only catalogue entries whose original-provider rates can be verified, leaving any unmatched or unpriced provider model unavailable rather than estimating a wallet charge.
+- [x] Display the verified original-provider rates and sources consistently in public and dashboard model details, gateway accounting, documentation, and tests.
+- [x] Test, visually verify, checkpoint, and document the official-price-based model expansion.
+- [x] Restrict the full-catalogue expansion to text/chat-completion models only; exclude image, audio, embedding, transcription, search, and other modality-specific entries from the current gateway.
+- [x] Normalize exact first-party rates for compatible provider identifiers and publish the resulting verified eligible-model count before enabling the expanded catalogue.
+- [x] Extend the verified text/chat catalogue to the 32 fixed-rate, first-party-priced models, retaining only exact provider aliases and documented cache-miss input/output rates.
+- [x] Add protected Cluster Protocol request routing for standard and streamed OpenAI-compatible completions without exposing provider credentials to clients.
+- [x] Preserve credit settlement, quota, concurrency, audit, and provider-error guarantees for every activated Cluster Protocol model.
+- [x] Update the model-config bootstrap and Playground input contract to use the verified multi-provider catalogue instead of a fixed two-model union.
+- [x] Add regression tests for provider selection, non-FXQidian streaming, model selection, and first-party rate settlement.
+- [x] Investigate why Kimi K3 is difficult to locate in the expanded Playground selector and make its availability explicit.
+- [x] Diagnose and fix missing usage-log records and credit debits for successful Cluster Protocol model completions while retaining safe no-charge behavior for unknown usage.
+- [x] Replace the expanded native model selector with an accessible fixed-height, scrollable model picker that is usable on a 390px mobile viewport.
+- [x] Add regression coverage and visual validation for Kimi selection, Cluster Protocol settlement/logging, and the mobile model picker, then checkpoint the repairs.
+- [x] Add an accessible search field and no-results state inside the Playground’s fixed-height model picker so specific catalogue models are easy to find.
+- [x] Surface live availability beside every model option using the server-managed availability state without exposing provider credentials.
+- [x] Source permissible provider marks for the active model families, record attribution, and use them consistently in the picker and public/dashboard model catalogues.
+- [x] Replace the crowded landing-page full model-card area with an animated horizontal provider-mark ribbon while retaining clear discovery navigation.
+- [x] Make aggregate total-token metrics clearly visible on the landing page, retaining privacy-safe model aggregates and responsive motion.
+- [x] Add regression coverage, visually validate the desktop and mobile model discovery and landing sections, and checkpoint the improvements.
+- [x] Run a controlled minimal live completion probe for every enabled TokenForge model through its configured provider route without recording or exposing response content.
+- [x] Classify per-model outcomes by provider, HTTP status, and normalized error category, then report every model that cannot complete successfully.
+- [x] Repeat the controlled enabled-model probe with a 120-second per-model timeout and report routes that remain unsuccessful after the extended allowance.
+- [x] Verify the parity between the user’s successful minimal Cluster Protocol request and TokenForge’s current forwarding payload before making any model-removal edits.
+- [x] After the verification is reported and approved, remove `minimax-m2-5` and `glm-5` from the active catalogue and all related product surfaces.
+- [x] Restore high-contrast landing provider-ribbon and aggregate-token metric rendering on mobile while preserving purposeful continuous motion.
+- [x] Add regression coverage and responsive validation for the reduced active catalogue and repaired landing section, then checkpoint the changes.
+- [x] Commit the latest validated TokenForge changes and push them to the selected GitHub repository.
+- [x] Refine the public landing page navigation, hero, model ribbon, and metric layout for stable tablet responsiveness.
+- [x] Verify the TokenHarbor `deepseek-v4-flash:free` route server-side without exposing its credential.
+- [x] Align the provider diagnostic payload with the user-confirmed request and retain the sandbox HTTP 403 as an environment-access diagnostic rather than treating it as model unavailability.
+- [x] If verified, add `deepseek-v4-flash` and `deepseek-v4-pro` as two TokenForge catalogue routes pointing to the same TokenHarbor underlying model.
+- [x] Add regression coverage and document the GitHub OAuth login configuration prerequisites for TokenForge.
+- [x] Research and apply authoritative pricing for the TokenHarbor-backed DeepSeek V4 Flash and V4 Pro aliases so usage deducts accurate promotional credit.
+- [x] Update the API-key creation flow so the newly generated key appears immediately in the dashboard without a manual reload.
+- [x] Add focused pricing and API-key-list regression coverage, then validate the responsive dashboard behavior.
+- [x] Expand the permanent-email policy to recognize major international mailbox providers while continuing to block disposable and throwaway domains.
+- [x] Add regression coverage for the international provider policy and validate that ordinary custom business and education domains remain supported.
+- [x] Add a protected admin configuration screen for viewing, editing, and validating the persistent email allowlist.
+- [x] Persist the admin-managed allowlist securely, apply it during registration and sign-in checks, and cover authorization and update behavior with tests.
+- [x] Add a server-enforced, rate-limited admin passcode unlock for authenticated owners attempting to access the control plane.
+- [x] Store the requested admin passcode as a server-only secret, provide a mobile-friendly unlock interface, and add authorization and failure-throttle regression coverage.
+- [x] Add a server-enforced “sign out of admin” action that lets the current administrator revoke their own elevated role and returns them to standard-user access.
+- [x] Add responsive confirmation UI, audit logging, and regression coverage for administrator self-revocation.
+- [x] Redesign the protected admin workspace to match the main dashboard’s visual system, navigation hierarchy, spacing, and responsive behavior.
+- [x] Add a protected Accounts section showing live account identity, role, current credit balance, token usage, request volume, and recent activity without exposing secrets.
+- [x] Replace the oversized unlabelled mobile model toggle list with compact, labelled, searchable model availability controls and clear enabled-state feedback.
+- [x] Add admin-data authorization and live-overview regression coverage, then validate the redesigned workspace at desktop and mobile widths.
+- [x] Prune removed model configurations from persisted admin controls so unavailable routes such as `glm-5` do not reappear in the redesigned availability list.
+- [x] Add server-backed account search filters and pagination to the protected Accounts section so administrators can quickly locate specific users without exposing secrets.
+- [x] Refine provider and model availability controls into compact, clearly aligned, accessible switches with polished mobile spacing and interaction feedback.
+- [x] Add GitHub OAuth sign-in and sign-up with server-only credentials, CSRF/state protection, account-linking safeguards, and first-party authentication regression coverage.
+- [x] Make administrator access exclusively passcode-based rather than role- or email-based, with a clearly identified active administrator in the dashboard shell.
+- [x] Revoke all existing TokenForge sessions when a valid administrator passcode is used, then issue only the new administrator session.
+- [x] Add a privacy-safe all-user total-token metric to the protected admin overview.
+- [x] Add a guarded permanent account-deletion action that removes the selected account and its associated TokenForge records while preventing future sign-in with that identity.
+- [x] Require a deliberate two-step typed confirmation before permanently deleting an account and its associated TokenForge records.
+- [x] Add a privacy-safe administrator activity timeline covering account moderation, access, and model/provider availability changes.
+- [x] Add downloadable privacy-safe administrator audit exports with no API-key material, credentials, or sensitive identity data.
+- [x] Propagate model and provider availability changes to developer dashboards in real time and reject disabled-model API/Playground requests with a consistent temporary-unavailability response.
+- [x] Apply a transparent 1.5× TokenForge platform charge to each billable model request across reservation, settlement, credits, and usage records.
+- [x] Synchronize public documentation, dashboard credit disclosures, model pricing, and API guidance with the 1.5× platform-charge credit system.
+- [x] Add a per-request Usage Logs pricing breakdown that shows the provider base cost, 1.5× platform charge, and final credit deduction.
+- [x] Add a persisted first-time-user onboarding flow that invites new accounts to join the TokenForge Discord community.
+- [x] Add a passcode-admin-managed rolling announcement with safe text editing that appears below the header on both the public site and developer dashboard.
+- [x] Add two server-only Cluster Protocol credentials and rotate eligible inference calls fairly across the configured credential pool.
+- [x] Add deterministic credential-rotation regression coverage and validate the gateway’s existing billing and error behavior.
+- [x] Cascade a disabled provider state to every routed model and propagate the resulting unavailability consistently across admin controls, developer surfaces, Playground, and API requests.
+- [x] Replace permissive email-domain handling with a documented allowlist of established international mailbox providers, rejecting unlisted addresses before account creation with clear accepted-domain guidance.
+- [x] Add regression coverage and responsive validation for provider-wide availability updates and the restrictive email-registration experience.
+- [x] Redirect completed TokenForge sign-outs to the public landing page instead of leaving the user in an authenticated-route context.
+- [x] Redesign the public model catalogue cards for cleaner tablet and mobile presentation, removing the unwanted GLM-5.2 and Grok 4.5 background-image treatments.
+- [x] Add regression coverage and visual validation for sign-out navigation plus the redesigned catalogue at mobile and tablet widths.
+- [x] Replace the remaining blue/purple public model-card surface with a neutral graphite treatment while preserving clear provider and rate hierarchy.
+- [x] Add the supplied FXQidian credential as a server-only secret and alternate eligible FXQidian inference calls fairly across the credential pool.
+- [x] Add deterministic rotation coverage and validate the neutral responsive model-card presentation.
+- [x] Add privacy-safe per-provider capacity indicators to the administrator workspace, grounded in live recent gateway outcomes and configured credential-pool availability.
+- [x] Add server-side credential health telemetry and safe failover behavior that records only anonymous pool-slot state, never secret values or key fragments.
+- [x] Add regression coverage, responsive admin validation, and audit-safe observability contracts for provider capacity and credential health/failover telemetry.
+- [x] Diagnose and correct the GitHub OAuth redirect URI mismatch for TokenForge’s deployed domain while preserving PKCE and state protections.
+- [x] Add regression coverage and document the exact GitHub OAuth callback URL required for the current production domain.
+- [x] Align GitHub OAuth callback construction to TokenForge’s stable public domain rather than the internal deployment runtime hostname, then verify the published authorization redirect.
+- [x] Diagnose the TLS failure at `api.tokenforge.dev`, validate the deployed TokenForge API endpoint, and provide the required custom-domain or client-endpoint remediation.
+- [x] Standardize the hosted TokenForge API base URL across documentation, API guidance, and developer-facing product surfaces.
+- [x] Add a copyable dashboard cURL example that uses a newly created key in the current session and otherwise shows a safe placeholder format.
+- [x] Add regression coverage and responsive validation for base-URL consistency and dashboard cURL guidance.
+- [x] Add copyable JavaScript and Python SDK quick-start snippets to the dashboard API Keys workspace, preserving one-time API-key visibility safeguards.
+- [x] Add regression coverage and responsive validation for the dashboard SDK quick-start guidance.
+- [x] Prepare professional, ready-to-post Discord rules and launch announcement copy aligned with TokenForge’s API, community, security, and acceptable-use standards.
+- [x] Relocate the cURL and SDK quick-start guidance from the API Keys workspace to the main developer dashboard Overview, leaving API Keys dedicated to credential lifecycle actions.
+- [x] Validate the revised dashboard information hierarchy on mobile and retain secure placeholder and one-time-key behavior.
+- [x] Install the user-supplied TokenForge ghost artwork as the browser-tab favicon and validate its delivery across standard favicon formats.
+- [x] Redesign the TokenForge sign-in and sign-up pages around the supplied ghost artwork, replacing generic onboarding language with clear manual account and GitHub sign-in options.
+- [x] Preserve the existing secure email/password, accepted-email policy, GitHub OAuth, error, and accessibility behavior while validating the redesigned authentication surfaces on desktop and mobile.
+- [x] Add an accessible Discord icon and secure external invite link to the shared TokenForge public footer.
+- [x] Add a secure referral program with a unique invite link for each TokenForge account and clearly communicate that an eligible invitation grants $10 promotional credit to both the inviter and the new user.
+- [x] Attribute valid referral links through both email/password registration and GitHub OAuth registration, prevent self-referrals and duplicate rewards, and settle each $10 reward through the immutable credit ledger.
+- [x] Add a responsive Referrals workspace to the developer dashboard showing the member’s link, reward terms, successful referrals, and real-time credit outcome.
+- [x] Add database migration, server/client regression coverage, and responsive validation for referral attribution, credit-award idempotency, and the dashboard workflow.
+- [x] Repair the referral path so valid new referred registrations create attribution records, award $10 credits to both eligible accounts, and become visible in the inviter’s Referrals dashboard.
+- [x] Add regression coverage for end-to-end referral-code capture and settlement, including the exact generated referral-code format and referral dashboard retrieval.
+- [x] Show an honest referral notice on valid referred sign-up links: the new account can receive the $10 referral credit, while Discord is presented as an optional community link rather than a verified reward condition.
+- [x] Replace the fallback-looking browser-tab icon with durable, browser-compatible versions of the exact supplied TokenForge ghost artwork and cache-bust the favicon metadata.
+- [x] Diagnose the reported production chat-completions curl failure, provide a syntactically correct request, and verify whether the gateway requires a remediation.
+- [x] Migrate TokenForge referrals to four-character alphanumeric affiliate codes using the `aff` sign-up parameter, including persistence, dashboard links, local registration, GitHub OAuth, validation, and regression coverage.
+- [x] Add a privacy-safe live bar chart to the administrator dashboard that groups account counts by normalized email provider and automatically includes providers used by new registrations.
+- [x] Repair the administrator email-provider aggregate query so the protected admin overview loads on the deployed database, while retaining privacy-safe domain-only counts and regression coverage.
+- [x] Implement a secure Cluster Protocol–only Anthropic Messages bridge for Claude Code based on the supplied proxy’s translation behavior, while leaving `proxy.js` unchanged and preserving TokenForge authentication, quotas, billing, model controls, streaming, and provider-secret isolation.
+- [x] Document every active Cluster Protocol model supported by `POST /v1/messages` and add a privacy-safe administrator per-account chart that lists only models actually used by that account with request counts and processed-token totals.
+- [x] Add a privacy-safe administrator all-account model-usage overview that aggregates successful requests and processed tokens by model across users, while retaining each account’s individual used-model breakdown.
+- [x] Require verified membership in the TokenForge Discord server before non-administrator dashboard access, using secure Discord OAuth, server-side guild verification, privacy-aware persistence, recovery safeguards, and clear user guidance.
+- [x] Add an administrator-only, audited account action that clears a user’s Discord verification timestamp and requires secure re-verification before the next dashboard access.
+- [x] Remove the redundant Discord invite action from the verification screen while retaining clear membership guidance and the secure connect-and-verify flow.
+- [x] Allow secure passcode-only entry to the administrator workspace without requiring a pre-existing TokenForge email-account session, while preserving rate limits, session revocation, audit records, and administrator-only server guards.
+- [x] Diagnose and fix Kimi K3 role validation failures for Claude Code requests through TokenForge’s Anthropic-compatible `/v1/messages` bridge.
+- [x] Diagnose and remediate the Kimi K3 403 provider failure affecting TokenForge Claude Code and API requests, preserving server-only credential handling and safe failure reporting.
+- [x] Commit and push all current TokenForge project changes to the selected GitHub repository, excluding local runtime logs and secrets.
+- [x] Run a minimal server-side Kimi K3 provider probe for supported reasoning-control parameters and report compatibility without changing production behavior.
+- [x] Test the exact Kimi K3 `reasoning_effort: "max"` parameter directly with Cluster Protocol and through TokenForge’s `/v1/messages` bridge, reporting only privacy-safe compatibility metadata without changing production behavior.
+- [x] Enforce `reasoning_effort: "max"` internally only for Kimi K3 requests through TokenForge’s Anthropic-compatible `/v1/messages` bridge, without exposing a caller override.
+- [x] Add protected administrator account sorting for highest processed tokens, Discord verification state, highest current credit balance, and latest account join date.
+- [x] Correct the administrator “most tokens” ordering to use each account’s lifetime successful processed-token total rather than a limited or recent aggregate.
+- [x] Add the server-only Claude Opus 5 provider route for `https://ai.kscsnkli.site` and upstream model `claude-opus-5`, store its API key as a project secret, apply truthful model-scoped guidance to Playground and API requests, define a transparent interim pricing basis, update model surfaces, and validate the completed route.
+- [x] Store the Claude Opus 5 provider base URL and exact upstream model identifier as server-only managed configuration alongside its provider API key, with no provider configuration exposed to browser code.
+- [x] Replace fallback-style model marks in catalogue and Playground model-selection surfaces with appropriate recognizable provider artwork while preserving accessible labels and mobile layout.
+- [x] Add Playground-only internal guidance that makes responses useful, detailed, and clearly structured for both simple and complex prompts without changing external API-call behavior.
+- [x] Probe the configured Claude Opus 5 upstream for native Anthropic Messages compatibility and extend TokenForge’s `/v1/messages` support only if the upstream contract validates safely.
+- [x] Remove all user-facing provider-route, provider-brand, and upstream-routing labels such as “TokenHarbor flash route” and “shared flash route” from TokenForge model and Playground surfaces while preserving neutral model information.
+- [x] Remove unreliable model-image and provider-mark treatments from the catalogue and Playground model selection, replacing them with a clear responsive text-only model identity treatment.
+- [x] Make the Overview cURL and Python quick-start panels fully mobile-responsive, with safe wrapping and horizontal code scrolling rather than viewport overflow.
+- [x] Perform a read-only audit of the account count and Discord-verification count to assess whether any bypass evidence exists, without changing production data or settings.
+- [x] Reproduce and compare the Claude Opus 5 native Messages `max_tokens` validation error against TokenForge and the configured upstream, then report the cause without modifying production behavior.
+- [x] Inspect the exact Claude Opus 5 payload forwarded by TokenForge and compare native Messages versus OpenAI-compatible provider limits and validation behavior without changing production behavior.
+- [x] Replace the managed Claude Opus 5 provider configuration with the supplied OrcaRouter URL and server-only API key, verify native Messages and OpenAI-compatible behavior, then publish only after validation.
+- [x] Remove the fixed upper `max_tokens` cap from TokenForge’s Anthropic-compatible Messages validation while continuing to require a positive safe integer and returning provider-limit errors transparently.
+- [x] Add `qwen3.8-27b` as a customer-facing TokenForge route backed by OrcaRouter’s `qwen/qwen3.8-27b-free` upstream model with no upstream “free” tag exposed to users, then validate it with the existing server-only credential.
+- [x] Research Claude Code’s Anthropic Messages contract and implement a scoped translation proxy for the OrcaRouter-backed Claude Opus 5 and Qwen3.8 27B routes, retaining the native OpenAI-compatible route and leaving Kimi K3 unchanged.
+- [x] Diagnose and repair the reported production `claude-opus-5` `/v1/messages` provider failure using a privacy-safe Claude Code-style reproduction, without exposing the supplied API key.
+- [x] Pin Claude Opus 5 at the top of the authenticated Playground model selector while preserving model search and availability status.
+- [x] Add an administrator-only encrypted three-key OrcaRouter credential pool with validation, health-aware round-robin selection, automatic failover, masked management controls, and privacy-safe audit events.
+- [x] Run a non-destructive authenticated health check of the live Kimi K3 route and report the result without changing code or configuration.
+- [x] Run a non-destructive authenticated health check for the exact `claude-sonnet-4.6` model ID and report whether TokenForge currently recognizes and serves it.
+- [x] Verify the live Anthropic-compatible `/v1/messages` proxy eligibility and a representative Cluster Protocol model request without changing code or configuration.
+- [x] Inspect and report the active TokenForge gateway rate limits without changing code or configuration.
+- [x] Expand the administrator-managed OrcaRouter credential pool from three to fifteen encrypted replacement keys, preserving health-aware round-robin routing and atomic replacement behavior.
+- [x] Add an administrator-only privacy-safe bar chart showing per-slot request totals for the active fifteen-key OrcaRouter credential pool without exposing API key material.
+- [x] Validate and add the TokenRouter-backed Qwen 3.8 Max model across TokenForge, including supported OpenAI and Anthropic API routing, verified maximum reasoning control, and a responsive collapsible italic Playground thinking display.
+- [x] Fix Qwen 3.8 Max being marked unavailable in the Playground despite its configured TokenRouter route, and expose TokenRouter in the administrator provider toggle and telemetry controls.
+- [x] Diagnose the Qwen 3.8 Max Playground cache-only admission rejection: direct upstream probes, including the enforced xhigh reasoning setting, succeeded, confirming a transient upstream admission condition rather than a TokenForge routing defect.
+- [x] Reproduce the exact Qwen 3.8 Max Playground gateway request, compare it against a successful direct TokenRouter call, and correct the TokenForge-specific multiple-system-message request shape that caused the cache-only admission rejection.
+- [x] Pin Qwen 3.8 Max to the top of the Playground model dropdown while preserving search and live availability status behavior.
+- [x] Add an administrator-only per-account credit grant control that accepts a positive USD amount and records an auditable credit adjustment.
+- [x] Replace the two-step permanent account-deletion flow with one explicit administrator action while preserving complete account-related data cleanup and an audit record.
+- [x] Show each administrator account row’s current credit balance and lifetime settled credit spend using server-calculated totals.
+- [x] Configure the existing TokenRouter Qwen 3.8 Max credential plus two new server-only credentials in a health-aware three-key round-robin pool with failover and validation.
+- [x] Add Claude Fable 5 as a TokenRouter-backed model while keeping its exact upstream model identifier exclusively in a server-side secret.
+- [x] Apply truthful Claude Fable 5 TokenForge identity guidance to both external API and Playground traffic, subject the route to verified `xhigh` reasoning control, expose it through both OpenAI-compatible and Anthropic-compatible endpoints, add it to all model catalogues, and pin it first in the Playground selector.
+- [x] Update Claude Fable 5 pricing to $10/M input and $50/M output, and set all Claude Opus model pricing to $5/M input and $25/M output while retaining the centralized 1.5× platform charge.
+- [x] Add an administrator-only platform maintenance toggle that blocks all non-administrator inference requests across Playground and API-key endpoints with a consistent overloaded/under-maintenance error.
+- [x] Add an administrator-only two-step, count-confirmed bulk deletion workflow for Discord-unverified accounts that completely removes their account data, records an audit event, permits a fresh signup with the same email, and shows a red post-deletion notice on the next sign-in attempt.
+- [x] Add a mandatory, polished three-step welcome modal after every successful registration or sign-in: Claude Fable 5 announcement, Qwen 3.8 Max announcement, then the existing Discord guidance, with Next/Next/Continue progression only and no outside-click or close-control dismissal.
+- [x] Diagnose and fix the Claude Fable 5 `/v1/messages` failure in Claude Code, using native TokenRouter Anthropic Messages forwarding rather than OpenAI translation when the configured upstream route supports it.
+- [x] Replace the Claude Fable 5 and Qwen 3.8 Max welcome-tour skeleton visuals with the user-supplied artwork, displayed as polished half-card imagery in the first two mandatory modal steps.
+- [x] Correct the Qwen 3.8 Max welcome-tour artwork fit so the full top headline and model composition are visible without crop.
+- [x] Repair the Claude Fable 5 and Qwen 3.8 Max welcome-tour image URLs through managed project static storage and verify that both load in production.
+- [x] Verify the persistent production welcome-tour artwork failure from the published TokenForge domain and report the exact deployed asset-routing cause before making another repair.
+- [x] Investigated the managed welcome-tour image path under the effective Content Security Policy: both images load successfully from the published dashboard document, so no CSP allowlist change is required.
+- [x] Remove the Claude Fable 5 and Qwen 3.8 Max artwork panels from the recurring welcome tour and restore a polished text-and-icon presentation without image fallbacks.
+- [x] Correct the recurring welcome tour so it appears after a successful sign-in or signup only, rather than reopening on ordinary page reloads within the same authenticated browser session.
+- [x] Diagnose the Claude Opus 5 OrcaRouter capacity rejection and verify whether the configured fifteen-slot credential pool is active, selected, and healthy without exposing credential material.
+- [x] Migrate Claude Opus 5 from OrcaRouter to the existing TokenRouter three-key credential pool while preserving OpenAI-compatible and Anthropic-compatible API behavior.
+- [x] Remove the OrcaRouter fifteen-key management panel and Claude Opus 5 routing from TokenForge administration, while retaining the encrypted pool solely for Qwen3.8 27B.
+- [x] Add editable server-only Claude Opus 5 TokenRouter base-URL and upstream-model configuration entries, with validation and regression coverage.
+- [x] Add the supplied fourth server-only TokenRouter credential and extend health-aware round-robin selection, failover telemetry, and regression coverage from three to four slots.
+- [x] Fix the TokenForge Playground cache-only admission rejection for TokenRouter-backed models by consolidating Claude Opus 5 Playground guidance into one system turn, with deterministic and live-provider validation.
+- [x] Diagnose and fix the Claude Opus 5 TokenRouter-backed `/v1/messages` failure by translating to compatible Chat Completions and using a stable cache-admission-compatible identity directive, with native tool-payload validation.
+- [x] Build a dedicated TokenRouter Claude Code `/v1/messages` translation route for both Claude Fable 5 and Claude Opus 5, including compatible streaming, tool calls, and retry behavior.
+- [x] Assess whether 9Router can be safely deployed as an intermediary between Claude Code and TokenForge’s OpenAI-compatible gateway, including hosting, upstream authentication, model aliases, streaming, tools, and failure boundaries.
+- [x] Do not implement a 9Router intermediary because the user elected direct Claude Code reproduction and stock 9Router would collapse TokenForge usage into a static upstream credential.
+- [x] Assess a separate Render deployment for 9Router, including supported persistent storage, per-user TokenForge bearer-token handling, model aliases, and Render-approved operational behavior without sleep-evasion keepalive traffic.
+- [x] Install and run the actual Claude Code CLI against temporary TokenForge API keys and the published `/v1/messages` endpoint; capture its request shape and validate both Claude Fable 5 and Claude Opus 5 successfully.
+- [x] Add automatic entry-aware history compaction for TokenRouter-backed Claude Code translations before the 100-message provider limit, preserving system instructions, format, and complete tool-call/result chains; validate with a real long Claude Code session.
+- [x] Audit current Discord-verified and unverified account counts, then delete unverified accounts and dependent data only after the administrator explicitly confirms the reviewed count.
+- [x] Add an administrator-only Giveaway workspace that credits a selected promotional amount to every currently Discord-verified account, records auditable ledger entries, and confirms the amount, recipient count, and total allocation.
+- [x] Investigate the reported deployed Claude Fable 5 Claude Code 100-entry failure; reporter subsequently confirmed the existing compaction path was working, so no further change was required.
+- [x] Fix the administrator Giveaway bulk-credit transaction failing at verified-account scale, protect the browser from raw database error output, and verify whether the attempted $20 giveaway was applied exactly once or rolled back.
+- [x] Add persisted Giveaway history for administrators and optional recipient-facing announcement notes that accompany each completed verified-account credit grant.
+- [x] Show newly received Giveaway announcements as a recipient-specific dashboard notification after login, while retaining the wallet-history record and a clear dismiss state.
+- [x] Redesign the recipient Giveaway notification with a bold GIVEAWAY ALERT heading, animated rotating perimeter light, and colourful falling-ribbon celebration that respects reduced-motion preferences.
+- [x] Commit and push all completed TokenForge changes through the latest Giveaway alert update to the configured GitHub repository.
+- [x] Verify the reported over-100 raw-message Claude Code compaction failure and evaluate the proposed validation-order fix without modifying production behavior.
+- [x] Remove daily request, daily token, per-minute, and concurrent-request admission limits from API and Playground inference while retaining suspension, availability, and balance controls.
+- [x] Add two server-only TokenRouter credentials to the shared round-robin pool and validate six-key rotation.
+- [x] Add configurable TokenRouter-backed GLM 5.3 across the gateway, catalogue, dashboard, and documentation without exposing its upstream identifier or credentials.
+- [x] Diagnose and fix the GLM 5.3 Playground invalid-parameters error while preserving valid request safeguards.
+- [x] Send a safe 300-message request directly to TokenRouter and align TokenForge message-entry validation only if the provider accepts it.
+- [x] Create a responsive GLM 5.3 detail page with interactive examples and copyable JavaScript, Python, and cURL snippets.
+- [x] Directly test the configured TokenRouter Claude Fable 5 and Claude Opus 5 routes with 300 entries and report the exact provider responses before any further implementation change.
+- [x] Verify and remove any remaining Anthropic local message-count restriction, retaining only structural and payload-size safeguards.
+- [x] Add concise GLM 5.3 identity guidance for Playground and API calls and prevent repetitive provider reasoning output from being shown as a misleading thinking summary.
+- [x] Remove automatic history compaction from the TokenRouter-backed Claude Messages bridge and update full-history forwarding coverage.
+- [x] Add GLM 5.3 to the Anthropic-compatible `/v1/messages` translation bridge and verify its Playground thinking-display behavior.
+- [x] Roll back the later GLM 5.3 continuation-state and enhanced response-guidance changes while retaining the original GLM endpoint and catalogue entry.
+- [x] Update the GLM 5.3 server-side TokenRouter mapping to qwen/qwen3.8-max-free and validate a lightweight direct completion.
+- [x] Validate the restored `/v1/messages` bridge for GLM 5.3 with Claude Code and retain deterministic Claude Fable 5 and Claude Opus 5 translation coverage.
+- [x] Restart and verify the TokenForge development server after the reported outage.
+- [x] Add TokenRouter credentials seven through nine as server-only secrets and use the requested interleaved nine-key rotation order.
+- [x] Add GLM 5.3 to the required login modal sequence for authenticated users.
+- [x] Create the same recipient-facing giveaway alert when an administrator grants credit to one individual account.
+- [x] Prevent stale deleted-user API requests from crashing the gateway during credit-ledger settlement.
+- [x] Allow the FXQidian live credential test enough time to complete its configured ten-second request probe.
+- [x] Diagnose and correct the administrator dashboard live-data fetch error.
+- [x] Permanently delete all currently Discord-unverified accounts and their associated API keys and account data.
+- [x] Fix the Discord-unverified cleanup notice identifier so its transaction can commit successfully.
+- [x] Exclude the internal administrator control-plane principal from Discord-unverified user cleanup counts and deletion.
+- [x] Make TokenRouter live probes record upstream request timeouts without failing unrelated deterministic validation.
+- [x] Fix the repeated administrator live-data loading failure during scrolling and section navigation.
+- [x] Remove manual password sign-in and sign-up from the public authentication flow, retaining GitHub OAuth only.
+- [x] Require GitHub OAuth accounts to be at least 14 days old before TokenForge account access is created.
+- [x] Make the remaining direct TokenRouter route diagnostic record transient upstream 5xx outcomes without failing unrelated application validation.
+- [x] Diagnose and reduce Claude Opus 5 stale-key authentication failures and transient API errors during Claude Code sessions.
+- [x] Raise the bounded gateway JSON request limit and return a clear structured error for oversized Claude Code histories.
+- [x] Reproduce and diagnose the reported sequential Claude Code Claude Opus 5 API error with controlled gateway telemetry.
+- [x] Increase the bounded Claude Opus 5 Messages response-start timeout to support slow tool continuations without a premature gateway abort.
+- [x] Compare matched direct TokenRouter and TokenForge Claude Opus 5 sequential tool-call probes to isolate the failure source.
+- [x] Prevent an in-flight model request from failing credit settlement if its user account is deleted before the provider response completes.
+- [x] Build an isolated temporary Claude Code-to-TokenRouter translation proxy and run repeated Claude Opus 5 CLI tasks to diagnose recurrent API errors without altering production routing.
+- [x] Replace Claude Opus 5 with the supplied isolated FXQidian-compatible provider configuration without affecting Claude Fable 5 or other TokenRouter models.
+- [x] Reproduce the Claude Code high-effort workflow failure on the isolated Claude Opus 5 provider, capture sanitized diagnostics, repair the bridge if feasible, and validate with real workflows.
+- [x] Diagnose and repair Kimi K3 Claude Code compatibility through the existing `/v1/messages` proxy and validate it with a real CLI workflow.
+- [x] Add three supplied Cluster Protocol credentials and expand round-robin routing safely across all six keys.
+- [x] Route Claude Fable 5 through a dedicated FXQidian-compatible provider using an isolated model mapping and preserve both API contracts.
+- [x] Research reputable third-party API providers that currently offer free models and summarize their available free-model catalogues and constraints.
+- [x] Replace Claude Fable 5’s FXQidian route with the supplied NVIDIA Integrate provider and validate both OpenAI-compatible and Claude Code Messages requests.
+- [x] Add the four supplied server-only NVIDIA Integrate credentials for Claude Fable 5, rotate the full pool safely, validate every slot, and publish the updated routing.
+- [x] Update the server-only GLM 5.3 upstream model identifier and validate the new provider configuration.
+- [x] Reproduce and repair the GLM 5.3 Claude Code `/v1/messages` 503 by comparing direct TokenRouter and translated bridge requests, then validate the fixed workflow.
+- [x] Reproduce and repair the GLM 5.3 Claude Code repository-analysis 400 by comparing the translated request against direct TokenRouter acceptance and correcting incompatible fields or message shapes.
+- [x] Determine whether GLM 5.3 returns reusable provider-generated tool-call reasoning and, if supported, preserve it server-side across Claude Code continuations without exposing it to users.
+- [x] Query the supplied OpenCode Zen `/models` catalogue server-side and report all entries explicitly marked as free without exposing the credential.
+- [x] Verify official OpenCode Zen token, rate, quota, and concurrency limits for free-tagged models and report documented constraints.
+- [x] Run bounded live burst and context-growth probes for OpenCode Zen’s currently free models, then report observed throttling and accepted request sizes.
+- [x] Compare completed OpenCode Zen free-model responses on standardized coding and reasoning tasks, separating quality results from provider availability failures.
+- [x] Run bounded live burst and context-growth probes for OpenCode Zen’s currently free models, then report observed throttling and accepted request sizes.
+- [x] Run focused long-deadline, repeated-request, and 300k-plus-token probes for Nemotron 3 Ultra Free, then report observed latency and capacity boundaries.
+- [x] Collect OpenCode-compatible server-only Claude Opus 5 provider settings, validate direct and Messages compatibility, then replace the current isolated Opus route.
+- [x] Update the server-only OpenCode Claude Opus 5 upstream model identifier and validate the revised configuration.
+- [x] Collect server-only OpenCode Zen credentials and model settings for Claude Fable 5, validate both API contracts, then replace its NVIDIA route.
+- [x] Update the server-only OpenCode Zen Claude Fable 5 model identifier and validate the revised configuration.
+- [x] Update the server-only OpenCode Zen Claude Fable 5 model identifier again and validate the revised configuration.
+- [x] Add a server-side Claude Opus 5 identity instruction across API and Playground requests without overriding user system prompts.
+- [x] Collect server-only BluesMinds provider settings for Claude Fable 5, validate completion and Messages compatibility, then replace its OpenCode Zen route.
+- [x] Store a second server-only BluesMinds Claude Fable 5 credential, rotate requests round-robin across both keys, and validate each slot.
+- [x] Reproduce the Claude Opus 5 identity mismatch reporting Nemotron Lightning, identify its source, and apply a targeted correction if needed.
+- [x] Strengthen Claude Opus 5 server-side identity policy so public API, Playground, and Messages responses never identify as the underlying model.
+- [x] Validate the two additional server-only OpenCode credentials for Claude Opus 5: both received upstream HTTP 403 for the configured model, so preserve the existing single-key route and do not enable unsupported round-robin routing.
+- [x] Compare matched direct BluesMinds and TokenForge Claude Fable 5 requests: both accepted the lightweight probe without a rate-limit response, so no gateway-specific rate-limit defect was reproduced.
+- [x] Retain the existing BluesMinds configuration, migrate Claude Fable 5 to NVIDIA NIM using its five server-only credentials with round-robin and retry failover, and validate API plus Messages compatibility after a NVIDIA model ID is provided.
+- [x] Add an admin-only provider settings section with masked current values and secure partial updates for base URL, API key, and model ID without replacing untouched fields.
+- [x] Strengthen Claude Fable 5 API and Playground identity guidance so public responses identify as Claude Fable 5 through TokenForge and do not disclose upstream model or provider details.
+- [x] Create a reusable special referral link that reserves up to 150 new referral sign-ups for a $150 Discord-verification bonus while preserving the existing $50 new-account and standard referral credits.
+- [x] Credit the special $150 referral bonus exactly once after Discord verification, label qualifying accounts, and expose the special referral status in administrator account sorting and detail views.
+- [x] Add an animated special-referral gift-box claim experience with ribbon reveal and a clear $150 credit confirmation after the eligible user verifies Discord.
+- [x] Add administrator reporting for special-referral reservations, successful verified claims, remaining cap, and qualifying-account details.
+- [x] Move Claude Opus 5 to the supplied TokenReply OpenAI-compatible provider, retain all credentials server-side, and validate direct plus Messages compatibility before publishing.
+- [x] Store, validate, and add the six supplied TokenReply Claude Opus 5 credentials to a round-robin pool with retry-aware failover, using only credentials that pass the provider contract.
+- [x] Add encrypted admin-only Claude Opus 5 base URL, credential-pool, and upstream-model controls with masked values and partial updates; verify robust API and Playground identity protection remains enforced.
+- [x] Add a live platform-wide processed-token metric to every user dashboard overview and feature only models with at least 100 million exact processed tokens.
+- [x] Integrate a scoped, responsive glass-shine treatment around the live Platform Activity token metric without changing the underlying aggregate data or featured-model thresholds.
+- [x] Add a scoped, responsive moving-dot statistic card to the bottom of the landing page using truthful platform aggregate data and reduced-motion support.
+- [x] Remove the experimental moving-dot card from the landing page and relocate its reduced-dot treatment to the live Platform Activity token metric in the user dashboard overview.
+- [x] Add the supplied Telegram contact link (`https://t.me/AmirSNet`) to the special referral campaign experience without changing the existing campaign eligibility, cap, or bonus.
+- [x] Remove the mistakenly added Telegram content from the special-referral UI and retain `AmirSNet` only as a non-functional attribution label in the shareable referral URL.
+- [x] Add administrator-configurable maintenance duration and note controls, with a persisted public days/hours/minutes/seconds countdown beneath the announcement banner.
+- [x] Restore visibility of the maintenance countdown controls on the live administrator Operations page and verify the mobile layout.
+- [x] Replace fixed Claude Opus 5 and Claude Fable 5 API-key slots with secure dynamic add/remove credential pools and variable-length rotation.
+- [x] Validate the supplied OpenAI-compatible endpoint through a temporary local Anthropic translation proxy with Claude Code and tool-use checks, without changing TokenForge routing.
+- [x] Run an extended isolated Claude Code translation-proxy evaluation for Bash, Edit, parallel tasks, and subagent delegation; document verified results and limitations without changing TokenForge routing.
+- [x] Run an extended isolated Claude Code translation-proxy evaluation for Bash, Edit, parallel tasks, and subagent delegation; document verified results and limitations without changing TokenForge routing.
+- [x] Compare the incomplete shared-workspace Claude Code subagent workflow using NVIDIA Nemotron 3 Ultra through a temporary local translation bridge, without changing TokenForge routing.
+- [x] Compare the incomplete shared-workspace Claude Code subagent workflow using NVIDIA Nemotron 3 Ultra through a temporary local translation bridge, without changing TokenForge routing.
+- [x] Run an expanded isolated Nemotron translation-bridge evaluation for multi-file coding, Git, discovery, local server, long context, sustained reliability, and bounded rate-limit behavior; report measurements and limitations without changing TokenForge routing.
+- [x] Run an expanded isolated Nemotron translation-bridge evaluation for multi-file coding, Git, discovery, local server, long context, sustained reliability, and bounded rate-limit behavior; report measurements and limitations without changing TokenForge routing.
+- [x] Add dynamic encrypted provider configuration for GLM 5.3 and DeepSeek V4 Pro, with a one-model-at-a-time administrator selector and public identity protection in Playground and API forwarding.
+- [x] Add privacy-safe per-key request-volume and health metrics for GLM 5.3, DeepSeek V4 Pro, Claude Fable 5, and Claude Opus 5 dynamic provider pools.
+- [x] Route GLM 5.3 and DeepSeek V4 Pro through the Anthropic-compatible Messages translation path while preserving their isolated provider routes and public identities.
+- [x] Increase the daily check-in reward from $5 to $15 and verify the active referral-credit amounts.
+- [x] Add an administrator-only pre-provisioned account workflow with email availability validation, a one-time $50 introductory credit, and activation only on a matching verified GitHub email.
+- [x] Add an administrator-configurable timer that activates a platform-wide maintenance pause for Playground and all user API calls at expiry, with a consistent maintenance error and explicit interaction with the existing global model-pause switch.
+- [x] Exempt only matching verified GitHub emails with an administrator pre-provisioned reservation from the 14-day GitHub account-age rule while retaining it for ordinary sign-ins.
+- [x] Exempt only matching verified GitHub emails with an administrator pre-provisioned reservation from the 14-day GitHub account-age rule while retaining it for ordinary sign-ins.
+- [x] Mark activated administrator pre-provisioned accounts as Discord-verified, skip their Discord verification modal and gate, and show that verified status in administrator data.
+- [x] Remove Claude Fable 5 and Qwen 3.8 Max cards from recurring login announcements, retaining only Discord verification and GLM 5.3 cards.
+- [x] Enforce an 82-request lifetime cap for each GLM 5.3 and DeepSeek V4 Pro provider key, retire capped keys from rotation, and automatically mark the affected model unavailable when its pool is exhausted.
+- [x] Add equal-share multi-provider load balancing for Claude Opus 5, with separate encrypted API-key pools per provider, provider failover, and administrator per-provider/per-key request, success, failure, and health metrics.
+- [x] Add administrator enable/disable switches for individual Claude Opus 5 provider groups, preserving their keys and metrics while excluding disabled groups from balancing and failover.
+- [x] Add safe capacity protection for the six authorized Render Claude Opus 5 endpoints: enforce seven active requests per endpoint, route overflow to available endpoints then existing eligible providers, record cooldown/error outcomes, and show live administrator capacity and failure metrics without header spoofing.
+- [x] Add the Render endpoint swarm as an editable Claude Opus 5 provider configuration in Administrator Provider Settings, including server-only underlying-model configuration and endpoint editing controls.
+- [x] Verify and warm all six authorized Render endpoints using the configured server-only model and credential while keeping paused routing disabled.
+- [x] Keep Render endpoint capacity slots occupied through full response or stream completion, extend the response-start timeout, and record sanitized HTTP status/reason diagnostics for administrator review.
+- [x] Run a controlled all-six Render endpoint warm-up and responsiveness check while preserving the paused routing state.
+- [x] Add durable administrator-visible sanitized Claude Opus 5 failure logs that identify the source provider group or Render endpoint and preserve the real caller-facing error reason.
+- [x] Remove DeepSeek V4 Pro’s 82-request credential retirement and automatic model-disable behavior.
+- [x] Add Claude Opus-style equal-share multi-provider configuration, per-provider key pools, failover, and administrator controls for DeepSeek V4 Pro.
+- [x] Raise all upstream response-start timeouts to 120 seconds while retaining full-stream completion after headers.
+- [x] Add durable administrator-visible sanitized DeepSeek V4 Pro failure history with originating provider-group details.
+- [x] Do not compact Render HTTP 403 blocked-page diagnostics; the administrator explicitly chose raw-body display with mandatory credential redaction.
+- [x] Preserve raw, credential-redacted Render and DeepSeek failure bodies in administrator diagnostics so the actual upstream error remains visible.
+- [x] Run controlled all-six direct Render endpoint probes with a response window greater than 120 seconds while preserving routing state.
+- [x] Make the Claude Opus 5 and DeepSeek V4 Pro administrator failure histories fixed-height independently scrollable log boxes.
+- [x] Fix DeepSeek V4 Pro provider API-key deletion so saving a one-key pool does not restore the removed key on reload.
+- [x] Restore the missing Claude Opus 5 and DeepSeek V4 Pro multi-provider settings and credential-redacted failure-log panels in Administrator Provider Settings.
+- [x] Verify the restoration keeps Render routing paused and retains the 120-second response-start handling.
+- [x] Investigate the 23 August Claude Opus 5 provider network abort and report its root cause without changing production behavior.
+- [x] Run one controlled HTTP and latency probe against the first authorized Render endpoint while keeping Render routing paused.
+- [x] Research and summarize the glm52-nvidia-go proxy repository without changing TokenForge.
+- [x] Align DeepSeek V4 Pro per-key failure metrics with failure-history entries when an upstream request fails.
+- [x] Replace upstream-detail error text with neutral user-facing errors across DeepSeek API and Playground flows while retaining credential-redacted diagnostics for administrators.
+- [x] Create a server-only GitHub personal access token field without exposing the token in browser code or source files.
+- [x] Locate Diego OmniRoute, create a separate private GitHub repository, and initialize an isolated workspace without changing TokenForge.
+- [x] Analyze the reported OmniRoute LM Arena ArrayBuffer/string streaming error without editing the workspace.
+- [x] Run the isolated OmniRoute LM Arena stream-readiness regression where feasible and assess an appropriate persistent deployment path without starting or deploying the service.
+- [x] Assess GitHub Actions Docker builds and Render container deployment for OmniRoute without creating CI configuration or deploying the service.
+- [x] Superseded at the user’s request: attempt the private GitHub Actions linux/amd64 OmniRoute image build without Render deployment; repeated hosted-runner build attempts failed and the user selected the official prebuilt-image path instead.
+- [x] Validate the server-only Settlement Bridge endpoint credential with a lightweight authenticated models probe that never logs the credential or response content.
+- [x] Assess the validated endpoint’s reasoning and tool-call stream format for Claude Code translation compatibility without exposing the credential.
+- [x] Compare the supplied Claude Fable 5 internal prompt against a local Anthropic-to-OpenAI translator for genuine structured Claude Code tool-call compatibility, without exposing credentials or changing production routes.
+- [x] Test an explicit reasoning-and-tool tag protocol, including strict parser validation and a maintained ReAct-parser comparison, for potential conversion to Claude Code structured tool-use events without changing production routes.
+- [x] Build and validate a local-only guarded tag adapter that strips reasoning tags, validates allowed tool schemas, and rejects malformed or duplicate calls before any Claude Code event conversion; live upstream completion is presently blocked by its HTTP 402 payment-required response.
+- [x] Inspect 9router’s request-count and token-accounting implementation in read-only mode and explain the verified calculation path without modifying TokenForge.
+- [x] Compare TokenForge’s token and request-count accounting rules with the verified 9router implementation, identify discrepancies, and report without changing production behavior.
+- [x] Verify the Bailu Claude Opus provider, enforce English-only internal guidance, mask its public upstream errors, and restore administrator-only provider failure visibility.
+- [x] Send one credential-safe health request to a configured NVIDIA NIM proxy and report only its status and latency.
+- [x] Probe the specified second NVIDIA NIM proxy and, only if responsive, test representative Claude Code tool workflows in an isolated demo repository.
+- [x] Correct the isolated Claude Code custom-provider configuration and rerun the constrained NVIDIA NIM proxy tool-workflow test.
+- [x] Run a bounded isolated compatibility suite for Claude Code’s core built-in coding tools and multi-agent workflow through the responsive NVIDIA NIM proxy.
+- [x] Update the server-side Render API credential and validate account access without exposing the value.
+- [x] Inspect the Qwen Gate Render service, verify the reported CloakBrowser Chromium startup failure, and assess a targeted repair without touching unrelated services.
+- [x] Strengthen Bailu Claude Opus public error masking for zero-output and all failure cases, and show administrators the neutral user-facing message beside credential-redacted diagnostics.
+- [x] Extend neutral public error masking and administrator-only redacted diagnostic plus caller-message visibility to DeepSeek V4 Pro, Claude Fable 5, and GLM 5.3; assess and implement Claude Fable 5 multi-provider parity with Claude Opus 5.
+- [x] Add clear administrator-only timestamps to DeepSeek V4 Pro, Claude Fable 5, and GLM 5.3 failure histories while leaving Claude Opus 5 unchanged.
+- [x] Delete managed-model failure logs older than 28 hours through durable scheduled cleanup; add Qwen 3.8 Max multi-provider settings, public masking, metrics, and administrator diagnostics; present named provider groups as tabs within each model editor.
+- [x] Safely probe the supplied Qwen Gate Anthropic endpoint, then test streaming and supported Claude Code tool workflows in an isolated demo repository without changing TokenForge.
+- [x] Remove all NVIDIA NIM Render endpoint bridge controls, telemetry, diagnostics, persisted settings, and routing from Claude Opus 5 without affecting other provider groups.
+- [x] Stop logging managed-provider empty-output and zero-output-token cases as administrator failures while retaining real upstream failure diagnostics.
+- [x] Restore the Claude Opus provider failure-history box for real provider errors while continuing to exclude empty-output and zero-output-token entries.
+- [x] Reflow administrator overview metrics into compact responsive boxes and add a Claude Opus Qwen provider with two-key support, rotating model IDs, editable administrator-only per-model billable-token totals and 1,000,000-token quotas, automatic retirement, and strict public upstream-ID masking.
+- [x] Fix Qwen model-pool drafts so all added model IDs remain visible and editable; remove Qwen from generic Claude Opus provider tabs; improve per-model 1,000,000-token quota progress bars for variable pool sizes.
+- [x] Record Claude Opus Qwen zero-output outcomes with their failing internal model-entry ID and add a separate real-time scrollable Qwen failure panel with timestamps, credential-redacted diagnostics, and the exact neutral caller-visible message.
+- [x] Remove GLM 5.3's 82-request per-key retirement limit and retain normal enabled-provider rotation without automatic model shutdown.
+- [x] Ensure every GLM 5.3 provider failure path returns only the neutral TokenForge envelope to Playground, OpenAI-compatible, Anthropic Messages, JSON, and SSE callers while retaining credential-redacted diagnostics for administrators.
+- [x] Add focused GLM 5.3 regression coverage, verify TypeScript and relevant tests, restart the server, and publish the completed update.
+- [x] Fix Claude Opus Qwen model-pool deletion so removed entries are persisted and do not return after a reload.
+- [x] Fix Claude Opus generic provider creation so administrators can add, configure, save, and reload new non-Qwen provider groups.
+- [x] Add focused persistence regressions, validate TypeScript and relevant suites, restart the server, and publish the administrator workflow fixes.
+- [x] Make saved Qwen model-pool deletion explicitly remove the model entry from encrypted Claude Opus provider configuration in the database.
+- [x] Make saved Qwen API-key deletion explicitly remove the selected encrypted key slot from database configuration while enforcing the two-active-key minimum.
+- [x] Add durable deletion regressions, validate TypeScript and relevant suites, restart the server, and publish the completed fix.
+- [x] Add Sonnet 4.6 to TokenForge routing, model controls, and managed multi-provider configuration with dynamic encrypted API-key pools and equal-share provider balancing.
+- [x] Add Sonnet 4.6 credential-redacted administrator failure history with timestamps, per-key health metrics, and neutral public error masking across Playground, OpenAI-compatible, Anthropic Messages, JSON, and SSE paths.
+- [x] Add focused Sonnet 4.6 provider, diagnostics, and masking regressions; validate TypeScript and relevant suites; restart the server; and publish the completed feature.
+- [x] Audit Claude Sonnet 4.6 caller-visible error masking across response, HTTP, network, timeout, stream, and Anthropic Messages paths.
+- [x] Assess and prioritize practical TokenForge enhancements across reliability, security, observability, administration, and developer experience.
+- [x] Implement shared strict public JSON and SSE projection for all managed models so internal model IDs, provider metadata, fingerprints, reasoning, and unknown vendor fields cannot reach callers.
+- [x] Ensure every managed-model provider failure and stream error is converted to the neutral TokenForge error contract across Playground, OpenAI-compatible, and Anthropic Messages paths while retaining redacted administrator diagnostics.
+- [x] Research documented b.ai errors, map their caller-safe behavior, add cross-model disclosure regressions, validate TypeScript and focused suites, restart the server, and publish the hardening update.
+- [x] Add administrator-only b.ai diagnostic visibility using credential-redacted stored failure details that remain hidden from end users.
+- [x] Reorganize every managed model failure history into configured provider-name tabs so each tab contains only that provider group’s errors.
+- [x] Add provider-scoped diagnostics regressions, validate TypeScript and relevant suites, restart the server, publish the UI update, and explain a non-implemented failure-rate alert design.
+- [x] Add the missing Claude Sonnet 4.6 option to the active administrator Provider Settings selector and verify its route opens correctly on mobile.
+- [x] Add a focused selector regression, validate TypeScript and the provider-panel suite, and publish the correction.
+- [x] Inspect the Bailu provider request path for forwarded client-IP metadata and identify the source of the provider’s multiple-IP restriction.
+- [x] Assess a provider-authorized fixed-egress or allowlist solution that preserves client privacy without bypassing provider access controls.
+- [x] Implement the approved Bailu-only Webshare routing remedy with encrypted configuration and focused regression coverage; keep it disabled until an administrator saves configured proxy slots.
+- [x] Superseded by the user-selected Webshare direct-proxy approach; no external relay or hosting migration is required.
+- [x] Add the Bailu-only Webshare routing path, strip client-identity headers, and restrict proxy transport to the configured Bailu provider group.
+- [x] Verify Webshare’s static-proxy requirements and record the Bailu-only proxy configuration inputs without exposing credentials.
+- [x] Add provider-authorized Webshare routing only for Bailu upstream requests, without forwarding client-IP headers or affecting other providers.
+- [x] Verify the configured Webshare egress route reaches Bailu, validate proxy failover behavior, and publish the integration.
+- [x] Create an encrypted Bailu-only Webshare proxy pool with up to three configurable direct proxy entries and no browser-visible credentials.
+- [x] Add managed proxy rotation and failure failover only for Bailu requests, retaining neutral public errors and stripping client-identifying headers.
+- [x] Add an administrator-only Bailu proxy editor with three masked proxy slots, enable controls, and safe configuration status.
+- [x] Enter one to three chosen direct-proxy slots through the administrator UI, add their host addresses to Bailu’s allowlist, then run the final authenticated proxy connectivity check.
+- [x] Diagnose the two configured Bailu Webshare slots’ `UND_ERR_PRX_CONN` transport failures without exposing any proxy credentials.
+- [x] Correct the verified HTTP-CONNECT transport mismatch, retest both configured proxy slots, and publish only after Bailu routing succeeds.
+- [x] Reproduce the supplied Webshare Direct proxy path against the saved Bailu provider route and compare it with TokenForge’s proxy transport without logging credentials or raw provider content.
+- [x] Diagnose why the confirmed working Webshare Direct proxy accepts the Termux connection but closes TokenForge cloud-runtime HTTP tunnels before any Bailu request is sent.
+- [x] Determine and validate the documented SOCKS5 Direct connection mode as a Webshare transport compatible with the TokenForge cloud runtime.
+- [x] Verify the currently enabled Bailu Webshare proxy pool with a fresh controlled TokenForge request and confirm its configured routing scope.
+- [x] Diagnose the production-only Bailu SOCKS5 HostUnreachable failures and prevent stale runtime configuration from masking the active verified proxy pool; isolated one-slot routing now reaches Bailu but receives its HTTP 403 IP-policy rejection.
+- [x] Change the TokenForge platform charge multiplier from 1.5× to 3.5× across reservation, settlement, displayed pricing, and regressions.
+- [x] Add each account’s referral count to protected administrator account data and add a most-referrals account sorting option.
+- [x] Confirm whether the requested referral reset should preserve already-awarded referral credits and ledger history before deleting any referral attribution records; user confirmed attribution-only deletion with referral codes and historical credits retained.
+- [x] Validate the Bailu routing, platform-charge, referral-count, and account-sort changes with TypeScript, focused gateway/account/pricing suites, a clean diff check, and an isolated one-slot Bailu probe; publish in the following release checkpoint.
+- [x] Isolate Bailu’s own proxy attempt from Claude Opus cross-provider fallback and verify the configured proxy slots independently; both slots reached Bailu but received its HTTP 403 source-IP policy response.
+- [x] Retain exactly one enabled Bailu Webshare proxy slot, then re-test a Bailu-only request with no Claude Opus provider fallback; Bailu returned HTTP 403 through the proxy, confirming proxy transport but no usable provider response.
+- [x] Delete all existing referral-attribution records after the confirmed scope: retain referral codes and previously awarded immutable credit-ledger entries; remaining attribution count verified as 0.
+- [x] Pause the Bailu fixed-egress rollout pending the requested Claude Opus 5 and GLM 5.3 response-quality investigation.
+- [x] Run controlled Claude Opus 5 and GLM 5.3 gateway probes, compare normalized outputs with Playground rendering, and diagnose broken-response causes.
+- [x] Add opt-in quality regressions and validate that no reproducible Claude Opus 5 or GLM 5.3 gateway, SSE, or client text-corruption defect was present in the controlled probes.
+- [x] Run a one-off Bailu 2.7 direct request through the retained single Webshare proxy using the newly supplied test credential, with no Claude Opus fallback and no credential logging; received HTTP 200 with a usable response.
+- [x] Replace all saved Bailu provider credential entries with the newly approved single server-side key and re-enable the Bailu provider group; six previous credential entries were removed and exactly one replacement key is configured.
+- [x] Verify the re-enabled TokenForge Bailu route through the retained single proxy with fallback disabled; the saved TokenForge configuration returned HTTP 200 with a usable response.
+- [x] Reconfigure a second Bailu Webshare proxy slot supplied by the administrator, then run a no-fallback two-proxy rotation check with the newly approved Bailu key; both isolated slots returned HTTP 200 with usable responses.
+- [x] Accept a complete Direct-proxy URL for an administrator-added Bailu slot and parse it server-side into encrypted host, port, username, and password fields without exposing it in the UI.
+- [x] Validate the updated Bailu provider configuration with TypeScript, 65 focused gateway and administrator-presentation assertions, and a clean diff check; publish in the following release checkpoint.
+- [x] Retrieve and classify the seven reported recent Bailu provider failures using only credential-redacted administrative diagnostics; all seven were retryable SOCKS5 HostUnreachable transport rejections with no provider HTTP response.
+- [x] Reproduce and fix the live Bailu SOCKS5 HostUnreachable defect by comparing real TokenForge request construction and stream handling against the successful isolated probe, without cross-provider fallback; switch Bailu Direct routing to proxy-side DNS resolution and verify JSON and SSE requests through all three currently enabled slots returned HTTP 200.
+- [x] Add durable Bailu proxy-slot request, success, failure, cooldown, and last-activity telemetry with automatic temporary pause after retryable transport failures.
+- [x] Route Bailu requests only through enabled, non-cooling proxy slots and display live per-slot health/cooldown status in the protected admin dashboard.
+- [x] Add focused cooldown, failover, recovery, and dashboard presentation regressions; durable metrics initialization confirmed for all three saved slots, with 67 focused assertions passing; validate and publish in the following release checkpoint.
+- [x] Trace why some Claude Opus 5 and GLM 5.3 b.ai requests forward max_tokens at or below 2, then clamp only b.ai-bound requests to the provider-valid minimum before upstream forwarding; API payload spread and Playground’s optional output cap allowed 1–2 through unchanged until the selected provider request was built.
+- [x] Add provider-scoped regressions for b.ai minimum max_tokens normalization and validate the gateway; 54 focused gateway assertions pass, including b.ai-only clamp and non-b.ai unchanged behavior; publish in the following release checkpoint.
+- [x] Send one controlled Claude Opus 5 b.ai-bound request with max_tokens set to 1 and verify the protected-route response without exposing credentials or raw upstream details; TokenForge normalized it to 3 and the provider returned HTTP 200 with a usable response.
+- [x] Add encrypted, account-bound, short-lived server-only b.ai reasoning continuation storage for Claude Opus 5 and GLM 5.3; rehydrate it only into the matching later b.ai request and never expose it publicly.
+- [x] Add privacy and multi-turn b.ai thinking-mode regressions and validate JSON/SSE public redaction; 74 focused gateway and Anthropic assertions pass; publish in the following release checkpoint.
+- [x] Prefer a healthy enabled b.ai provider for new Claude Opus 5 and GLM 5.3 conversations, while keeping b.ai-originated continuations affinity-routed through their matching encrypted reasoning state.
+- [x] Skip b.ai safely for mixed-provider or expired b.ai continuation histories instead of sending mismatched private reasoning, and translate b.ai-only forced tool_choice to automatic selection while retaining tools.
+- [x] Add affinity, fallback, mixed-history privacy, and b.ai tool-choice regressions; direct b.ai automatic-tool request returned HTTP 200; 78 focused gateway and Anthropic assertions pass; publish in the following release checkpoint.
+- [x] Clamp Qwen-pool effective max_tokens to 32,768 for upstream routing and credit reservation estimates, while settling from actual usage as before.
+- [x] Add a durable b.ai Claude Opus provider-group rate-limit circuit breaker that pauses 429-failing b.ai traffic, respects cooldown eligibility, safely fails over, and restores healthy b.ai priority automatically.
+- [x] Display b.ai provider cooldown state in protected administration; add Qwen-cap and b.ai breaker regressions; validate and publish.
+- [x] Add an administrator-controlled Qwen-pool maximum output-token setting above the Qwen pool, enforce a safe bounded value for routing and reservation, display the current saved limit in muted text, add regressions, validate, and publish.
+- [x] Make Claude Opus provider diagnostics create a tab for every saved provider group, permanently remove deleted provider credentials and provider-scoped diagnostics, render disabled-provider request tabs in gray, add regressions, validate, and publish.
+- [x] Apply dynamic provider-specific diagnostic tabs, permanent deleted-provider credential and diagnostic cleanup, and muted disabled-provider request tabs across every managed model that has multi-provider settings; add regression coverage, validate, and publish.
+- [x] Add administrator-only per-credential enable/disable controls across all managed provider pools, exclude disabled credentials from routing without exposing secrets, add regression coverage, validate, and publish; separately research international card and crypto checkout options.
+- [x] Analyze the managed gateway’s end-user neutral-error paths for reliability improvements and document a source-backed, Phantom-compatible crypto payment implementation process without integrating payments.
+- [x] Analyze the managed gateway’s end-user neutral-error paths for reliability improvements and document a source-backed, Phantom-compatible crypto payment implementation process without integrating payments.
+- [x] Add a durable ten-active-request maximum for each enabled b.ai credential only, retain its lease until full response completion/cancellation/guarded timeout, show protected live per-key active and remaining capacity, preserve all other provider routing unchanged, add tests, validate, and publish.
+- [x] Add an administrator-controlled Playground-only maintenance toggle with a safe broken-response maintenance message, validate it without changing API routes, and explain—but do not implement—an internal web-search flow for current answers.
+- [x] Research current payment providers that can accept international crypto payments without requiring a connected bank account, distinguish crypto receipt from card/fiat settlement, and provide sourced guidance without integrating anything.
+- [x] Reduce the future platform charge multiplier from 3.5× to 2.0×, preserve historical settled ledger rows, validate all pricing paths, and publish.
+- [x] Apply the confirmed platform charge multiplier change from 3.5× to 2.0× now, preserve historical settled ledger values, validate pricing paths, and publish.
+- [x] Update the public Models-page pricing projection for every model to the active 2.0× multiplier, add all-model consistency coverage, validate, and publish.
+- [ ] Diagnose and fix incomplete Claude Code-compatible streaming responses that trigger a non-stream retry and neutral 400, preserve redaction, add regression coverage, validate, and publish.
+- [ ] Push the complete latest TokenForge source to the selected GitHub repository, excluding secrets and transient generated artifacts.

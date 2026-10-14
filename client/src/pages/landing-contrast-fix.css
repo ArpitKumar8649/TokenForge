@@ -1,0 +1,70 @@
+.public-home .aurora-model-band {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 84% 14%, rgba(114, 230, 219, 0.18), transparent 34%),
+    radial-gradient(circle at 12% 78%, rgba(190, 254, 108, 0.13), transparent 38%),
+    linear-gradient(135deg, #101915 0%, #0b110f 48%, #101c1a 100%) !important;
+  color: #f2f8ef;
+}
+
+.public-home .aurora-model-band::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: linear-gradient(rgba(190, 254, 108, 0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(190, 254, 108, 0.04) 1px, transparent 1px);
+  background-size: 30px 30px;
+  mask-image: linear-gradient(to bottom, black, transparent 88%);
+}
+
+.public-home .aurora-model-band .model-band-kicker,
+.public-home .aurora-model-band .model-band-copy,
+.public-home .aurora-model-band .model-band-link,
+.public-home .aurora-model-band .model-ribbon__provider,
+.public-home .aurora-model-band .model-ribbon__name,
+.public-home .aurora-model-band .landing-total-metric__label,
+.public-home .aurora-model-band .landing-total-metric__caption,
+.public-home .aurora-model-band .landing-metric-stat__label {
+  color: #dce9dc !important;
+  opacity: 1 !important;
+}
+
+.public-home .aurora-model-band .model-band-title,
+.public-home .aurora-model-band .landing-total-metric__value,
+.public-home .aurora-model-band .landing-metric-stat__value {
+  color: #ffffff !important;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.35);
+}
+
+.public-home .aurora-model-band .model-ribbon {
+  background: rgba(5, 12, 9, 0.72) !important;
+  border-color: rgba(190, 254, 108, 0.2) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 40px rgba(0, 0, 0, 0.24);
+}
+
+.public-home .aurora-model-band .model-ribbon__track {
+  animation-duration: 24s !important;
+}
+
+.public-home .aurora-model-band .model-ribbon__item {
+  background: rgba(16, 28, 23, 0.92) !important;
+  border-color: rgba(190, 254, 108, 0.16) !important;
+}
+
+.public-home .aurora-model-band .landing-total-metric,
+.public-home .aurora-model-band .landing-metric-stat {
+  background: rgba(12, 22, 17, 0.78) !important;
+  border-color: rgba(190, 254, 108, 0.18) !important;
+  box-shadow: 0 18px 35px rgba(0, 0, 0, 0.2);
+}
+
+@media (max-width: 620px) {
+  .public-home .aurora-model-band {
+    background: radial-gradient(circle at 92% 8%, rgba(114, 230, 219, 0.14), transparent 32%), linear-gradient(150deg, #101a15 0%, #0a100d 58%, #10201b 100%) !important;
+  }
+  .public-home .aurora-model-band .model-ribbon__track {
+    animation-duration: 19s !important;
+  }
+}

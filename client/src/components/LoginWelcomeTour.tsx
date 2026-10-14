@@ -1,0 +1,145 @@
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ArrowRight, ArrowUpRight, Bot, MessagesSquare } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+
+const DISCORD_INVITE_URL = "https://discord.gg/8DS5F6sGsY";
+export const LOGIN_WELCOME_TOUR_COMPLETED_KEY = "tokenforge_login_welcome_completed";
+
+export type LoginWelcomeUser = {
+  id: number;
+  name?: string | null;
+  createdAt?: Date | string | null;
+  lastSignedIn?: Date | string | null;
+};
+
+export function loginWelcomeSessionMarker(user: LoginWelcomeUser) {
+  const timestamp = new Date(user.lastSignedIn ?? user.createdAt ?? 0).getTime();
+  return `${user.id}:${Number.isFinite(timestamp) ? timestamp : "session"}`;
+}
+
+export function shouldShowLoginWelcomeTour(marker: string, completedMarker: string | null) {
+  return Boolean(marker) && completedMarker !== marker;
+}
+
+export const LOGIN_WELCOME_TOUR_STEPS = [
+  {
+    eyebrow: "NEW IN THE FORGE",
+    title: "Claude Opus 5 is available.",
+    description: "Explore Anthropic's premier frontier reasoning model for complex code architecture, deep analysis, and native Messages API requests through TokenForge.",
+    detail: "Chat Completions · Messages API · Streaming · Deep Reasoning",
+    icon: Bot,
+    accent: "#f59e0b",
+    iconClassName: "border-[#f59e0b]/30 bg-[#f59e0b]/10 text-[#fde68a] shadow-[0_0_0_8px_rgba(245,158,11,.05)]",
+    visual: "opus",
+  },
+  {
+    eyebrow: "SUPPORT & COMMUNITY",
+    title: "Join Discord for Support.",
+    description: "Need help, release updates, or direct assistance? Join our official Discord to connect with our support team and developer community.",
+    detail: "Direct Support · Release Notes · Developer Community",
+    icon: MessagesSquare,
+    accent: "#aab7ff",
+    iconClassName: "border-[#8b9cff]/35 bg-[#6273df]/15 text-[#c9d1ff] shadow-[0_0_0_8px_rgba(98,115,223,.06)]",
+    visual: "discord",
+  },
+] as const;
+
+export function LoginWelcomeTour({ user }: { user: LoginWelcomeUser | null | undefined }) {
+  const [step, setStep] = useState(0);
+  const [open, setOpen] = useState(false);
+  const marker = useMemo(() => (user ? loginWelcomeSessionMarker(user) : ""), [user]);
+
+  useEffect(() => {
+    if (!marker || typeof window === "undefined") {
+      setOpen(false);
+      return;
+    }
+
+    let completedMarker: string | null = null;
+    try {
+      completedMarker = sessionStorage.getItem(LOGIN_WELCOME_TOUR_COMPLETED_KEY);
+    } catch {}
+
+    setStep(0);
+    setOpen(shouldShowLoginWelcomeTour(marker, completedMarker));
+  }, [marker]);
+
+  if (!user) return null;
+
+  const activeStep = LOGIN_WELCOME_TOUR_STEPS[step];
+  const StepIcon = activeStep.icon;
+  const isFinalStep = step === LOGIN_WELCOME_TOUR_STEPS.length - 1;
+  const firstName = user.name?.trim().split(" ")[0] || "developer";
+
+  const completeTour = () => {
+    try {
+      sessionStorage.setItem(LOGIN_WELCOME_TOUR_COMPLETED_KEY, marker);
+    } catch {}
+    setOpen(false);
+  };
+
+  const advance = () => {
+    if (isFinalStep) {
+      completeTour();
+      return;
+    }
+    setStep(current => current + 1);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={nextOpen => { if (nextOpen) setOpen(true); }}>
+      <DialogContent
+        showCloseButton={false}
+        onEscapeKeyDown={event => event.preventDefault()}
+        onPointerDownOutside={event => event.preventDefault()}
+        onInteractOutside={event => event.preventDefault()}
+        className="overflow-hidden border-white/10 bg-[#10130f] p-0 text-[#eef3e9] shadow-[0_32px_120px_rgba(0,0,0,.72)] sm:max-w-xl"
+      >
+        <div className="absolute inset-0 opacity-90" aria-hidden="true">
+          <div className={`absolute -right-14 -top-10 h-60 w-60 rounded-full blur-3xl ${activeStep.visual === "opus" ? "bg-[#f59e0b]/18" : "bg-[#6172df]/22"}`} />
+          <div className="absolute -bottom-24 -left-24 h-60 w-60 rounded-full bg-[#fe8e89]/9 blur-3xl" />
+          <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent_0%,rgba(255,255,255,.03)_48%,transparent_100%)]" />
+        </div>
+
+        <div className="relative p-5 sm:p-8">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2" aria-label={`Step ${step + 1} of ${LOGIN_WELCOME_TOUR_STEPS.length}`}>
+              {LOGIN_WELCOME_TOUR_STEPS.map((tourStep, index) => <span key={tourStep.title} className={`h-1.5 rounded-full transition-all duration-200 ${index === step ? "w-9" : index < step ? "w-4 bg-[#c9ff73]" : "w-4 bg-white/14"}`} style={index === step ? { backgroundColor: activeStep.accent } : undefined} />)}
+            </div>
+            <span className="font-mono text-[10px] font-bold tracking-[.18em] text-[#98a391]">0{step + 1} / 0{LOGIN_WELCOME_TOUR_STEPS.length}</span>
+          </div>
+
+          <div className="mt-8 max-w-lg">
+            <div>
+              <div className={`grid h-14 w-14 place-items-center rounded-2xl border ${activeStep.iconClassName}`}><StepIcon size={25} strokeWidth={1.8} /></div>
+              <DialogHeader className="mt-6 text-left">
+                <p className="font-mono text-[10px] font-bold tracking-[.18em] text-[#a8bf83]">{activeStep.eyebrow}</p>
+                <DialogTitle className="mt-2 text-3xl font-bold leading-[1.02] tracking-[-.055em] text-white sm:text-[2.15rem]">{step === 0 ? <>{activeStep.title.split(" is ")[0]} <span style={{ color: activeStep.accent }}>is</span> now live.</> : activeStep.title}</DialogTitle>
+                <DialogDescription className="pt-3 text-sm leading-6 text-[#aeb7a7]">{step === 0 ? `Welcome back, ${firstName}. ` : ""}{activeStep.description}</DialogDescription>
+              </DialogHeader>
+            </div>
+          </div>
+
+          <div className="mt-7 rounded-xl border border-white/8 bg-white/[.025] px-3.5 py-3 text-[11px] leading-5 text-[#a4ada0]">{activeStep.detail}</div>
+
+          <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+            {isFinalStep ? (
+              <a
+                href={DISCORD_INVITE_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-[#5865f2]/40 bg-[#5865f2]/20 px-3.5 text-xs font-semibold text-[#bfc7ff] transition-all hover:bg-[#5865f2] hover:text-white hover:shadow-[0_0_20px_rgba(88,101,242,.35)] active:scale-[.98]"
+              >
+                Join Discord for Support <ArrowUpRight size={15} />
+              </a>
+            ) : (
+              <span className="hidden sm:block" />
+            )}
+            <Button type="button" onClick={advance} className="h-11 min-w-36 bg-[#c9ff73] font-bold text-[#17210f] hover:bg-[#ddffa2] active:scale-[.97]">{isFinalStep ? "Continue" : "Next"} <ArrowRight size={16} /></Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
